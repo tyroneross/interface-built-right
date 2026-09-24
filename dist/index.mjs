@@ -2606,6 +2606,75 @@ var init_console = __esm({
   }
 });
 
+// src/engine/cdp/fetch.ts
+function globToRegExp(glob) {
+  const escaped = glob.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  return new RegExp(`^${escaped}$`);
+}
+function matchesPattern(pattern, url) {
+  if (pattern instanceof RegExp) return pattern.test(url);
+  return pattern.includes("*") ? globToRegExp(pattern).test(url) : url === pattern;
+}
+function fulfillParams(requestId, response) {
+  const isObject = response.body !== void 0 && typeof response.body !== "string";
+  const bodyText = response.body === void 0 ? "" : isObject ? JSON.stringify(response.body) : response.body;
+  const headers = { ...response.headers ?? {} };
+  const hasContentType = Object.keys(headers).some((k) => k.toLowerCase() === "content-type");
+  if (!hasContentType) headers["Content-Type"] = isObject ? "application/json" : "text/plain";
+  return {
+    requestId,
+    responseCode: response.status ?? 200,
+    responseHeaders: Object.entries(headers).map(([name, value]) => ({ name, value })),
+    body: Buffer.from(bodyText, "utf8").toString("base64")
+  };
+}
+var FetchDomain;
+var init_fetch = __esm({
+  "src/engine/cdp/fetch.ts"() {
+    FetchDomain = class {
+      constructor(conn, sessionId) {
+        this.conn = conn;
+        this.sessionId = sessionId;
+      }
+      conn;
+      sessionId;
+      rules = [];
+      enabled = false;
+      listening = false;
+      async mock(pattern, response) {
+        this.rules.unshift({ pattern, response });
+        if (this.enabled) return;
+        this.enabled = true;
+        if (!this.listening) {
+          this.listening = true;
+          this.conn.on("Fetch.requestPaused", (params) => {
+            if (this.enabled) void this.onPaused(params);
+          });
+        }
+        await this.conn.send("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] }, this.sessionId);
+      }
+      async clear() {
+        this.rules = [];
+        if (!this.enabled) return;
+        this.enabled = false;
+        await this.conn.send("Fetch.disable", {}, this.sessionId).catch(() => {
+        });
+      }
+      async onPaused(params) {
+        const rule = this.rules.find((r) => matchesPattern(r.pattern, params.request.url));
+        try {
+          if (rule) {
+            await this.conn.send("Fetch.fulfillRequest", fulfillParams(params.requestId, rule.response), this.sessionId);
+          } else {
+            await this.conn.send("Fetch.continueRequest", { requestId: params.requestId }, this.sessionId);
+          }
+        } catch {
+        }
+      }
+    };
+  }
+});
+
 // src/engine/cdp/wait.ts
 function buildFingerprint(elements) {
   return elements.filter((e) => e.actions.length > 0).map((e) => `${e.role}:${e.label}:${e.enabled}`).sort().join("|");
@@ -3544,6 +3613,7 @@ var init_driver = __esm({
     init_emulation();
     init_network();
     init_console();
+    init_fetch();
     init_wait();
     init_actionability();
     init_serialize();
@@ -3606,6 +3676,7 @@ var init_driver = __esm({
       emulation;
       network;
       console;
+      fetch;
       targetId = null;
       sessionId = null;
       ownsTarget = true;
@@ -3673,6 +3744,7 @@ var init_driver = __esm({
         this.emulation = new EmulationDomain(this.conn, this.sessionId);
         this.network = new NetworkDomain(this.conn, this.sessionId);
         this.console = new ConsoleDomain(this.conn, this.sessionId);
+        this.fetch = new FetchDomain(this.conn, this.sessionId);
         progress("enabling CDP domains");
         await this._page.enableLifecycleEvents();
         await this.ax.enable();
@@ -3736,6 +3808,15 @@ var init_driver = __esm({
         await this.conn.close().catch(() => {
         });
         this.launched = false;
+      }
+      /** Fulfill requests whose URL matches `pattern` (glob or RegExp) with `response` via CDP Fetch. */
+      async mock(pattern, response) {
+        if (!this.launched) throw new Error("mock() requires a launched browser session");
+        await this.fetch.mock(pattern, response);
+      }
+      /** Remove all network mocks and disable request interception. */
+      async clearMocks() {
+        if (this.fetch) await this.fetch.clear();
       }
       get isLaunched() {
         return this.launched;
@@ -4886,6 +4967,7 @@ var init_driver = __esm({
         this.emulation = new EmulationDomain(this.conn, this.sessionId);
         this.network = new NetworkDomain(this.conn, this.sessionId);
         this.console = new ConsoleDomain(this.conn, this.sessionId);
+        this.fetch = new FetchDomain(this.conn, this.sessionId);
         await this._page.enableLifecycleEvents();
         await this.ax.enable();
         await this.console.enable();
@@ -14519,6 +14601,18 @@ function isFileFresh(path2) {
     return false;
   }
 }
+async function requestAccessibilityPermission(deps) {
+  const binary = await (deps?.ensure ?? ensureExtractor)();
+  const run = deps?.run ?? ((bin, args) => execFileAsync3(bin, args, { timeout: 3e4 }));
+  try {
+    await run(binary, ["--request-permission"]);
+    return { trusted: true, message: "Accessibility permission is granted." };
+  } catch (err) {
+    const stderr = String(err.stderr ?? "").trim();
+    const message = err instanceof Error ? err.message : String(err);
+    return { trusted: false, message: stderr || message };
+  }
+}
 function isExtractorAvailable() {
   if (existsSync(EXTRACTOR_PATH)) return true;
   return existsSync(join(SWIFT_SOURCE_DIR, "Package.swift"));
@@ -20726,7 +20820,6 @@ function isSimDriverAvailable() {
 var execFileAsync6 = promisify(execFile);
 var SIMULATOR_DRIVER_ENV = "IBR_SIMULATOR_DRIVER";
 var DRIVER_LABELS = {
-  "native-hid": "IBR native HID",
   "native-window": "IBR native-window",
   idb: "Meta IDB",
   simctl: "simctl"
@@ -20735,7 +20828,8 @@ function configuredDriverPreference() {
   const raw = process.env[SIMULATOR_DRIVER_ENV]?.trim();
   if (!raw) return "auto";
   const allowed = ["auto", "native-hid", "native-window", "idb", "simctl"];
-  return allowed.includes(raw) ? raw : "auto";
+  if (!allowed.includes(raw)) return "auto";
+  return raw === "native-hid" ? "idb" : raw;
 }
 function formatSimulatorDriver(driver2) {
   return driver2 ? DRIVER_LABELS[driver2] : "unknown driver";
@@ -20762,20 +20856,6 @@ async function getSimulatorInteractionDriverStatus() {
   const idbAvailable = await isIdbCliAvailable();
   const simctlAvailable = await isSimctlAvailable();
   return [
-    {
-      driver: "native-hid",
-      label: DRIVER_LABELS["native-hid"],
-      available: false,
-      headless: true,
-      bundled: true,
-      actions: ["tap", "type", "swipe", "button", "accessibility"],
-      constraints: [
-        "Not implemented in this build.",
-        "Target backend uses CoreSimulator/SimulatorKit HID injection, matching IDB-class headless input."
-      ],
-      reason: "pending private-framework HID backend",
-      selected: preference === "native-hid"
-    },
     {
       driver: "native-window",
       label: DRIVER_LABELS["native-window"],
@@ -22351,13 +22431,17 @@ function detectSimulatorChromeOnly(input) {
   }
   return null;
 }
+var ACCESSIBILITY_UNTRUSTED_EXIT_CODE = 77;
+var REQUEST_PERMISSION_COMMAND = "ibr native:request-permission";
 function classifyExtractorError(err) {
   const msg = err instanceof Error ? err.message : String(err);
-  if (/accessibility|AX(Is)?ProcessTrusted|permission/i.test(msg)) {
+  const code = err?.code;
+  if (code === ACCESSIBILITY_UNTRUSTED_EXIT_CODE || /accessibility|AX(Is)?ProcessTrusted|permission/i.test(msg)) {
+    const swiftLine = msg.split("\n").map((line) => line.trim()).find((line) => /^Error: Accessibility permission required\./.test(line) || /^Accessibility permission required\. IBR showed/.test(line));
     return {
       ok: false,
       reason: "ax-permission",
-      message: "macOS accessibility permission denied. Grant access in System Settings \u2192 Privacy & Security \u2192 Accessibility, then re-run the session_start call."
+      message: swiftLine ? swiftLine.replace(/^Error: /, "") : `macOS accessibility permission denied. Grant access to your terminal or IDE in System Settings \u2192 Privacy & Security \u2192 Accessibility, then quit and reopen it and re-run the session_start call. IBR does not re-open the permission prompt automatically; to show it once, run: ${REQUEST_PERMISSION_COMMAND}`
     };
   }
   return null;
@@ -23413,14 +23497,16 @@ var IBRSession = class {
     });
   }
   /**
-   * Mock a network request.
-   * NOTE: Network mocking requires CDP Fetch domain support (not yet implemented).
-   * This is a placeholder that throws until CDP Fetch is added to the engine.
+   * Mock network requests whose URL matches `pattern` (a `*` glob, exact URL,
+   * or RegExp). Uses the CDP Fetch domain; the latest matching mock wins and
+   * unmatched requests continue unmodified. Object bodies are sent as JSON.
    */
-  async mock(_pattern, _response) {
-    throw new Error(
-      "Network mocking not yet supported by CDP engine. This requires the CDP Fetch domain which is planned for a future update."
-    );
+  async mock(pattern, response) {
+    await this.driver.mock(pattern, response);
+  }
+  /** Remove all network mocks registered with mock(). */
+  async clearMocks() {
+    await this.driver.clearMocks();
   }
   /**
    * Built-in flows for common automation patterns
@@ -23491,6 +23577,6 @@ var IBRSession = class {
   }
 };
 
-export { A11yAttributesSchema, ANDROID_CHROME_UA, AXDaemon, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, BreadcrumbContextSchema, BrowserPool, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_REGIONS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, DaemonBackend, DaemonError, DecisionEntrySchema, DecisionEntryWithChecksSchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, DesignChangeSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignElementSchema, DesignSpecSchema, DesignSystemResultSchema, DesignSystemViolationSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, ExternalActionEvidenceInputSchema, ExternalActionReceiptSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MAX_EXTERNAL_ACTION_ARTIFACT_BYTES, MOBILE_SAFARI_UA, MemorySourceSchema, MemorySummarySchema, NATIVE_REGIONS, NATIVE_VERDICT_POLICY, NATIVE_VIEWPORTS, NativeSessionController, NumberRuleSchema, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, ProvenancedThresholdSchema, ResolvedPathCache, RespawnBackend, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SIMULATOR_DRIVER_ENV, SessionQuerySchema, SessionSchema, SessionStatusSchema, TABLET_SAFARI_UA, TargetContextSchema, TextRuleSchema, ThresholdBasisSchema, ThresholdOverrideSchema, VERDICT_POLICY_KEYS, VIEWPORTS, VerdictPolicyOverrideSchema, VerdictPolicySchema, VerdictSchema, ViewportSchema, ViolationSchema, WEB_VERDICT_POLICY, __setNativeBackend, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureDesignSpec, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, checkDesignSpec, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createExternalActionReceipt, createMemoryPreset, createSession, deleteSession, designSpecFromFigmaFile, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeCandidate, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNativeBackend, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isDiffMarker, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapSessionActionToNative, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, nativeSessionController, nativeStateSignature, newDesignSpec, normalizeColor, notImplementedOutcome, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, recordExternalActionEvidence, regionalDiffCounts, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, resolveDevice, resolveVerdictPolicy, resolvedPathCache, runAllRules, runDesignSystemCheck, safeFilePart, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking, writeExternalActionReceipt };
+export { A11yAttributesSchema, ANDROID_CHROME_UA, AXDaemon, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, BreadcrumbContextSchema, BrowserPool, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_REGIONS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, DaemonBackend, DaemonError, DecisionEntrySchema, DecisionEntryWithChecksSchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, DesignChangeSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignElementSchema, DesignSpecSchema, DesignSystemResultSchema, DesignSystemViolationSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, ExternalActionEvidenceInputSchema, ExternalActionReceiptSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MAX_EXTERNAL_ACTION_ARTIFACT_BYTES, MOBILE_SAFARI_UA, MemorySourceSchema, MemorySummarySchema, NATIVE_REGIONS, NATIVE_VERDICT_POLICY, NATIVE_VIEWPORTS, NativeSessionController, NumberRuleSchema, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, ProvenancedThresholdSchema, ResolvedPathCache, RespawnBackend, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SIMULATOR_DRIVER_ENV, SessionQuerySchema, SessionSchema, SessionStatusSchema, TABLET_SAFARI_UA, TargetContextSchema, TextRuleSchema, ThresholdBasisSchema, ThresholdOverrideSchema, VERDICT_POLICY_KEYS, VIEWPORTS, VerdictPolicyOverrideSchema, VerdictPolicySchema, VerdictSchema, ViewportSchema, ViolationSchema, WEB_VERDICT_POLICY, __setNativeBackend, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureDesignSpec, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, checkDesignSpec, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createExternalActionReceipt, createMemoryPreset, createSession, deleteSession, designSpecFromFigmaFile, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeCandidate, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNativeBackend, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isDiffMarker, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapSessionActionToNative, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, nativeSessionController, nativeStateSignature, newDesignSpec, normalizeColor, notImplementedOutcome, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, recordExternalActionEvidence, regionalDiffCounts, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, requestAccessibilityPermission, resolveDevice, resolveVerdictPolicy, resolvedPathCache, runAllRules, runDesignSystemCheck, safeFilePart, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking, writeExternalActionReceipt };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

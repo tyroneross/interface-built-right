@@ -3548,6 +3548,12 @@ declare class ConsoleDomain {
     clear(): void;
 }
 
+interface MockResponse {
+    status?: number;
+    body?: string | object;
+    headers?: Record<string, string>;
+}
+
 /**
  * Observe — preview what actions are possible without executing.
  * Inspired by Stagehand's observe() primitive.
@@ -3836,6 +3842,7 @@ declare class EngineDriver implements BrowserDriver {
     private emulation;
     private network;
     private console;
+    private fetch;
     private targetId;
     private sessionId;
     private ownsTarget;
@@ -3884,6 +3891,10 @@ declare class EngineDriver implements BrowserDriver {
      * driver and is closed on disconnect. Does NOT call this.browser.close().
      */
     disconnect(): Promise<void>;
+    /** Fulfill requests whose URL matches `pattern` (glob or RegExp) with `response` via CDP Fetch. */
+    mock(pattern: string | RegExp, response: MockResponse): Promise<void>;
+    /** Remove all network mocks and disable request interception. */
+    clearMocks(): Promise<void>;
     get isLaunched(): boolean;
     navigate(url: string, options?: NavigateOptions): Promise<void>;
     get url(): string;
@@ -8327,6 +8338,27 @@ declare function captureNativeScreenshot(options: NativeCaptureOptions): Promise
  * Compiles on first use, then caches at .ibr/bin/ibr-ax-extract
  */
 declare function ensureExtractor(): Promise<string>;
+interface AccessibilityPermissionResult {
+    /** True when the host process is already trusted for Accessibility. */
+    trusted: boolean;
+    /** One-line, user-facing status (the extractor's own guidance when untrusted). */
+    message: string;
+}
+type ExtractorRunner = (binary: string, args: string[]) => Promise<{
+    stdout: string;
+    stderr: string;
+}>;
+/**
+ * Explicitly request macOS Accessibility permission for the host terminal/IDE.
+ *
+ * Runs the extractor once with `--request-permission`. The extractor shows the
+ * macOS prompt only if no prompt was ever recorded in ~/.ibr/permissions.json,
+ * records it, and never prompts again afterwards. Never retries.
+ */
+declare function requestAccessibilityPermission(deps?: {
+    ensure?: () => Promise<string>;
+    run?: ExtractorRunner;
+}): Promise<AccessibilityPermissionResult>;
 /**
  * Check if the Swift extractor is available (compiled or can be compiled)
  */
@@ -8382,8 +8414,13 @@ declare function formatMacOSScanResult(result: MacOSScanResult): string;
 declare function formatNativeScanResult(result: NativeScanResult): string;
 
 declare const SIMULATOR_DRIVER_ENV = "IBR_SIMULATOR_DRIVER";
-type SimulatorInteractionDriver = 'native-hid' | 'native-window' | 'idb' | 'simctl';
-type SimulatorDriverPreference = 'auto' | SimulatorInteractionDriver;
+type SimulatorInteractionDriver = 'native-window' | 'idb' | 'simctl';
+/**
+ * `native-hid` is accepted as a preference alias for `idb`: idb_companion is the
+ * headless CoreSimulator HID-injection backend. IBR does not ship its own
+ * private-framework HID client (see .build-loop/research/native-possibilities.md).
+ */
+type SimulatorDriverPreference = 'auto' | 'native-hid' | SimulatorInteractionDriver;
 interface SimulatorInteractionDriverStatus {
     driver: SimulatorInteractionDriver;
     label: string;
@@ -8624,10 +8661,11 @@ interface ActionOutcome {
     evidence?: ActionEvidence;
 }
 /**
- * Build an ActionOutcome for a capability the active backend does not yet
- * implement (keyboard/lifecycle/menu on RespawnBackend). Epic 2's DaemonBackend
- * replaces these with real outcomes; until then the controller surfaces a
- * structured, non-throwing "not implemented" result.
+ * Build an ActionOutcome for a capability a backend does not implement.
+ * No shipped backend produces this today: RespawnBackend and DaemonBackend
+ * implement keystroke, lifecycle and menu. It stays exported for third-party
+ * NativeBackend implementations and test fakes that need a structured,
+ * non-throwing "not implemented" result.
  */
 declare function notImplementedOutcome(capability: string): ActionOutcome;
 
@@ -9179,17 +9217,11 @@ declare function formatNativeCandidate(candidate: NativeElementCandidate): Recor
  * whose signature has drifted; the stale entry is evicted instead. This invariant
  * is verified by resolved-path-cache.test.ts and is backend-agnostic.
  *
- * STATUS — STAGED FOR INCREMENT 2 (not yet wired into any action path). The
- * target-string -> index-path resolution it would accelerate happens only inside
- * NativeSessionController (resolveMacOSElement / resolveSimulatorElement), which
- * was FROZEN in chunk C0 of Increment 1. Wiring the cache at the DaemonBackend
- * layer is impossible without the controller's keys (sessionId + target string +
- * pre-resolution signature), so consumption is deferred to Increment 2 (the
- * capture->replay->escalate spine), which revises the controller resolve-site and
- * owns replay. Built + unit-tested now as a deliberate, honestly-labeled seam
- * (pay-it-forward), NOT an active feature. Criterion 4 (goal.md) is therefore
- * scored PARTIAL: per-action process-respawn eliminated on the opt-in daemon
- * path; per-action tree-walk reduction (this cache) deferred to Increment 2.
+ * STATUS — wired into record/replay (`src/native/replay.ts`, `ibr native:replay`).
+ * Replay seeds each recorded step's path with the signature captured at record
+ * time; a hit means the UI is unchanged and the step acts without resolution.
+ * NativeSessionController still resolves per action (it stays the frozen
+ * MCP/CLI contract); replay is the consumer.
  */
 interface ResolvedPathEntry {
     /** The `nativeStateSignature` at the time this path was resolved. */
@@ -9637,15 +9669,17 @@ declare class IBRSession {
      */
     screenshot(path?: string): Promise<Buffer>;
     /**
-     * Mock a network request.
-     * NOTE: Network mocking requires CDP Fetch domain support (not yet implemented).
-     * This is a placeholder that throws until CDP Fetch is added to the engine.
+     * Mock network requests whose URL matches `pattern` (a `*` glob, exact URL,
+     * or RegExp). Uses the CDP Fetch domain; the latest matching mock wins and
+     * unmatched requests continue unmodified. Object bodies are sent as JSON.
      */
-    mock(_pattern: string | RegExp, _response: {
+    mock(pattern: string | RegExp, response: {
         status?: number;
         body?: string | object;
         headers?: Record<string, string>;
     }): Promise<void>;
+    /** Remove all network mocks registered with mock(). */
+    clearMocks(): Promise<void>;
     /**
      * Built-in flows for common automation patterns
      */
@@ -9709,4 +9743,4 @@ declare class IBRSession {
     close(): Promise<void>;
 }
 
-export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, ANDROID_CHROME_UA, AXDaemon, type AXDaemonOptions, type ActionEvidence, type ActionOutcome, type ActionProvenance, type ActionValidator, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AppLifecycleActionRequest, type AppLifecycleOp, type AskOptions, type AskResponse, type AskStreamEvent, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type BreadcrumbContext, BreadcrumbContextSchema, type BrowserConnectionOptions, type BrowserLaunchOptions, type BrowserMode, type BrowserOptions, BrowserPool, type BrowserPoolOptions, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompactContext, CompactContextSchema, type CompactionRequest, CompactionRequestSchema, type CompactionResult, CompactionResultSchema, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type CreateExternalActionReceiptOptions, type CurrentUIState, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_REGIONS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, DaemonBackend, DaemonError, type DaemonRequest, type DaemonResponse, type DaemonTarget, type DecisionEntry, DecisionEntrySchema, type DecisionEntryWithChecks, DecisionEntryWithChecksSchema, type DecisionState, DecisionStateSchema, type DecisionSummary, DecisionSummarySchema, type DecisionType, DecisionTypeSchema, type DesignChange, DesignChangeSchema, type DesignCheck, type DesignCheckOperator, DesignCheckOperatorSchema, DesignCheckSchema, type DesignElement, DesignElementSchema, type DesignSpec, type DesignSpecFinding, type DesignSpecReport, DesignSpecSchema, type DesignSystemConfig, type DesignSystemResult, DesignSystemResultSchema, type DesignSystemViolation, DesignSystemViolationSchema, type DesignTokenSpec, type DeviceName, type DeviceProfile, type DiscoveredPage, type ElementActionKind, type ElementActionRequest, type ElementIssue, ElementIssueSchema, type ElementSizeReport, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExternalActionArtifactKind, type ExternalActionArtifactReceipt, type ExternalActionEvidenceInput, ExternalActionEvidenceInputSchema, type ExternalActionObservationReceipt, type ExternalActionPrivacyMode, type ExternalActionReceipt, ExternalActionReceiptSchema, type ExtractedResult, type Finding, type FixGuide, type FixableIssue, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, type KeystrokeActionRequest, type KeystrokeSpec, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutFillFinding, type LayoutFillOptions, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LifecycleSpec, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, MAX_EXTERNAL_ACTION_ARTIFACT_BYTES, MOBILE_SAFARI_UA, type MacOSAXElement, type MacOSScanOptions, type MacOSScanResult, type MacOSWindowInfo, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, type MenuActionRequest, type MenuSpec, NATIVE_REGIONS, NATIVE_VERDICT_POLICY, NATIVE_VIEWPORTS, type NativeActionKind, type NativeActionRequest, type NativeBackend, type NativeCaptureOptions, type NativeCaptureResult, type NativeElement, type NativeExtraction, type NativePerformInput, type NativeScanOptions, type NativeScanResult, type NativeScreenshotCapture, type NativeSessionActionRequest, NativeSessionController, type NativeSessionTarget, type NativeToolResult, type NumberRule, NumberRuleSchema, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type ProvenancedThreshold, ProvenancedThresholdSchema, type QueryDecisionsOptions, type RankedCandidate, type RatedMetric, type RecordDecisionOptions, type RecordedExternalActionReceipt, type RecoveryHint, type RegionConfig, ResolvedPathCache, type ResolvedPathEntry, RespawnBackend, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleEngineResult, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, SIMULATOR_DRIVER_ENV, type ScanIssue, type ScanOptions, type ScanResult, type ScanSummary, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type SimulatorDevice, type SimulatorDriverPreference, type SimulatorInteractionDriver, type SimulatorInteractionDriverStatus, type StartSessionOptions, type StartSessionResult, type StepScreenshot, TABLET_SAFARI_UA, type TargetContext, TargetContextSchema, type TextIssue, type TextRule, TextRuleSchema, type ThresholdBasis, ThresholdBasisSchema, type ThresholdOverride, ThresholdOverrideSchema, type TokenViolation, type TouchTargetIssue, VERDICT_POLICY_KEYS, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, type VerdictPolicy, type VerdictPolicyOverride, VerdictPolicyOverrideSchema, VerdictPolicySchema, VerdictSchema, type Viewport, type ViewportConfig, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, WEB_VERDICT_POLICY, type WebVitals, type WriteExternalActionReceiptOptions, __setNativeBackend, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureDesignSpec, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, checkDesignSpec, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createExternalActionReceipt, createMemoryPreset, createSession, deleteSession, designSpecFromFigmaFile, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeCandidate, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNativeBackend, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isDiffMarker, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapSessionActionToNative, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, nativeSessionController, nativeStateSignature, newDesignSpec, normalizeColor, notImplementedOutcome, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, recordExternalActionEvidence, regionalDiffCounts, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, resolveDevice, resolveVerdictPolicy, resolvedPathCache, runAllRules, runDesignSystemCheck, safeFilePart, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking, writeExternalActionReceipt };
+export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, ANDROID_CHROME_UA, AXDaemon, type AXDaemonOptions, type AccessibilityPermissionResult, type ActionEvidence, type ActionOutcome, type ActionProvenance, type ActionValidator, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AppLifecycleActionRequest, type AppLifecycleOp, type AskOptions, type AskResponse, type AskStreamEvent, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type BreadcrumbContext, BreadcrumbContextSchema, type BrowserConnectionOptions, type BrowserLaunchOptions, type BrowserMode, type BrowserOptions, BrowserPool, type BrowserPoolOptions, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompactContext, CompactContextSchema, type CompactionRequest, CompactionRequestSchema, type CompactionResult, CompactionResultSchema, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type CreateExternalActionReceiptOptions, type CurrentUIState, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_REGIONS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, DaemonBackend, DaemonError, type DaemonRequest, type DaemonResponse, type DaemonTarget, type DecisionEntry, DecisionEntrySchema, type DecisionEntryWithChecks, DecisionEntryWithChecksSchema, type DecisionState, DecisionStateSchema, type DecisionSummary, DecisionSummarySchema, type DecisionType, DecisionTypeSchema, type DesignChange, DesignChangeSchema, type DesignCheck, type DesignCheckOperator, DesignCheckOperatorSchema, DesignCheckSchema, type DesignElement, DesignElementSchema, type DesignSpec, type DesignSpecFinding, type DesignSpecReport, DesignSpecSchema, type DesignSystemConfig, type DesignSystemResult, DesignSystemResultSchema, type DesignSystemViolation, DesignSystemViolationSchema, type DesignTokenSpec, type DeviceName, type DeviceProfile, type DiscoveredPage, type ElementActionKind, type ElementActionRequest, type ElementIssue, ElementIssueSchema, type ElementSizeReport, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExternalActionArtifactKind, type ExternalActionArtifactReceipt, type ExternalActionEvidenceInput, ExternalActionEvidenceInputSchema, type ExternalActionObservationReceipt, type ExternalActionPrivacyMode, type ExternalActionReceipt, ExternalActionReceiptSchema, type ExtractedResult, type Finding, type FixGuide, type FixableIssue, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, type KeystrokeActionRequest, type KeystrokeSpec, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutFillFinding, type LayoutFillOptions, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LifecycleSpec, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, MAX_EXTERNAL_ACTION_ARTIFACT_BYTES, MOBILE_SAFARI_UA, type MacOSAXElement, type MacOSScanOptions, type MacOSScanResult, type MacOSWindowInfo, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, type MenuActionRequest, type MenuSpec, NATIVE_REGIONS, NATIVE_VERDICT_POLICY, NATIVE_VIEWPORTS, type NativeActionKind, type NativeActionRequest, type NativeBackend, type NativeCaptureOptions, type NativeCaptureResult, type NativeElement, type NativeExtraction, type NativePerformInput, type NativeScanOptions, type NativeScanResult, type NativeScreenshotCapture, type NativeSessionActionRequest, NativeSessionController, type NativeSessionTarget, type NativeToolResult, type NumberRule, NumberRuleSchema, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type ProvenancedThreshold, ProvenancedThresholdSchema, type QueryDecisionsOptions, type RankedCandidate, type RatedMetric, type RecordDecisionOptions, type RecordedExternalActionReceipt, type RecoveryHint, type RegionConfig, ResolvedPathCache, type ResolvedPathEntry, RespawnBackend, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleEngineResult, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, SIMULATOR_DRIVER_ENV, type ScanIssue, type ScanOptions, type ScanResult, type ScanSummary, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type SimulatorDevice, type SimulatorDriverPreference, type SimulatorInteractionDriver, type SimulatorInteractionDriverStatus, type StartSessionOptions, type StartSessionResult, type StepScreenshot, TABLET_SAFARI_UA, type TargetContext, TargetContextSchema, type TextIssue, type TextRule, TextRuleSchema, type ThresholdBasis, ThresholdBasisSchema, type ThresholdOverride, ThresholdOverrideSchema, type TokenViolation, type TouchTargetIssue, VERDICT_POLICY_KEYS, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, type VerdictPolicy, type VerdictPolicyOverride, VerdictPolicyOverrideSchema, VerdictPolicySchema, VerdictSchema, type Viewport, type ViewportConfig, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, WEB_VERDICT_POLICY, type WebVitals, type WriteExternalActionReceiptOptions, __setNativeBackend, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureDesignSpec, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, checkDesignSpec, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createExternalActionReceipt, createMemoryPreset, createSession, deleteSession, designSpecFromFigmaFile, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeCandidate, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNativeBackend, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isDiffMarker, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapSessionActionToNative, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, nativeSessionController, nativeStateSignature, newDesignSpec, normalizeColor, notImplementedOutcome, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, recordExternalActionEvidence, regionalDiffCounts, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, requestAccessibilityPermission, resolveDevice, resolveVerdictPolicy, resolvedPathCache, runAllRules, runDesignSystemCheck, safeFilePart, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking, writeExternalActionReceipt };
