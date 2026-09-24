@@ -17,7 +17,7 @@ Indexes central and project-local UI Guidance templates and snapshots a selectio
 
 ## Defaults
 
-- Central dir: `/Users/tyroneross/Desktop/git-folder/UI Guidance`
+- Central dir: `~/dev/git-folder/UI Guidance` (the separate ui-guidance repo)
 - Project dir: `<cwd>/.ibr/ui-guidance`
 - Drafts subdir: `<projectDir>/drafts`
 
