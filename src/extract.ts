@@ -9,6 +9,7 @@ import { VIEWPORTS } from './schemas.js';
 import { viewportToConfig } from './devices.js';
 import { evaluateTargetSize } from './rules/target-sizing.js';
 import { CAPTURED_STYLE_KEYS } from './rules/style-read.js';
+import { probeActivationListeners } from './handler-listeners.js';
 
 /**
  * Lock file to prevent concurrent extractions
@@ -270,97 +271,20 @@ const INTERACTIVE_SELECTORS = [
 ];
 
 /**
- * Activation event types checked by `enrichWithEventListeners` below. Chosen
- * to cover the ways a click-like activation actually fires in the wild
- * (mouse, pointer, touch, and keyboard-driven `role="button"` widgets) —
- * NOT a generic "any listener" check, which would rescue elements wired for
- * unrelated events (e.g. a `mouseenter` tooltip) that a user cannot actually
- * activate.
- */
-const ACTIVATION_EVENT_TYPES = [
-  'click', 'mousedown', 'mouseup',
-  'pointerdown', 'pointerup',
-  'touchstart', 'touchend',
-  'keydown', 'keyup',
-];
-
-/**
- * Real listener detection via DevTools' `getEventListeners`, only reachable
- * through Runtime.evaluate's `includeCommandLineAPI` flag (see
- * RuntimeDomain.evaluateWithCommandLineAPI / CompatPage.evaluateWithCommandLineAPI).
+ * Real listener detection for elements `detectHandlers()` above already
+ * called "no handler" — elements that already have a detected handler don't
+ * need a second, more expensive check.
  *
- * Why this exists: `detectHandlers()` above (in-page, no special CDP flags)
- * can see React/Vue/Angular props and the `onclick` property/attribute, but
- * page JS has no public API to enumerate addEventListener-registered
- * listeners on itself. A real scan reported 28 fake-interactive errors
- * (e.g. `#rail-designer`, `#start-btn`) for buttons wired entirely with
- * `addEventListener` — working buttons that `detectHandlers()` structurally
- * cannot see. This closes that gap for whichever PageLike actually supports
- * it (CompatPage today; Playwright/other PageLikes skip it and behavior is
- * unchanged, since the enrichment call is feature-detected below).
- *
- * Only re-checks elements `detectHandlers()` already called "no handler" —
- * elements that already have a detected handler don't need a second,
- * more expensive check.
- *
- * Root-level listeners (document.body, document.documentElement, document,
- * window) are deliberately EXCLUDED from the delegation walk: a
- * document-level click listener (menu dismissal, outside-click handling,
- * analytics) would otherwise "rescue" every dead control on the page,
- * silencing the exact defect class this enrichment exists to catch.
- *
- * The ancestor (delegation) walk only checks for `click` listeners, unlike
- * the element's OWN check above which uses the full ACTIVATION_EVENT_TYPES
- * list. A container that listens for `keydown` (a dialog's Escape handler,
- * a page's keyboard shortcuts) or `pointerdown` (a drag surface) is not
- * event delegation — it doesn't re-dispatch activation to descendants — so
- * treating it as one would mark every dead button inside that container as
- * handled. `click` bubbles and is the only event type real delegation
- * patterns (`container.addEventListener('click', e => ...)`) actually rely
- * on, so it's the only one safe to credit to an ancestor.
- *
- * React 17+ moved its one delegated listener from `document` down to the
- * framework ROOT container (`#root`, `#__next`) — below `document.body`, so
- * the walk reaches and, pre-fix, credited it. That listener is React's own
- * internal event-dispatch plumbing, not a real author delegation pattern for
- * whatever button happens to sit under it, so crediting it silenced
- * fake-interactive on every dead control in a React app. The walk stops at
- * (and does not credit) any ancestor carrying a framework-ROOT marker
- * (`__reactContainer$*`, `_reactRootContainer`, `__vue_app__`) — the mount
- * point the framework was told to render into, not an author-written
- * delegating container.
- *
- * An earlier version of this fix ALSO skipped the whole ancestor walk
- * whenever the CANDIDATE element itself carried a framework marker
- * (`__reactProps$*`, `__reactFiber$*`, `__vueParentComponent`, `__vnode`),
- * reasoning that `detectHandlers()`'s framework-props check was already
- * authoritative for such a node. That over-reached: the framework-ROOT stop
- * above already closes the real false negative (React's root-level dispatch
- * listener), and skipping the walk for every framework-managed node also
- * discarded real, author-written native delegation attached to a plain
- * (non-root) ancestor via a ref — a legitimate pattern the walk should still
- * credit. That skip has been removed; the ancestor walk now always runs for
- * every candidate, gated only by the framework-ROOT stop.
- *
- * React/Vue never attach a native DOM listener for `onClick`/`onSubmit` —
- * the handler function lives on the fiber's props object
- * (`__reactProps$*.onClick`), invisible to `getEventListeners()` even though
- * the framework fully intends to dispatch on click via its root listener.
- * The ancestor walk (and the closest-`form` submit check below) also credit
- * an ancestor whose own `__reactProps$*` key holds an object with a function
- * `onClick` (or `onSubmit` for the form case) — covering `<form onSubmit>`
- * around a plain `<button type="submit">` and `<div onClick>` around a
- * plain child button, both real working React patterns that have no native
- * listener anywhere in the tree.
- *
- * The element's OWN listener check (`hasActivationListener`) is unaffected
- * by any of the above — a framework-managed node with a genuine
- * addEventListener of its own is still detected.
+ * The actual probe (DevTools `getEventListeners` via
+ * `includeCommandLineAPI`, ancestor delegation walk, React props credit,
+ * framework-root exclusion, etc.) lives in `probeActivationListeners`
+ * (src/handler-listeners.ts) — shared with `src/interactivity.ts` so both
+ * lanes agree on what counts as "wired" instead of drifting independently.
+ * See that function's doc comment for the full defect history and the
+ * reasoning behind each exclusion (root-level listeners, non-click
+ * delegation, framework-root markers, React props-only handlers).
  */
 async function enrichWithEventListeners(page: PageLike, elements: EnhancedElement[]): Promise<void> {
-  const evaluateWithCommandLineAPI = page.evaluateWithCommandLineAPI?.bind(page);
-  if (!evaluateWithCommandLineAPI) return;
-
   // Native form/interactive tags activate without any author-written click
   // handler (a <select> opens on its own, a <label> forwards to its control),
   // and `hasHref` elements are already known-good via the href, not via a
@@ -388,139 +312,28 @@ async function enrichWithEventListeners(page: PageLike, elements: EnhancedElemen
   // limitation, same as every other selector-keyed lookup in this file.
   const selectors = [...new Set(candidates.map((el) => el.selector))];
 
-  const expression = `
-    (function () {
-      const selectors = ${JSON.stringify(selectors)};
-      const activationTypes = ${JSON.stringify(ACTIVATION_EVENT_TYPES)};
-      const hasActivationListener = (node) => {
-        let listeners;
-        try {
-          listeners = getEventListeners(node);
-        } catch (e) {
-          return false;
-        }
-        if (!listeners) return false;
-        return activationTypes.some((type) => Array.isArray(listeners[type]) && listeners[type].length > 0);
-      };
-      const hasClickListener = (node) => {
-        let listeners;
-        try {
-          listeners = getEventListeners(node);
-        } catch (e) {
-          return false;
-        }
-        return !!(listeners && Array.isArray(listeners.click) && listeners.click.length > 0);
-      };
-      // Ancestor chains overlap heavily across candidates (siblings under the
-      // same list/table share most of their parent chain), and
-      // getEventListeners() is a real CDP round-trip cost, not a cheap
-      // in-page read -- memoize per node for this one evaluate() call.
-      const clickListenerCache = new Map();
-      const hasClickListenerCached = (node) => {
-        if (clickListenerCache.has(node)) return clickListenerCache.get(node);
-        const result = hasClickListener(node);
-        clickListenerCache.set(node, result);
-        return result;
-      };
-      // React stores an element's fiber props on an own key prefixed
-      // __reactProps$ (the suffix is a per-render random id). Returns that
-      // props object, or undefined if the node carries no such key --used to
-      // credit delegation from an ancestor whose props hold a function
-      // onClick/onSubmit, since React itself never attaches a native DOM
-      // listener for those (see file header comment above).
-      const reactPropsOf = (node) => {
-        const keys = Object.keys(node);
-        const key = keys.find((k) => k.startsWith('__reactProps$'));
-        return key ? node[key] : undefined;
-      };
-      const hasReactPropsOnClick = (node) => {
-        const props = reactPropsOf(node);
-        return !!(props && typeof props.onClick === 'function');
-      };
-      const hasReactPropsOnSubmit = (node) => {
-        const props = reactPropsOf(node);
-        return !!(props && typeof props.onSubmit === 'function');
-      };
-      // The framework MOUNT POINT (__reactContainer$* is React's own marker
-      // for the container element it was told to render into;
-      // _reactRootContainer is the same for older React;  __vue_app__ is
-      // Vue's). React 17+ attaches its one delegated click listener here --
-      // below document.body, so the ancestor walk reaches it -- and that
-      // listener is React's internal dispatch plumbing, not an
-      // author-written delegation pattern for whatever happens to render
-      // under it. The walk must stop at (and never credit) this node.
-      const isFrameworkRoot = (node) => {
-        const keys = Object.keys(node);
-        return keys.some((k) => k.startsWith('__reactContainer$')) ||
-          Object.prototype.hasOwnProperty.call(node, '_reactRootContainer') ||
-          Object.prototype.hasOwnProperty.call(node, '__vue_app__');
-      };
-      const hasSubmitListener = (node) => {
-        let listeners;
-        try {
-          listeners = getEventListeners(node);
-        } catch (e) {
-          return false;
-        }
-        return !!(listeners && Array.isArray(listeners.submit) && listeners.submit.length > 0);
-      };
-      const isSubmitButton = (el) => {
-        const tag = el.tagName;
-        const type = (el.getAttribute('type') || '').toLowerCase();
-        if (tag === 'BUTTON') return type === '' || type === 'submit';
-        if (tag === 'INPUT') return type === 'submit' || type === 'image';
-        return false;
-      };
+  // Targets expression re-queries each selector inside the page, aligned
+  // 1:1 with `selectors` — probeActivationListeners' result array is
+  // positional, not keyed, so index i of the probe result corresponds to
+  // selectors[i], mapped back onto every candidate sharing that selector
+  // string below.
+  const targetsExpression = `${JSON.stringify(selectors)}.map(function (sel) {
+    try { return document.querySelector(sel); } catch (e) { return null; }
+  })`;
 
-      const results = {};
-      for (const selector of selectors) {
-        let el;
-        try {
-          el = document.querySelector(selector);
-        } catch (e) {
-          continue;
-        }
-        if (!el) continue;
-
-        const hasEventListener = hasActivationListener(el);
-
-        let hasDelegatedListener = false;
-        let ancestor = el.parentElement;
-        while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
-          if (isFrameworkRoot(ancestor)) break;
-          if (hasClickListenerCached(ancestor) || hasReactPropsOnClick(ancestor)) {
-            hasDelegatedListener = true;
-            break;
-          }
-          ancestor = ancestor.parentElement;
-        }
-
-        if (!hasDelegatedListener && isSubmitButton(el)) {
-          const form = el.closest ? el.closest('form') : null;
-          if (form && (hasSubmitListener(form) || hasReactPropsOnSubmit(form))) hasDelegatedListener = true;
-        }
-
-        results[selector] = { hasEventListener, hasDelegatedListener };
-      }
-      return results;
-    })()
-  `;
-
-  let raw: unknown;
-  try {
-    raw = await evaluateWithCommandLineAPI(expression);
-  } catch {
+  const probes = await probeActivationListeners(page, targetsExpression);
+  if (!probes) {
     // getEventListeners / includeCommandLineAPI unavailable or failed for
     // any other reason — leave elements exactly as detectHandlers() left
     // them, never regress the static detection this enrichment layers on.
     return;
   }
 
-  if (!raw || typeof raw !== 'object') return;
-  const results = raw as Record<string, { hasEventListener?: boolean; hasDelegatedListener?: boolean } | undefined>;
-
+  const indexBySelector = new Map(selectors.map((sel, i) => [sel, i]));
   for (const el of candidates) {
-    const result = results[el.selector];
+    const index = indexBySelector.get(el.selector);
+    if (index === undefined) continue;
+    const result = probes[index];
     if (!result) continue;
     if (result.hasEventListener) el.interactive.hasEventListener = true;
     if (result.hasDelegatedListener) el.interactive.hasDelegatedListener = true;

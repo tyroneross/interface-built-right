@@ -86,6 +86,17 @@
  * click listener got `hasOnClick` newly flipped true. `#tracked-input` pins
  * the exclusion: it carries a real click listener, but must come out of
  * extraction exactly as `detectHandlers()` left it.
+ *
+ * Round 3, item 4 — a submit button's form owner is not always its closest
+ * ancestor: the `form="id"` attribute associates a button with a `<form>`
+ * ANYWHERE in the document, outside the button's own subtree entirely (a
+ * real, spec-defined pattern for a button rendered in a modal footer while
+ * its `<form>` lives elsewhere in the DOM). The submit-listener check used
+ * to look up the owning form via `closest('form')` only, which finds
+ * nothing for an externally-associated button -- reporting a real, working,
+ * `addEventListener('submit', ...)`-wired form's button as fake-interactive.
+ * `#external-submit-btn` pins the fix: `el.form` resolves the `form="id"`
+ * association even though the button sits outside `#ext-form` entirely.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -111,6 +122,10 @@ const TEST_PAGE = `<!doctype html><html><head><style>
   <div id="clicky"><button id="react-onclick-child" type="button">React onclick child</button></div>
   <div id="form-root"><form id="react-form"><button id="react-submit-in-form" type="submit">React submit in form</button></form></div>
   <div id="no-onclick-wrap"><button id="dead-under-props-ancestor" type="button">Dead under props ancestor</button></div>
+  <!-- Round 3, item 4: form="id" associates this button with #ext-form even
+       though it is NOT a descendant of that form. -->
+  <form id="ext-form"></form>
+  <button id="external-submit-btn" type="submit" form="ext-form">External submit</button>
 <script>
   document.getElementById('listener-btn').addEventListener('click', function () {});
   document.querySelector('.toolbar').addEventListener('click', function () {});
@@ -154,6 +169,11 @@ const TEST_PAGE = `<!doctype html><html><head><style>
   // onClick function (just unrelated props) -- must NOT rescue. Proves a
   // props object alone isn't enough; it must carry a function handler.
   document.getElementById('no-onclick-wrap')['__reactProps$k'] = { className: 'x' };
+
+  // Round 3, item 4: a real submit listener on the form="id"-associated
+  // form, which is NOT an ancestor of the button -- closest('form') alone
+  // cannot find it.
+  document.getElementById('ext-form').addEventListener('submit', function () {});
 </script>
 </body></html>`;
 
@@ -292,6 +312,11 @@ describe('handler-integrity + NO_HANDLER audit — real listener detection (fixe
   it('Non-blocking 6: still flags a dead button under an ancestor whose React props object carries no onClick function', () => {
     expect(fakeInteractiveWithEnrichment.has('Dead under props ancestor')).toBe(true);
     expect(noHandlerWithEnrichment).toContain('Dead under props ancestor');
+  });
+
+  it('Round 3, item 4: does not flag a form="id"-associated submit button whose externally-associated form has a real submit listener', () => {
+    expect(fakeInteractiveWithEnrichment.has('External submit')).toBe(false);
+    expect(noHandlerWithEnrichment).not.toContain('External submit');
   });
 });
 
