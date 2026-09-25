@@ -19,17 +19,10 @@ import { join } from 'node:path';
  * the wrong target for behavior that only exists in source pending the next
  * `npm run build`.
  *
- * Deviation from the task brief's suggested unreachable-URL example
- * (`http://127.0.0.1:9/`): verified live, that URL does NOT throw. Chrome
- * resolves a refused TCP connection to its own internal `chrome-error://`
- * page and navigation succeeds against IT — `scan` then grades that error
- * page on its own merits (verdict PASS, since an error page has no
- * interactive elements to fail touch-target/contrast rules against) and
- * exits 0. That is correct pre-existing `scan()`/driver behavior, not a
- * defect this task introduced or should paper over. A malformed URL
- * (`not-a-valid-url`) DOES throw synchronously from CDP
- * (`Cannot navigate to invalid URL`) and is the reliable EXIT_TOOL_ERROR
- * trigger used below instead.
+ * Unreachable URLs: Chrome does not reject a refused connection; it swaps in
+ * its own `chrome-error://` page. `scan()` now detects that landing and throws,
+ * so an unreachable URL exits 2 instead of grading Chrome's error page PASS.
+ * A malformed URL (`not-a-valid-url`) throws synchronously from CDP.
  */
 
 const REPO_ROOT = join(__dirname, '..', '..');
@@ -68,6 +61,16 @@ describe('ibr scan exit codes', () => {
       expect(result.output).toMatch(/invalid URL/i);
     },
     45_000,
+  );
+
+  it(
+    'an unreachable URL exits 2 (EXIT_TOOL_ERROR) instead of grading Chrome\'s error page',
+    () => {
+      const result = runCli(['scan', 'http://127.0.0.1:9/', '--json'], 45_000);
+      expect(result.status, result.output).toBe(2);
+      expect(result.output).toMatch(/could not be loaded/i);
+    },
+    60_000,
   );
 
   it(

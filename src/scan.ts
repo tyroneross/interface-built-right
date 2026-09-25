@@ -706,6 +706,15 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
       timeout,
     });
 
+    // An unreachable URL (connection refused, DNS failure) does not reject
+    // goto: Chrome swaps in its own chrome-error:// page, which then grades
+    // PASS because an error page has no collisions or contrast failures.
+    // That is a tool error, not a verdict.
+    const landedUrl = await page.evaluate(() => document.URL).catch(() => '');
+    if (typeof landedUrl === 'string' && landedUrl.startsWith('chrome-error://')) {
+      throw new Error(`Navigation failed: ${url} could not be loaded (Chrome showed its error page)`);
+    }
+
     // Wait for network idle
     let networkIdleTimedOut = false;
     await page.waitForLoadState?.('networkidle', { timeout: patience ?? networkIdleTimeout ?? 10000 }).catch(() => { networkIdleTimedOut = true; });
