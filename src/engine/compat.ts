@@ -101,12 +101,28 @@ export class CompatElementHandle {
   ) {}
 
   async screenshot(options?: { path?: string; type?: string }): Promise<Buffer> {
-    // Get box model for this nodeId, then clip screenshot
-    const model = await this.driver.domDomain.getBoxModel(this.nodeId)
+    // `this.nodeId` is a DOM.querySelector() nodeId, NOT a backendNodeId —
+    // DomDomain.getBoxModel/getElementCenter require the caller to say
+    // which id space it has (see dom.ts's NodeRef doc comment); passing the
+    // wrong kind either resolves a different node or throws
+    // "-32000: Could not compute box model".
+    const ref = { nodeId: this.nodeId }
+
+    // A below-the-fold element's box model sits outside (or is clipped by)
+    // the current viewport — scroll it into view before computing the clip
+    // so the screenshot captures the actual element instead of nothing.
+    await this.driver.domDomain.scrollIntoViewIfNeeded(ref)
+
+    const model = await this.driver.domDomain.getBoxModel(ref)
     const q = model.content
     const x = Math.min(q[0], q[2], q[4], q[6])
     const y = Math.min(q[1], q[3], q[5], q[7])
 
+    // scrollIntoViewIfNeeded() guarantees the element now sits inside the
+    // current viewport, so a plain (non-`captureBeyondViewport`) clip in
+    // viewport-relative coordinates — what getBoxModel returns, matching
+    // getBoundingClientRect() — is correct without needing page-coordinate
+    // translation.
     const buf = await this.driver.page.screenshot({
       clip: { x, y, width: model.width, height: model.height },
     })
@@ -127,7 +143,8 @@ export class CompatElementHandle {
 
   async boundingBox(): Promise<{ x: number; y: number; width: number; height: number } | null> {
     try {
-      const model = await this.driver.domDomain.getBoxModel(this.nodeId)
+      // See screenshot() above — this.nodeId is a nodeId, not a backendNodeId.
+      const model = await this.driver.domDomain.getBoxModel({ nodeId: this.nodeId })
       const q = model.content
       return {
         x: Math.min(q[0], q[2], q[4], q[6]),
@@ -528,7 +545,8 @@ export class CompatPage {
   async hover(selector: string, _options?: { timeout?: number }): Promise<void> {
     const nodeId = await this.driver.querySelector(selector)
     if (!nodeId) throw new Error(`Element not found: ${selector}`)
-    const center = await this.driver.domDomain.getElementCenter(nodeId)
+    // nodeId (from querySelector), not backendNodeId — see dom.ts's NodeRef.
+    const center = await this.driver.domDomain.getElementCenter({ nodeId })
     await this.driver.runtimeDomain.callFunctionOn(
       '(x, y) => { const el = document.elementFromPoint(x, y); if (el) el.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true })); }',
       [center.x, center.y],

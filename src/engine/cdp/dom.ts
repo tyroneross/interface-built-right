@@ -5,6 +5,20 @@
 
 import type { CdpConnection } from './connection.js'
 
+/**
+ * CDP's DOM domain has two separate id spaces for the same node:
+ * `nodeId` (only valid while the DOM tree stays "pushed" to the client via
+ * DOM.getDocument/querySelector — the ids used throughout this codebase's
+ * driver.ts querySelector()/querySelectorAll() path) and `backendNodeId`
+ * (stable across tree pushes — the ids AccessibilityDomain hands out).
+ * `DOM.getBoxModel` accepts either, but only one AT A TIME, and Chrome does
+ * NOT cross-validate — sending a `nodeId` value as `backendNodeId` (or vice
+ * versa) either resolves a DIFFERENT, unrelated node or returns
+ * `-32000: Could not compute box model` when that numeric id happens not to
+ * exist in the other space. Every caller must say which kind it has.
+ */
+export type NodeRef = { nodeId: number } | { backendNodeId: number }
+
 export class DomDomain {
   constructor(
     private conn: CdpConnection,
@@ -17,10 +31,10 @@ export class DomDomain {
    * iframe target must be resolved against THAT target's session, not the
    * main page's.
    */
-  async getElementCenter(backendNodeId: number, sessionId?: string): Promise<{ x: number; y: number }> {
+  async getElementCenter(ref: NodeRef, sessionId?: string): Promise<{ x: number; y: number }> {
     const result = await this.conn.send<{
       model: { content: number[] }
-    }>('DOM.getBoxModel', { backendNodeId }, sessionId ?? this.sessionId)
+    }>('DOM.getBoxModel', ref, sessionId ?? this.sessionId)
 
     // content quad: [x1,y1, x2,y2, x3,y3, x4,y4] — four corners
     const q = result.model.content
@@ -30,7 +44,7 @@ export class DomDomain {
   }
 
   /** See getElementCenter() for the `sessionId` override rationale. */
-  async getBoxModel(backendNodeId: number, sessionId?: string): Promise<{
+  async getBoxModel(ref: NodeRef, sessionId?: string): Promise<{
     content: number[]
     padding: number[]
     border: number[]
@@ -47,8 +61,18 @@ export class DomDomain {
         width: number
         height: number
       }
-    }>('DOM.getBoxModel', { backendNodeId }, sessionId ?? this.sessionId)
+    }>('DOM.getBoxModel', ref, sessionId ?? this.sessionId)
     return result.model
+  }
+
+  /**
+   * Scroll `ref` into the viewport before a caller reads its box model for
+   * a clip region — a below-the-fold element's box model is otherwise
+   * outside (or clipped by) the current viewport, producing a wrong or
+   * empty screenshot clip.
+   */
+  async scrollIntoViewIfNeeded(ref: NodeRef, sessionId?: string): Promise<void> {
+    await this.conn.send('DOM.scrollIntoViewIfNeeded', ref, sessionId ?? this.sessionId)
   }
 
   async getDocument(): Promise<{ root: { nodeId: number } }> {

@@ -8,6 +8,7 @@ import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { readFileSync } from 'fs'
 import { createServer, type Server } from 'http'
+import { PNG } from 'pngjs'
 import { EngineDriver } from './driver.js'
 import {
   CompatPage,
@@ -184,6 +185,100 @@ describe('CompatPage', () => {
     await page.waitForTimeout(300)
     expect(messages.some(m => m.includes('compat-console-test'))).toBe(true)
   })
+})
+
+// ─── Element geometry: nodeId vs backendNodeId (live Chrome, Fix 2) ──────
+//
+// CompatElementHandle carries a DOM.querySelector() `nodeId`, NOT a
+// backendNodeId. DomDomain.getBoxModel/getElementCenter used to accept a
+// bare `number` and forward it to CDP as `backendNodeId` regardless of
+// which id space the caller actually had — a nodeId sent as backendNodeId
+// either resolves an unrelated node or throws "-32000: Could not compute
+// box model". These fixtures put several other elements ahead of the
+// target in document order (so its nodeId is unlikely to equal its
+// backendNodeId by coincidence) and independently verify the result
+// against getBoundingClientRect() — the browser's own ground truth — so a
+// regression that resolves the WRONG node (not just an error) is caught
+// too, not only a thrown exception.
+
+describe('CompatElementHandle geometry (live Chrome fixture, Fix 2)', () => {
+  it('boundingBox() returns the QUERIED element\'s own rect, not an unrelated node\'s', async () => {
+    await ensureLaunched()
+    await page.goto(
+      'data:text/html,'
+      + '<div id="e1" style="position:absolute;top:0;left:0;width:10px;height:10px;"></div>'
+      + '<div id="e2" style="position:absolute;top:20px;left:0;width:10px;height:10px;"></div>'
+      + '<div id="e3" style="position:absolute;top:40px;left:0;width:10px;height:10px;"></div>'
+      + '<div id="target" style="position:absolute;top:200px;left:150px;width:123px;height:47px;background:red;"></div>',
+    )
+
+    const expected = await page.evaluate<{ x: number; y: number; width: number; height: number }>(
+      `(() => { const r = document.getElementById('target').getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; })()`,
+    )
+
+    const handle = await page.$('#target')
+    expect(handle).not.toBeNull()
+    const box = await handle!.boundingBox()
+
+    expect(box).not.toBeNull()
+    expect(box).toEqual(expected)
+  }, 15000)
+
+  // Enough preceding elements that nodeId (assigned by how many nodes have
+  // been pushed to the client via DOM.getDocument/querySelector) and
+  // backendNodeId (assigned by the renderer for every node, including
+  // implicit document/head/body/text nodes) reliably diverge for the
+  // target — confirmed empirically: with only 2-3 preceding siblings the
+  // two ids can still coincide by chance and mask the bug this guards.
+  function padding(prefix: string, count: number): string {
+    return Array.from({ length: count }, (_, i) =>
+      `<div id="${prefix}${i}" style="position:absolute;top:${i * 5}px;left:0;width:5px;height:5px;">pad</div>`,
+    ).join('')
+  }
+
+  it('elementHandle.screenshot() returns a PNG whose decoded dimensions equal the element\'s own size', async () => {
+    await ensureLaunched()
+    await page.goto(
+      'data:text/html,'
+      + padding('e', 12)
+      + '<div id="shot" style="position:absolute;top:80px;left:40px;width:90px;height:33px;background:blue;"></div>',
+    )
+
+    const handle = await page.$('#shot')
+    expect(handle).not.toBeNull()
+    const buf = await handle!.screenshot()
+
+    const png = PNG.sync.read(buf)
+    expect(png.width).toBe(90)
+    expect(png.height).toBe(33)
+  }, 15000)
+
+  it('elementHandle.screenshot() scrolls a below-the-fold element into view before clipping', async () => {
+    await ensureLaunched()
+    await page.goto(
+      'data:text/html,'
+      + padding('f', 12)
+      // Far past any default headless viewport height — starts off-screen.
+      + '<div id="below-fold" style="position:absolute;top:5000px;left:60px;width:80px;height:40px;background:green;"></div>',
+    )
+
+    const handle = await page.$('#below-fold')
+    expect(handle).not.toBeNull()
+
+    // Confirm the fixture actually starts out of view — otherwise this test
+    // would pass for the wrong reason (never exercising the fold case).
+    const initialRect = await page.evaluate<{ top: number }>(
+      `(() => { const r = document.getElementById('below-fold').getBoundingClientRect(); return { top: r.top }; })()`,
+    )
+    expect(initialRect.top).toBeGreaterThan(0)
+    const viewportHeight = await page.evaluate<number>('window.innerHeight')
+    expect(initialRect.top).toBeGreaterThanOrEqual(viewportHeight)
+
+    const buf = await handle!.screenshot()
+    const png = PNG.sync.read(buf)
+    expect(png.width).toBe(80)
+    expect(png.height).toBe(40)
+  }, 15000)
 })
 
 // ─── Actionability (live Chrome, E3-A / T-06) ──────────────────────────

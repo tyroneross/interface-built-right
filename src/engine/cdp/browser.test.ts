@@ -1,9 +1,15 @@
-import { describe, expect, it } from 'vitest'
-import { tmpdir } from 'node:os'
+import { afterEach, describe, expect, it } from 'vitest'
+import { spawnSync } from 'node:child_process'
+import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { hostname, tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import {
+  acquireProfileLock,
+  looksLikeSingletonCollision,
   parseIbrChromeProcesses,
   reapOrphanedIbrChromeProcesses,
+  releaseProfileLock,
   resolveBrowserConnectionOptions,
   shouldReclaimSingletonLock,
 } from './browser.js'
@@ -140,5 +146,115 @@ describe('Chrome SingletonLock reclamation', () => {
     const sameHost = { ...base, targetHost: base.currentHost, lockAgeMs: 0 }
     expect(shouldReclaimSingletonLock({ ...sameHost, targetPidAlive: true })).toBe(false)
     expect(shouldReclaimSingletonLock({ ...sameHost, targetPidAlive: false })).toBe(true)
+  })
+})
+
+// A pid guaranteed to be exited by the time it is used — real spawn+wait
+// (not a large made-up number) so the "dead pid" branch is exercised
+// against an actual OS liveness check, not an assumption about pid ranges.
+function guaranteedDeadPid(): number {
+  const result = spawnSync(process.execPath, ['-e', 'process.exit(0)'])
+  if (!result.pid) throw new Error('failed to spawn a throwaway process for a dead pid')
+  return result.pid
+}
+
+describe('acquireProfileLock — atomic profile selection (T-01/Fix1)', () => {
+  let workDir: string
+
+  afterEach(() => {
+    if (workDir) rmSync(workDir, { recursive: true, force: true })
+  })
+
+  it('acquires an uncontended lock and writes "<hostname>-<pid>"', () => {
+    workDir = mkdtempSync(join(tmpdir(), 'ibr-lock-test-'))
+    const profileDir = join(workDir, 'profile')
+
+    const result = acquireProfileLock(profileDir)
+
+    expect(result.acquired).toBe(true)
+    expect(result.lockPath).toBe(`${profileDir}.ibr-lock`)
+    expect(existsSync(result.lockPath)).toBe(true)
+    expect(readFileSync(result.lockPath, 'utf8')).toBe(`${hostname()}-${process.pid}`)
+
+    releaseProfileLock(result.lockPath)
+  })
+
+  it('refuses a second acquire while a live holder owns the lock (the exact race that crashed 2 of 3 concurrent scans)', () => {
+    workDir = mkdtempSync(join(tmpdir(), 'ibr-lock-test-'))
+    const profileDir = join(workDir, 'profile')
+
+    const first = acquireProfileLock(profileDir)
+    expect(first.acquired).toBe(true)
+
+    // This process's own pid is trivially alive, so a second caller racing
+    // the same profileDir before the first releases must lose.
+    const second = acquireProfileLock(profileDir)
+    expect(second.acquired).toBe(false)
+    expect(second.holder).toBe(`${hostname()}-${process.pid}`)
+
+    releaseProfileLock(first.lockPath)
+  })
+
+  it('reclaims a same-host lock left by a process that is no longer running', () => {
+    workDir = mkdtempSync(join(tmpdir(), 'ibr-lock-test-'))
+    const profileDir = join(workDir, 'profile')
+    const lockPath = `${profileDir}.ibr-lock`
+    const dead = guaranteedDeadPid()
+    writeFileSync(lockPath, `${hostname()}-${dead}`)
+
+    const result = acquireProfileLock(profileDir)
+
+    expect(result.acquired).toBe(true)
+    expect(readFileSync(lockPath, 'utf8')).toBe(`${hostname()}-${process.pid}`)
+
+    releaseProfileLock(result.lockPath)
+  })
+
+  it('preserves a foreign-host lock during the grace period, then reclaims it once stale — same convention as the SingletonLock reclaim', () => {
+    workDir = mkdtempSync(join(tmpdir(), 'ibr-lock-test-'))
+    const profileDir = join(workDir, 'profile')
+    const lockPath = `${profileDir}.ibr-lock`
+    writeFileSync(lockPath, 'some-other-host.local-4242')
+
+    const recent = acquireProfileLock(profileDir)
+    expect(recent.acquired).toBe(false)
+    expect(recent.holder).toBe('some-other-host.local-4242')
+
+    // Push the lock's mtime older than the grace window (1 hour) — mirrors
+    // shouldReclaimSingletonLock's cross-host stale path.
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000)
+    utimesSync(lockPath, old, old)
+
+    const stale = acquireProfileLock(profileDir)
+    expect(stale.acquired).toBe(true)
+
+    releaseProfileLock(stale.lockPath)
+  })
+
+  it('releaseProfileLock only removes a lock this process actually holds, never a foreign one', () => {
+    workDir = mkdtempSync(join(tmpdir(), 'ibr-lock-test-'))
+    const profileDir = join(workDir, 'profile')
+    const lockPath = `${profileDir}.ibr-lock`
+    writeFileSync(lockPath, 'foreign-host-99999')
+
+    // Never acquired by this process — must be a no-op.
+    releaseProfileLock(lockPath)
+
+    expect(existsSync(lockPath)).toBe(true)
+  })
+})
+
+describe('looksLikeSingletonCollision', () => {
+  it('flags Chrome exit code 21 (the reported "ProcessSingleton... Aborting" crash)', () => {
+    expect(looksLikeSingletonCollision({ code: 21, signal: null }, '')).toBe(true)
+  })
+
+  it('flags any stderr mentioning ProcessSingleton regardless of exit code', () => {
+    expect(looksLikeSingletonCollision({ code: 1, signal: null }, 'Failed to create a ProcessSingleton')).toBe(true)
+  })
+
+  it('does not flag an unrelated crash', () => {
+    expect(looksLikeSingletonCollision({ code: 1, signal: null }, 'Segmentation fault')).toBe(false)
+    expect(looksLikeSingletonCollision(null, '')).toBe(false)
   })
 })

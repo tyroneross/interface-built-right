@@ -4,11 +4,24 @@
  */
 
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
-import { existsSync, lstatSync, mkdtempSync, readdirSync, readlinkSync, rmSync, statSync, unlinkSync } from 'node:fs'
+import {
+  closeSync,
+  existsSync,
+  lstatSync,
+  mkdtempSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  writeSync,
+} from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { homedir, hostname, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import {
   BROWSER_SPAWN_TIMEOUT_MS,
   CDP_PROBE_TIMEOUT_MS,
@@ -313,6 +326,147 @@ function reclaimStaleSingletonLock(lockPath: string, profileDir: string): boolea
   }
 }
 
+export interface ProfileLockResult {
+  acquired: boolean
+  lockPath: string
+  /** `<hostname>-<pid>` of the live holder, populated when acquisition failed. */
+  holder?: string
+}
+
+/**
+ * Locks held by THIS process, released on close()/exit so a crash cannot
+ * strand a profile forever the way a stale Chrome SingletonLock can.
+ */
+const heldProfileLocks = new Set<string>()
+
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+/** `openSync(path, 'wx')` — O_CREAT|O_EXCL, fails atomically if the file exists. */
+function createLockFile(lockPath: string, holderId: string): void {
+  const fd = openSync(lockPath, 'wx')
+  try {
+    writeSync(fd, holderId)
+  } finally {
+    closeSync(fd)
+  }
+}
+
+/**
+ * Serialize concurrent IBR launches against the SAME profile directory.
+ *
+ * The bug this closes: two `ibr scan` processes both `lstat` Chrome's
+ * `SingletonLock`, both see it absent, and both spawn Chrome on the shared
+ * profile — the loser's Chrome aborts with "Failed to create a
+ * ProcessSingleton... Aborting" (exit 21). `lstat`-then-launch is
+ * check-then-act; this makes profile selection atomic by having every
+ * launcher first win an IBR-owned lockfile (`openSync(..., 'wx')`, O_EXCL)
+ * before it is allowed to even look at Chrome's own SingletonLock. A loser
+ * falls back to an ephemeral `mkdtemp` profile instead of racing Chrome.
+ *
+ * A lock left behind by a crashed IBR process (same host, dead pid) is
+ * reclaimed — atomically, via one unlink + retry — so a crash does not
+ * strand the profile. A lock from a different host with no local liveness
+ * signal uses the same age-based grace window as the Chrome SingletonLock
+ * reclaim above, so a hostname change does not strand it forever either,
+ * while a live peer on this host is never stolen from.
+ */
+export function acquireProfileLock(profileDir: string): ProfileLockResult {
+  const lockPath = `${profileDir}.ibr-lock`
+  const holderId = `${hostname()}-${process.pid}`
+
+  try {
+    createLockFile(lockPath, holderId)
+    heldProfileLocks.add(lockPath)
+    return { acquired: true, lockPath }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') {
+      // Cannot even attempt the lock (e.g. missing/unwritable parent dir).
+      // Degrade to the pre-fix behavior for this launch rather than fail a
+      // launch outright over an unrelated filesystem issue.
+      return { acquired: true, lockPath }
+    }
+  }
+
+  let contents: string
+  try {
+    contents = readFileSync(lockPath, 'utf8').trim()
+  } catch {
+    // Vanished between our EEXIST and this read — the holder released it.
+    return retryAcquire(lockPath, holderId)
+  }
+
+  const sep = contents.lastIndexOf('-')
+  const holderHost = sep > 0 ? contents.slice(0, sep) : ''
+  const holderPid = sep > 0 ? Number(contents.slice(sep + 1)) : NaN
+  if (!holderHost || !Number.isInteger(holderPid) || holderPid <= 0) {
+    // Unrecognized lock contents — do not touch it; behave as contended.
+    return { acquired: false, lockPath, holder: contents }
+  }
+
+  let stale: boolean
+  if (holderHost === hostname()) {
+    stale = !isPidAlive(holderPid)
+  } else {
+    let ageMs = -1
+    try { ageMs = Date.now() - statSync(lockPath).mtimeMs } catch { /* unknown age — not stale */ }
+    stale = ageMs >= PROFILE_REAP_GRACE_MS
+  }
+
+  if (!stale) return { acquired: false, lockPath, holder: contents }
+
+  try { unlinkSync(lockPath) } catch { /* already gone */ }
+  return retryAcquire(lockPath, holderId)
+}
+
+function retryAcquire(lockPath: string, holderId: string): ProfileLockResult {
+  try {
+    createLockFile(lockPath, holderId)
+    heldProfileLocks.add(lockPath)
+    return { acquired: true, lockPath }
+  } catch {
+    // Someone else won the reclaim race — back off to ephemeral rather
+    // than fight over it a second time.
+    return { acquired: false, lockPath }
+  }
+}
+
+/** Release a lock this process holds. Safe to call with `null` or a foreign path. */
+export function releaseProfileLock(lockPath: string | null | undefined): void {
+  if (!lockPath || !heldProfileLocks.has(lockPath)) return
+  try { unlinkSync(lockPath) } catch { /* best effort */ }
+  heldProfileLocks.delete(lockPath)
+}
+
+// Crash/exit safety net — `exit` handlers must be synchronous, which
+// unlinkSync satisfies. Registered once at module load, shared across every
+// BrowserManager instance in this process.
+process.once('exit', () => {
+  for (const lockPath of heldProfileLocks) {
+    try { unlinkSync(lockPath) } catch { /* process is exiting; best effort */ }
+  }
+})
+
+/**
+ * Detect Chrome's singleton-profile refusal from what a failed launch left
+ * behind, so a shared-profile launch that still collided AFTER winning the
+ * IBR lock (e.g. a non-IBR Chrome instance already holds the profile) can
+ * fall back once instead of failing outright.
+ */
+export function looksLikeSingletonCollision(
+  exit: { code: number | null; signal: NodeJS.Signals | null } | null,
+  stderrTail: string,
+): boolean {
+  if (exit?.code === 21) return true
+  return /ProcessSingleton/i.test(stderrTail)
+}
+
 /**
  * Delete `ibr-chrome-*` profiles that no running Chrome references.
  *
@@ -361,6 +515,8 @@ export class BrowserManager {
   private _stderrTail = ''
   /** Set once the child exits, so waitForDebugger stops polling a dead process. */
   private _exit: { code: number | null; signal: NodeJS.Signals | null } | null = null
+  /** Set only when this browser holds the IBR profile lock for `userDataDir`, so close() can release it. */
+  private _profileLockPath: string | null = null
 
   async launch(options: BrowserOptions = {}): Promise<string> {
     const connection = resolveBrowserConnectionOptions(options)
@@ -396,31 +552,58 @@ export class BrowserManager {
     progress('reaping orphaned browsers')
     reapOrphanedIbrChromeProcesses()
     let userDataDir = options.userDataDir ?? join(homedir(), '.ibr', 'chromium-profile')
+    // The profile lock and Chrome's own SingletonLock both live next to
+    // userDataDir; make sure the parent exists before either is touched
+    // (a fresh machine may not yet have `~/.ibr/`).
+    await mkdir(dirname(userDataDir), { recursive: true })
 
-    // Chrome creates `SingletonLock` as a SYMLINK whose target is `<hostname>-<pid>`.
-    // After a crash, the symlink remains but its target host/pid is gone, so
-    // `existsSync` (which follows symlinks) returns false even though the link
-    // is present. Chrome itself sees the link, refuses to acquire the singleton,
-    // and aborts immediately ("Failed to create a ProcessSingleton... Aborting").
-    // We must detect the symlink itself via `lstat`, not `stat`.
-    const lockPath = join(userDataDir, 'SingletonLock')
-    const lockStat = lstatSync(lockPath, { throwIfNoEntry: false })
-    if (lockStat) {
-      // A lock can mean two very different things, and treating them alike is
-      // what produced 965 abandoned profiles (~16GB) on one machine: a single
-      // stale symlink dated 2026-05-16 sent EVERY launch for three months down
-      // the temp-profile path, and nothing ever deleted them.
-      //
-      // So resolve which it is. The target is `<hostname>-<pid>`: if that pid
-      // is gone on this host, the lock is a crash leftover and the shared
-      // profile is free — reclaim it. Only a genuinely live holder (real
-      // concurrency) justifies a throwaway profile.
-      if (reclaimStaleSingletonLock(lockPath, userDataDir)) {
-        // Shared profile reclaimed; keep using it.
-      } else {
-        userDataDir = mkdtempSync(join(tmpdir(), 'ibr-chrome-'))
-        this._ephemeralProfileDir = userDataDir
+    // Atomic profile selection (belt 1 of 2): two `ibr scan` processes
+    // launched at the same instant used to both `lstat` Chrome's
+    // SingletonLock, both see it absent, and both spawn Chrome on the SAME
+    // shared profile — check-then-act. Winning this IBR-owned lockfile
+    // first serializes that decision so only one launcher at a time is
+    // even allowed to look at Chrome's own lock. See acquireProfileLock().
+    progress('acquiring profile lock')
+    const lock = acquireProfileLock(userDataDir)
+    if (lock.acquired) {
+      this._profileLockPath = lock.lockPath
+
+      // Chrome creates `SingletonLock` as a SYMLINK whose target is `<hostname>-<pid>`.
+      // After a crash, the symlink remains but its target host/pid is gone, so
+      // `existsSync` (which follows symlinks) returns false even though the link
+      // is present. Chrome itself sees the link, refuses to acquire the singleton,
+      // and aborts immediately ("Failed to create a ProcessSingleton... Aborting").
+      // We must detect the symlink itself via `lstat`, not `stat`.
+      const lockPath = join(userDataDir, 'SingletonLock')
+      const lockStat = lstatSync(lockPath, { throwIfNoEntry: false })
+      if (lockStat) {
+        // A lock can mean two very different things, and treating them alike is
+        // what produced 965 abandoned profiles (~16GB) on one machine: a single
+        // stale symlink dated 2026-05-16 sent EVERY launch for three months down
+        // the temp-profile path, and nothing ever deleted them.
+        //
+        // So resolve which it is. The target is `<hostname>-<pid>`: if that pid
+        // is gone on this host, the lock is a crash leftover and the shared
+        // profile is free — reclaim it. Only a genuinely live holder (real
+        // concurrency) justifies a throwaway profile.
+        if (reclaimStaleSingletonLock(lockPath, userDataDir)) {
+          // Shared profile reclaimed; keep using it.
+        } else {
+          userDataDir = mkdtempSync(join(tmpdir(), 'ibr-chrome-'))
+          this._ephemeralProfileDir = userDataDir
+          // We are no longer using the shared profile this launch — free it
+          // immediately for the next contender instead of holding it idle.
+          releaseProfileLock(this._profileLockPath)
+          this._profileLockPath = null
+        }
       }
+    } else {
+      // Another live IBR process holds the shared profile right now (belt 1
+      // doing its job) — go straight to a throwaway profile rather than
+      // race Chrome's own SingletonLock.
+      progress(`profile lock held by ${lock.holder ?? 'another IBR process'} — using an ephemeral profile`)
+      userDataDir = mkdtempSync(join(tmpdir(), 'ibr-chrome-'))
+      this._ephemeralProfileDir = userDataDir
     }
 
     // Liveness-aware sweep of profiles abandoned by earlier runs. Age alone is
@@ -439,6 +622,45 @@ export class BrowserManager {
       )
     }
 
+    // True only while we are attempting the shared, lock-protected profile —
+    // an ephemeral mkdtemp dir is unique per process and cannot collide.
+    const sharedProfileAttempt = this._ephemeralProfileDir === null
+
+    try {
+      return await this.spawnChromeAndWaitForDebugger(chromePath, userDataDir, headless, options.normalize, progress)
+    } catch (error) {
+      // Belt 2: we won the IBR lock (or skipped it) for the shared profile
+      // yet Chrome still refused the singleton — something outside IBR's
+      // own tracking already holds it (a stray non-IBR Chrome, a reclaim
+      // we could not verify). Retry once on a private profile instead of
+      // failing an otherwise-healthy launch.
+      if (sharedProfileAttempt && looksLikeSingletonCollision(this._exit, this._stderrTail)) {
+        progress('shared profile still collided after lock acquisition — retrying on an ephemeral profile')
+        await this.close()
+        const fallbackDir = mkdtempSync(join(tmpdir(), 'ibr-chrome-'))
+        this._ephemeralProfileDir = fallbackDir
+        try {
+          return await this.spawnChromeAndWaitForDebugger(chromePath, fallbackDir, headless, options.normalize, progress)
+        } catch (retryError) {
+          await this.close()
+          throw retryError
+        }
+      }
+      // A failed launch still owns the child it spawned. Clean it here instead
+      // of relying on every caller to remember `close()` after a rejected
+      // promise; otherwise debugger timeouts strand live headless Chromes.
+      await this.close()
+      throw error
+    }
+  }
+
+  private async spawnChromeAndWaitForDebugger(
+    chromePath: string,
+    userDataDir: string,
+    headless: boolean,
+    normalize: boolean | undefined,
+    progress: (step: string) => void,
+  ): Promise<string> {
     await mkdir(userDataDir, { recursive: true })
 
     const args = [
@@ -452,7 +674,7 @@ export class BrowserManager {
     if (headless) {
       args.push('--headless=new')
     }
-    if (options.normalize) {
+    if (normalize) {
       // Reduce rendering inconsistencies for mockup pixel comparison
       args.push('--disable-lcd-text')          // disable subpixel text rendering
       args.push('--force-device-scale-factor=1') // prevent HiDPI scaling differences
@@ -478,19 +700,11 @@ export class BrowserManager {
     })
     progress(`spawned chrome pid ${this.process.pid ?? 'unknown'}`)
 
-    try {
-      const wsUrl = await this.waitForDebugger(progress)
-      progress('debugger answered')
-      this._cdpUrl = `http://127.0.0.1:${this._port}`
-      this._wsEndpoint = wsUrl
-      return wsUrl
-    } catch (error) {
-      // A failed launch still owns the child it spawned. Clean it here instead
-      // of relying on every caller to remember `close()` after a rejected
-      // promise; otherwise debugger timeouts strand live headless Chromes.
-      await this.close()
-      throw error
-    }
+    const wsUrl = await this.waitForDebugger(progress)
+    progress('debugger answered')
+    this._cdpUrl = `http://127.0.0.1:${this._port}`
+    this._wsEndpoint = wsUrl
+    return wsUrl
   }
 
   /**
@@ -561,26 +775,26 @@ export class BrowserManager {
   }
 
   async close(): Promise<void> {
-    if (this._mode !== 'local' || !this.process) return
+    if (this._mode === 'local' && this.process) {
+      const proc = this.process
+      this.process = null
 
-    const proc = this.process
-    this.process = null
+      if (!this._exit) {
+        // Wait for process to exit, with SIGKILL escalation.
+        await new Promise<void>((resolve) => {
+          const killTimer = setTimeout(() => {
+            try { proc.kill('SIGKILL') } catch { /* already dead */ }
+            resolve()
+          }, 3000)
 
-    if (!this._exit) {
-      // Wait for process to exit, with SIGKILL escalation.
-      await new Promise<void>((resolve) => {
-        const killTimer = setTimeout(() => {
-          try { proc.kill('SIGKILL') } catch { /* already dead */ }
-          resolve()
-        }, 3000)
+          proc.once('close', () => {
+            clearTimeout(killTimer)
+            resolve()
+          })
 
-        proc.once('close', () => {
-          clearTimeout(killTimer)
-          resolve()
+          proc.kill('SIGTERM')
         })
-
-        proc.kill('SIGTERM')
-      })
+      }
     }
 
     // The profile only existed for this browser; Chrome has exited, so nothing
@@ -588,6 +802,14 @@ export class BrowserManager {
     if (this._ephemeralProfileDir) {
       try { rmSync(this._ephemeralProfileDir, { recursive: true, force: true }) } catch { /* best effort */ }
       this._ephemeralProfileDir = null
+    }
+
+    // Always run, even if we never got as far as spawning a process (e.g. a
+    // mkdir failure right after winning the lock) — otherwise that early
+    // failure path strands the lock until this run's PID actually exits.
+    if (this._profileLockPath) {
+      releaseProfileLock(this._profileLockPath)
+      this._profileLockPath = null
     }
   }
 

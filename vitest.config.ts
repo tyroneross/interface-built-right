@@ -16,6 +16,7 @@ const BROWSER_INTEGRATION = [
   'src/live/live.integration.test.ts',
   'src/native-activation.integration.test.ts',
   'src/handler-listeners.root-delegation.integration.test.ts',
+  'src/engine/cdp/browser-concurrent-launch.integration.test.ts',
 ];
 
 export default defineConfig({

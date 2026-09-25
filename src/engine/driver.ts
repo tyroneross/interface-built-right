@@ -1308,7 +1308,7 @@ export class EngineDriver implements BrowserDriver {
     }
 
     if (!domClickWorked) {
-      const { x, y } = await this.dom.getElementCenter(ref.backendNodeId, sid)
+      const { x, y } = await this.dom.getElementCenter({ backendNodeId: ref.backendNodeId }, sid)
       await this.raceAgainstDialog(this.dispatchClickAt(x, y, sid))
     }
   }
@@ -1316,7 +1316,7 @@ export class EngineDriver implements BrowserDriver {
   async type(elementId: string, text: string): Promise<void> {
     const ref = await this.awaitActionable(elementId)
 
-    const { x, y } = await this.dom.getElementCenter(ref.backendNodeId)
+    const { x, y } = await this.dom.getElementCenter({ backendNodeId: ref.backendNodeId })
     await this.input.click(x, y)
     await this.input.type(text)
   }
@@ -1324,7 +1324,7 @@ export class EngineDriver implements BrowserDriver {
   async fill(elementId: string, value: string): Promise<void> {
     const ref = await this.awaitActionable(elementId)
 
-    const { x, y } = await this.dom.getElementCenter(ref.backendNodeId)
+    const { x, y } = await this.dom.getElementCenter({ backendNodeId: ref.backendNodeId })
     await this.input.click(x, y)
 
     // Clear existing value
@@ -1339,7 +1339,7 @@ export class EngineDriver implements BrowserDriver {
     const backendNodeId = this.ax.getBackendNodeId(elementId)
     if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`)
 
-    const { x, y } = await this.dom.getElementCenter(backendNodeId)
+    const { x, y } = await this.dom.getElementCenter({ backendNodeId })
     await this.input.hover(x, y)
   }
 
@@ -1423,7 +1423,7 @@ export class EngineDriver implements BrowserDriver {
   async select(elementId: string, value: string): Promise<void> {
     const ref = await this.awaitActionable(elementId)
 
-    const { x, y } = await this.dom.getElementCenter(ref.backendNodeId)
+    const { x, y } = await this.dom.getElementCenter({ backendNodeId: ref.backendNodeId })
     await this.input.click(x, y)
 
     await this.runtime.callFunctionOn(
@@ -1438,7 +1438,7 @@ export class EngineDriver implements BrowserDriver {
   async check(elementId: string): Promise<void> {
     const ref = await this.awaitActionable(elementId)
 
-    const { x, y } = await this.dom.getElementCenter(ref.backendNodeId)
+    const { x, y } = await this.dom.getElementCenter({ backendNodeId: ref.backendNodeId })
     await this.input.click(x, y)
   }
 
@@ -1449,7 +1449,7 @@ export class EngineDriver implements BrowserDriver {
     const backendNodeId = this.ax.getBackendNodeId(elementId)
     if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`)
 
-    const { x, y } = await this.dom.getElementCenter(backendNodeId)
+    const { x, y } = await this.dom.getElementCenter({ backendNodeId })
     await this.input.click(x, y)
     await new Promise((r) => setTimeout(r, 50))
     await this.input.click(x, y)
@@ -1462,7 +1462,7 @@ export class EngineDriver implements BrowserDriver {
     const backendNodeId = this.ax.getBackendNodeId(elementId)
     if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`)
 
-    const { x, y } = await this.dom.getElementCenter(backendNodeId)
+    const { x, y } = await this.dom.getElementCenter({ backendNodeId })
     const sid = this.sessionId ?? undefined
     await this.conn.send('Input.dispatchMouseEvent', {
       type: 'mousePressed', x, y, button: 'right', buttons: 2, clickCount: 1,
@@ -1511,7 +1511,7 @@ export class EngineDriver implements BrowserDriver {
     const backendNodeId = this.ax.getBackendNodeId(elementId)
     if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`)
 
-    const model = await this.dom.getBoxModel(backendNodeId)
+    const model = await this.dom.getBoxModel({ backendNodeId })
     const q = model.content
     const x = Math.min(q[0], q[2], q[4], q[6])
     const y = Math.min(q[1], q[3], q[5], q[7])
