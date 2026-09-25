@@ -4,6 +4,7 @@ import { join } from 'path';
 import { existsSync, readFileSync, unlinkSync } from 'fs';
 import { ensureToolchainPath } from '../native/toolchain-env.js';
 import { EngineDriver } from '../engine/driver.js';
+import { EXIT_PASS, EXIT_ISSUES, EXIT_TOOL_ERROR } from '../exit-codes.js';
 
 // Repair PATH before any native subprocess spawn (swift/xcrun/osascript/idb).
 // A GUI/MCP parent can hand the CLI a minimal launchd PATH lacking /usr/bin.
@@ -42,6 +43,28 @@ import { formatUserActionRequired } from '../session-hard-wall.js';
 import { configuredSessionIdleMs } from '../session-idle.js';
 import { registerExternalActionEvidenceCommand } from './external-action-evidence-cli.js';
 import { registerDesignSpecCommands } from './design-spec-cli.js';
+
+// Top-level safety net: an exception or rejection that escapes every
+// command's own try/catch must still exit EXIT_TOOL_ERROR (2), not fall
+// through to Node's default (an unhandled rejection prints a warning and
+// exits 1 as of Node 15+ — indistinguishable from a verdict-based EXIT_ISSUES
+// exit). `session:start`'s own `uncaughtException` handler (registered only
+// while its foreground browser-server Promise is pending) does real cleanup
+// — kill the Chrome pid, remove the stale browser-server.json — and must run
+// INSTEAD of this generic one for that window. Node invokes listeners for the
+// same event in registration order; since this one is registered first (at
+// module load) it would otherwise always win the race and short-circuit that
+// cleanup. So it only acts when it is the sole registered listener for the
+// event, and defers to a more specific handler otherwise.
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection:', reason instanceof Error ? (reason.stack || reason.message) : reason);
+  process.exit(EXIT_TOOL_ERROR);
+});
+process.on('uncaughtException', (err) => {
+  if (process.listenerCount('uncaughtException') > 1) return;
+  console.error('Uncaught exception:', err instanceof Error ? (err.stack || err.message) : err);
+  process.exit(EXIT_TOOL_ERROR);
+});
 
 function readPackageVersion(): string {
   try {
@@ -203,7 +226,7 @@ program.hook('postAction', async (_thisCommand, actionCommand) => {
     }
     activeSession = null;
   }
-  const code = typeof process.exitCode === 'number' ? process.exitCode : 0;
+  const code = typeof process.exitCode === 'number' ? process.exitCode : EXIT_PASS;
   setImmediate(() => process.exit(code));
 });
 
@@ -319,6 +342,23 @@ program
   .description('End-to-end design tool for AI coding agents')
   .version(readPackageVersion());
 
+// Route commander's OWN parse errors (unknown option, missing required
+// argument, excess arguments, unknown subcommand) through the same 0/1/2
+// exit-code contract as every other command, instead of commander's
+// built-in `process.exit(1)`. Must run before ANY `.command(...)` call —
+// commander copies `_exitCallback` onto a subcommand at the moment
+// `.command()` creates it (`copyInheritedSettings`), so anything registered
+// earlier than this line would not inherit the override.
+//
+// `--help` / `--version` (and the help-after-no-error case) already resolve
+// to exitCode 0 inside commander before this callback runs; only the
+// help-AFTER-an-error path and genuine parse errors get a nonzero code, and
+// both map to EXIT_TOOL_ERROR — the user/agent gave the CLI something it
+// could not parse, not a scan/comparison result.
+program.exitOverride((err) => {
+  process.exit(err.exitCode === 0 ? EXIT_PASS : EXIT_TOOL_ERROR);
+});
+
 // Global options
 program
   .option('-b, --base-url <url>', 'Base URL for the application')
@@ -330,6 +370,48 @@ program
   .option('--cdp-url <url>', 'Connect to an existing browser via CDP HTTP endpoint')
   .option('--ws-endpoint <url>', 'Connect to an existing browser via CDP WebSocket endpoint')
   .option('--chrome-path <path>', 'Path to Chrome/Chromium executable');
+
+// Copy-paste recipes on `ibr --help`. Every command below was run against a
+// real page (https://example.com) from source before being written here —
+// see the T-01 return report for what was exercised.
+program.addHelpText('after', `
+Recipes:
+  Scan at two viewports:
+    ibr scan <url> -v mobile
+    ibr scan <url> -v desktop         # also: tablet, desktop-sm (1440x900), desktop-lg, laptop — see src/schemas.ts VIEWPORTS
+
+  Interactive session — thread the session id through each step:
+    ibr session:start <url> --detach  # prints "Session started: <id>"
+    ibr session:click <id> "<selector>"
+    ibr session:type <id> "<selector>" "<text>"
+    ibr session:screenshot <id>
+    ibr session:close <id>            # or: ibr session:close all
+
+  Run JS in a session (wrap await in an async IIFE):
+    ibr session:eval <id> "document.title"
+    ibr session:eval <id> "(async () => { return (await fetch('/api')).status })()"
+
+  Screenshot one element:
+    ibr session:screenshot <id> -s '<selector>'
+
+  Batch a list of URLs, using exit codes to tell crashes from findings:
+    for url in "\${urls[@]}"; do
+      ibr scan "$url" --json > "out-$(basename "$url").json"
+      case $? in
+        0) echo "PASS $url" ;;
+        1) echo "ISSUES $url" ;;
+        2) echo "TOOL ERROR $url — investigate before trusting the output" ;;
+      esac
+    done
+
+Exit codes: 0 pass (no issues) | 1 issues found (verdict FAIL/ISSUES, a
+failed comparison/test/interaction — per that command's own policy) | 2 tool
+error (exception, bad argument, navigation/Chrome failure, timeout, or a CLI
+parse error). Loop on 1, stop and investigate on 2.
+
+Global flags -v/-t/-o can shadow a subcommand's own short flags (e.g.
+interact's -t/--target). Use long forms (--target, --value) with interact.
+`);
 
 // Start command
 program
@@ -373,7 +455,7 @@ program
       await ibr.close();
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -464,7 +546,7 @@ program
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -507,11 +589,11 @@ program
       if (!report.comparison.match &&
           (report.analysis.verdict === 'UNEXPECTED_CHANGE' ||
            report.analysis.verdict === 'LAYOUT_BROKEN')) {
-        process.exit(1);
+        process.exit(EXIT_ISSUES);
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -970,7 +1052,7 @@ program
         hasVisualRegression ||
         hasMissingElements
       )) {
-        process.exit(1);
+        process.exit(EXIT_ISSUES);
       } else if (options.failOn === 'warning' && (
         result.summary.errors > 0 ||
         result.summary.warnings > 0 ||
@@ -978,11 +1060,11 @@ program
         hasVisualRegression ||
         hasSemanticIssues
       )) {
-        process.exit(1);
+        process.exit(EXIT_ISSUES);
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -1049,6 +1131,14 @@ program
   .option('--output <mode>', 'Output mode: full (default), summary (sensor summaries + verdict only, ~60% fewer tokens), raw (no sensors)', 'full')
   .option('--content', 'Also extract content elements (headings/paragraphs/images/captions/quotes) and page metadata — adds scan.content.elements and scan.metadata')
   .option('--full-text', 'Capture uncapped element text and complete rendered body text for design-spec checks')
+  .addHelpText('after', `
+Exit codes: 0 = pass (verdict PASS or ISSUES — the page scanned cleanly, or
+scanned with only non-blocking findings) | 1 = issues found (verdict FAIL
+only — a real, blocking finding, not a crash) | 2 = tool error
+(navigation/Chrome failure, timeout, or an unhandled exception — the page
+was never actually scanned). This split (FAIL-only, not ISSUES) is
+unchanged from prior versions — verdict ISSUES has always exited 0 here.
+`)
   .action(async (url: string, options: { viewport: string; device?: string; waitFor?: string; screenshot?: string; json?: boolean; timeout: string; patience?: string; networkIdleTimeout?: string; rules?: string | boolean; output: string; content?: boolean; fullText?: boolean }) => {
     try {
       const { scan, formatScanResult } = await import('../scan.js');
@@ -1115,11 +1205,11 @@ program
 
       // Exit with error code if scan failed
       if (result.verdict === 'FAIL') {
-        process.exit(1);
+        process.exit(EXIT_ISSUES);
       }
     } catch (error) {
       console.error('Scan error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -1183,11 +1273,11 @@ program
       // PARTIAL is not a pass. A scan that rendered an approximation of the app
       // must not report success to a shell script or a CI step.
       if (result.verdict === 'FAIL' || result.verdict === 'PARTIAL') {
-        process.exit(1);
+        process.exit(EXIT_ISSUES);
       }
     } catch (error) {
       console.error('Obsidian scan error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -1282,17 +1372,17 @@ program
           process.off('SIGINT', onSig);
           process.off('SIGTERM', onSig);
         }
-        if (endVerdict === 'FAIL') process.exit(1);
+        if (endVerdict === 'FAIL') process.exit(EXIT_ISSUES);
         return;
       }
 
       const response = await ask(resolvedUrl, question, askOpts);
       // Always JSON — `ask` is built for agent consumption.
       console.log(JSON.stringify(response, null, 2));
-      if (response.verdict === 'FAIL') process.exit(1);
+      if (response.verdict === 'FAIL') process.exit(EXIT_ISSUES);
     } catch (error) {
       console.error('Ask error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -1336,7 +1426,7 @@ program
       console.log('  npx ibr check <session-id> # checks specific session');
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -1407,7 +1497,7 @@ program
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -1427,7 +1517,7 @@ program
       await ibr.close();
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -1464,7 +1554,7 @@ program
       console.log(`\nKept: ${result.kept.length} sessions`);
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -1481,11 +1571,11 @@ program
         console.log(`Deleted session: ${sessionId}`);
       } else {
         console.log(`Session not found: ${sessionId}`);
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -1566,7 +1656,7 @@ program
           console.log(`Using next available port: ${port}`);
         } catch (e) {
           console.error(e instanceof Error ? e.message : 'Failed to find available port');
-          process.exit(1);
+          process.exit(EXIT_TOOL_ERROR);
         }
       }
     } else {
@@ -1578,7 +1668,7 @@ program
         }
       } catch (e) {
         console.error(e instanceof Error ? e.message : 'Failed to find available port');
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
     }
 
@@ -1632,7 +1722,7 @@ program
       });
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -1649,7 +1739,7 @@ program
       await clearAuthState(outputDir);
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -1686,10 +1776,10 @@ flowCmd.command('search <url>')
       });
 
       await driver.close().catch(() => {});
-      if (!result.success) process.exit(1);
+      if (!result.success) process.exit(EXIT_ISSUES);
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -1709,7 +1799,7 @@ flowCmd.command('form <url>')
         fieldMap = JSON.parse(options.fields);
       } catch {
         console.error('--fields must be valid JSON, e.g. \'{"Email":"test@example.com"}\'');
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
         return;
       }
 
@@ -1732,10 +1822,10 @@ flowCmd.command('form <url>')
       if (result.error) console.log(`Error: ${result.error}`);
 
       await driver.close().catch(() => {});
-      if (!result.success) process.exit(1);
+      if (!result.success) process.exit(EXIT_ISSUES);
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -1767,10 +1857,10 @@ flowCmd.command('login <url>')
       });
 
       await driver.close().catch(() => {});
-      if (!result.success) process.exit(1);
+      if (!result.success) process.exit(EXIT_ISSUES);
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -2039,7 +2129,7 @@ program
           process.on('uncaughtException', (err) => {
             console.error('Uncaught exception in session:start:', err);
             syncReap();
-            process.exit(1);
+            process.exit(EXIT_TOOL_ERROR);
           });
         });
       } else {
@@ -2068,7 +2158,7 @@ program
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -2088,7 +2178,7 @@ async function getSession(outputDir: string, sessionId: string) {
     console.log('');
     console.log('The first session:start launches the server and keeps it alive.');
     console.log('Run session commands in a separate terminal.');
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 
   const session = await PersistentSession.get(outputDir, sessionId);
@@ -2100,13 +2190,13 @@ async function getSession(outputDir: string, sessionId: string) {
     console.log('  2. The session was created with a different browser server');
     console.log('');
     console.log('List sessions with: npx ibr session:list');
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 
   if (session.hardWall) {
     console.log(formatUserActionRequired(session.hardWall, true));
     await session.disconnect();
-    process.exit(2);
+    process.exit(EXIT_TOOL_ERROR);
   }
 
   return session;
@@ -2133,6 +2223,7 @@ program
       await session.click(selector, { force: options.force });
       console.log(`Clicked: ${selector}${options.force ? ' (forced)' : ''}`);
     } catch (error) {
+      process.exitCode = EXIT_TOOL_ERROR;
       const msg = error instanceof Error ? error.message : String(error);
       console.error('Error:', msg);
       console.log('');
@@ -2179,6 +2270,7 @@ program
       const chosen = await session.select(selector, option, { by });
       console.log(`Selected: ${chosen.join(', ')} in: ${selector}`);
     } catch (error) {
+      process.exitCode = EXIT_TOOL_ERROR;
       const msg = error instanceof Error ? error.message : String(error);
       console.error('Error:', msg);
       console.log('');
@@ -2230,6 +2322,7 @@ program
         console.log('Waited for network idle after submit');
       }
     } catch (error) {
+      process.exitCode = EXIT_TOOL_ERROR;
       const msg = error instanceof Error ? error.message : String(error);
       console.error('Error:', msg);
       console.log('');
@@ -2260,6 +2353,7 @@ program
       await session.press(key);
       console.log(`Pressed: ${key}`);
     } catch (error) {
+      process.exitCode = EXIT_TOOL_ERROR;
       const msg = error instanceof Error ? error.message : String(error);
       console.error('Error:', msg);
       console.log('');
@@ -2277,7 +2371,7 @@ program
     if (!validDirections.includes(direction)) {
       console.error(`Error: Invalid direction "${direction}"`);
       console.log(`Valid directions: ${validDirections.join(', ')}`);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
 
     try {
@@ -2296,6 +2390,7 @@ program
       }
       console.log(`Position: x=${position.x}, y=${position.y}`);
     } catch (error) {
+      process.exitCode = EXIT_TOOL_ERROR;
       const msg = error instanceof Error ? error.message : String(error);
       console.error('Error:', msg);
       if (options?.selector) {
@@ -2361,6 +2456,7 @@ program
         }
       }
     } catch (error) {
+      process.exitCode = EXIT_TOOL_ERROR;
       console.error('Error:', error instanceof Error ? error.message : error);
       console.log('');
       console.log('Tip: Session is still active. Try without --selector for full page.');
@@ -2390,6 +2486,7 @@ program
         console.log(formatScanResult(result));
       }
     } catch (error) {
+      process.exitCode = EXIT_TOOL_ERROR;
       console.error('Error:', error instanceof Error ? error.message : error);
     }
   });
@@ -2440,6 +2537,7 @@ program
         }
       }
     } catch (error) {
+      process.exitCode = EXIT_TOOL_ERROR;
       console.error('Error:', error instanceof Error ? error.message : error);
     }
   });
@@ -2470,6 +2568,7 @@ program
         console.log(`Found: ${selectorOrMs}`);
       }
     } catch (error) {
+      process.exitCode = EXIT_TOOL_ERROR;
       console.error('Error:', error instanceof Error ? error.message : error);
       console.log('');
       console.log('Tip: Session is still active. Element may not exist yet or selector is wrong.');
@@ -2499,6 +2598,7 @@ program
       await session.navigate(url, { waitFor: options.waitFor });
       console.log(`Navigated to: ${url}`);
     } catch (error) {
+      process.exitCode = EXIT_TOOL_ERROR;
       console.error('Error:', error instanceof Error ? error.message : error);
       console.log('');
       console.log('Tip: Session is still active. Check URL or try without --wait-for.');
@@ -2547,7 +2647,7 @@ program
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -2584,7 +2684,7 @@ program
       console.log('  npx ibr session:close all --force');
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -2625,7 +2725,7 @@ program
             const remaining = await getPendingOperations(outputDir);
             console.log(`Timeout reached. ${remaining.length} operation(s) still pending.`);
             console.log('Use --force to close anyway, or wait for operations to complete.');
-            process.exit(1);
+            process.exit(EXIT_TOOL_ERROR);
           }
 
           console.log('All operations completed.');
@@ -2661,7 +2761,7 @@ program
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -2688,7 +2788,7 @@ program
           console.log(html);
         } else {
           console.error(`Element not found: ${options.selector}`);
-          process.exit(1);
+          process.exit(EXIT_TOOL_ERROR);
         }
       } else {
         const html = await session.content();
@@ -2696,7 +2796,7 @@ program
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -2716,7 +2816,7 @@ program
         const texts = await session.allTextContent(selector);
         if (texts.length === 0) {
           console.error(`No elements found: ${selector}`);
-          process.exit(1);
+          process.exit(EXIT_TOOL_ERROR);
         }
         texts.forEach((text, i) => {
           console.log(`[${i + 1}] ${text}`);
@@ -2725,13 +2825,13 @@ program
         const text = await session.textContent(selector);
         if (text === null) {
           console.error(`Element not found: ${selector}`);
-          process.exit(1);
+          process.exit(EXIT_TOOL_ERROR);
         }
         console.log(text.trim());
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -2768,7 +2868,7 @@ program
       console.log('  npx ibr session:eval <id> "document.title"');
       console.log('  npx ibr session:eval <id> "document.querySelectorAll(\'.item\').length"');
       console.log('  npx ibr session:eval <id> "window.scrollY"');
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -2783,7 +2883,7 @@ program
 
       if (!session) {
         console.error(`Session not found or not active: ${sessionId}`);
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
 
       const actions = session.actions;
@@ -2806,7 +2906,7 @@ program
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -2862,7 +2962,7 @@ program
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -2913,7 +3013,7 @@ program
       console.log(`Total: ${formatBytes(usage.totalBytes)} across ${usage.fileCount} files`);
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -2960,7 +3060,7 @@ program
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -2979,7 +3079,7 @@ program
 
       if (!metadata) {
         console.error(`Screenshot not found: ${path}`);
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
 
       console.log('Screenshot Metadata:');
@@ -3004,7 +3104,7 @@ program
       });
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -3129,7 +3229,7 @@ program
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -3186,7 +3286,7 @@ program
       console.log(`  npx ibr scan-start`);
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -3245,7 +3345,7 @@ program
       await ibr.close();
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -3313,10 +3413,10 @@ program
       await ibr.close();
 
       // Exit with error if issues
-      if (broken > 0) process.exit(1);
+      if (broken > 0) process.exit(EXIT_ISSUES);
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -3395,11 +3495,11 @@ program
 
       // Exit with error if score is low
       if (result.score < 50) {
-        process.exit(1);
+        process.exit(EXIT_ISSUES);
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -3483,11 +3583,11 @@ program
       }
 
       if (!result.success) {
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -3795,7 +3895,7 @@ memoryCmd
     const { addPreference, formatPreference } = await import('../memory.js');
     if (!opts.value) {
       console.error('Error: --value is required');
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
     const pref = await addPreference(program.opts().output || './.ibr', {
       description,
@@ -3953,7 +4053,7 @@ program
       console.log(`Total: ${devices.length} available, ${booted.length} booted`);
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -3972,7 +4072,7 @@ program
       process.exit(77);
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -4029,7 +4129,7 @@ program
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -4049,13 +4149,13 @@ program
         resolved = await findDevice(device);
         if (!resolved) {
           console.error(`No simulator found matching "${device}".`);
-          process.exit(1);
+          process.exit(EXIT_TOOL_ERROR);
         }
       } else {
         const booted = await getBootedDevices();
         if (booted.length === 0) {
           console.error('No booted simulators. Boot one first.');
-          process.exit(1);
+          process.exit(EXIT_TOOL_ERROR);
         }
         resolved = booted[0];
       }
@@ -4079,7 +4179,7 @@ program
 
       if (!captureResult.success) {
         console.error(`Screenshot failed: ${captureResult.error}`);
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
 
       console.log(`Baseline captured: ${session.id}`);
@@ -4090,7 +4190,7 @@ program
       console.log(`  npx ibr native:check ${session.id}`);
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -4112,14 +4212,14 @@ program
         session = await getSessionById(outputDir, sessionId);
         if (!session) {
           console.error(`Session not found: ${sessionId}`);
-          process.exit(1);
+          process.exit(EXIT_TOOL_ERROR);
         }
       } else {
         const sessions = await listSessions(outputDir);
         session = sessions.find(s => s.platform === 'ios' || s.platform === 'watchos');
         if (!session) {
           console.error('No native sessions found. Run native:start first.');
-          process.exit(1);
+          process.exit(EXIT_TOOL_ERROR);
         }
       }
 
@@ -4134,7 +4234,7 @@ program
 
       if (!resolved) {
         console.error('No booted simulator found.');
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
 
       const paths = getSessionPaths(outputDir, session!.id);
@@ -4147,7 +4247,7 @@ program
 
       if (!captureResult.success) {
         console.error(`Screenshot failed: ${captureResult.error}`);
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
 
       // Compare — native screenshots use neutral top/middle/bottom region
@@ -4174,7 +4274,7 @@ program
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -4191,12 +4291,12 @@ program
     try {
       if (process.platform !== 'darwin') {
         console.error('Error: scan:macos is only available on macOS');
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
 
       if (!options.app && !options.bundleId && !options.pid) {
         console.error('Error: Provide --app, --bundle-id, or --pid to identify the target app');
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
 
       const { scanMacOS, formatMacOSScanResult } = await import('../native/index.js');
@@ -4220,11 +4320,11 @@ program
       }
 
       if (result.verdict === 'FAIL') {
-        process.exit(1);
+        process.exit(EXIT_ISSUES);
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -4273,10 +4373,10 @@ program
         }
       }
 
-      if (!result.success) process.exit(1);
+      if (!result.success) process.exit(EXIT_ISSUES);
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     } finally {
       await driver.close();
     }
@@ -4310,7 +4410,7 @@ program
           fields = Object.entries(parsed).map(([name, value]) => ({ name, value }));
         } catch {
           console.error('Error: --fill must be valid JSON, e.g. \'{"email":"user@example.com"}\'');
-          process.exit(1);
+          process.exit(EXIT_TOOL_ERROR);
         }
       }
 
@@ -4335,10 +4435,10 @@ program
         if (result.error) console.log(`Error: ${result.error}`);
       }
 
-      if (!result.success) process.exit(1);
+      if (!result.success) process.exit(EXIT_ISSUES);
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     } finally {
       await driver.close();
     }
@@ -4368,7 +4468,7 @@ program
 
       if (!options.email || !options.password) {
         console.error('Error: --email and --password are required');
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
 
       await driver.launch(withBrowserOptions({ headless: true, viewport: viewportToConfig(viewport) }));
@@ -4391,10 +4491,10 @@ program
         if (result.error) console.log(`Error: ${result.error}`);
       }
 
-      if (!result.success) process.exit(1);
+      if (!result.success) process.exit(EXIT_ISSUES);
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     } finally {
       await driver.close();
     }
@@ -4437,7 +4537,7 @@ program
       console.error('')
       console.error('Usage:')
       console.error('  npx ibr test-interact <url> --action "click:button:Submit" --expect "visible:Success"')
-      process.exit(1)
+      process.exit(EXIT_TOOL_ERROR)
     }
 
     // Parse action args into steps — each --action gets its own step
@@ -4448,7 +4548,7 @@ program
         action = parseActionArg(actionSpec)
       } catch (err) {
         console.error(`Error parsing --action "${actionSpec}": ${err instanceof Error ? err.message : err}`)
-        process.exit(1)
+        process.exit(EXIT_TOOL_ERROR)
       }
 
       const isLastStep = i === options.action.length - 1
@@ -4465,7 +4565,7 @@ program
             Object.assign(expectObj, parsed)
           } catch (err) {
             console.error(`Error parsing --expect "${expectSpec}": ${err instanceof Error ? err.message : err}`)
-            process.exit(1)
+            process.exit(EXIT_TOOL_ERROR)
           }
         }
 
@@ -4525,10 +4625,10 @@ program
         results.some((r) => !r.action.success) ||
         results.some((r) => r.assertions.some((a) => !a.passed))
 
-      if (anyFailed) process.exit(1)
+      if (anyFailed) process.exit(EXIT_ISSUES)
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error)
-      process.exit(1)
+      process.exit(EXIT_TOOL_ERROR)
     }
   })
 
@@ -4616,11 +4716,11 @@ program
 
       // Exit 0 for pass, 1 for review or fail
       if (result.ssim.verdict !== 'pass') {
-        process.exit(1)
+        process.exit(EXIT_ISSUES)
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error)
-      process.exit(1)
+      process.exit(EXIT_TOOL_ERROR)
     }
   })
 
@@ -4653,11 +4753,11 @@ program
 
       if (!options.element) {
         console.error('Error: --element is required');
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
       if (!options.description) {
         console.error('Error: --description is required');
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
 
       let checks: unknown[] = [];
@@ -4666,11 +4766,11 @@ program
           checks = JSON.parse(options.checks);
           if (!Array.isArray(checks)) {
             console.error('Error: --checks must be a JSON array');
-            process.exit(1);
+            process.exit(EXIT_TOOL_ERROR);
           }
         } catch {
           console.error('Error: --checks is not valid JSON');
-          process.exit(1);
+          process.exit(EXIT_TOOL_ERROR);
         }
       }
 
@@ -4690,7 +4790,7 @@ program
         for (const issue of parseResult.error.issues) {
           console.error(`  ${issue.path.join('.')}: ${issue.message}`);
         }
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
 
       await saveChange(outputDir, parseResult.data);
@@ -4706,7 +4806,7 @@ program
       console.log(`  npx ibr verify-changes ${url}`);
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -4766,12 +4866,12 @@ program
       await driver.close();
 
       if (results.some((r) => !r.overallPassed)) {
-        process.exit(1);
+        process.exit(EXIT_ISSUES);
       }
     } catch (error) {
       await driver.close().catch(() => {});
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -4848,7 +4948,7 @@ program
         process.stderr.write(
           `zoom-track: found ${track.clicks.length} target(s), need at least ${min} — ${why}\n`,
         );
-        process.exit(1);
+        process.exit(EXIT_ISSUES);
       }
 
       // --rich keeps text/role/weight/colours alongside the geometry. Spectra
@@ -4882,7 +4982,7 @@ program
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -4909,7 +5009,7 @@ program
       console.log(`Generated ${total} test(s) for ${pageNames.length} page(s) → ${options.testFile}`)
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error)
-      process.exit(1)
+      process.exit(EXIT_TOOL_ERROR)
     }
   })
 
@@ -4944,10 +5044,10 @@ program
       }
 
       const anyFailed = results.some(r => r.failed > 0)
-      process.exit(anyFailed ? 1 : 0)
+      process.exit(anyFailed ? EXIT_ISSUES : EXIT_PASS)
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error)
-      process.exit(1)
+      process.exit(EXIT_TOOL_ERROR)
     }
   })
 
@@ -4980,7 +5080,7 @@ program
       process.exit(result.exitCode)
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error)
-      process.exit(1)
+      process.exit(EXIT_TOOL_ERROR)
     }
   })
 
@@ -5027,11 +5127,11 @@ program
       const last = result.iterations[result.iterations.length - 1]
       const hasIssues = last ? last.issueCount > 0 : false
       if (result.finalState === 'regressing' || (result.finalState === 'budget_exceeded' && hasIssues)) {
-        process.exit(1)
+        process.exit(EXIT_ISSUES)
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error)
-      process.exit(1)
+      process.exit(EXIT_TOOL_ERROR)
     }
   })
 
@@ -5240,14 +5340,14 @@ program
       if (!element) {
         console.error(`Element not found: "${opts.target}"`)
         console.error('Use "ibr observe <url>" to see available elements.')
-        process.exit(1)
+        process.exit(EXIT_TOOL_ERROR)
       }
 
       const action = opts.action
       const knownActions = ['click', 'type', 'fill', 'hover', 'press', 'scroll', 'select', 'check']
       if (!knownActions.includes(action)) {
         console.error(`Unknown action: ${action}`)
-        process.exit(1)
+        process.exit(EXIT_TOOL_ERROR)
       }
 
       // f8 / T-09 (CLI leg): this used to print "✓ ... succeeded" unconditionally
@@ -5289,7 +5389,7 @@ program
         console.error(`✗ ${action} on "${opts.target}" did not produce the expected change (no-op)`)
         console.error(`  expected: ${validator.expected}`)
         console.error(`  observed: ${validator.observed}`)
-        process.exitCode = 1
+        process.exitCode = EXIT_ISSUES
       }
 
       if (opts.screenshot !== false) {
@@ -5305,7 +5405,7 @@ program
       }
     } catch (err) {
       console.error(`Failed: ${err instanceof Error ? err.message : String(err)}`)
-      process.exit(1)
+      process.exit(EXIT_TOOL_ERROR)
     } finally {
       await driver.close().catch(() => {})
     }
@@ -5345,7 +5445,7 @@ program
       })
     } catch (err) {
       console.error(`Failed: ${err instanceof Error ? err.message : String(err)}`)
-      process.exit(1)
+      process.exit(EXIT_TOOL_ERROR)
     } finally {
       await driver.close().catch(() => {})
     }
@@ -5394,7 +5494,7 @@ program
       }
     } catch (err) {
       console.error(`Failed: ${err instanceof Error ? err.message : String(err)}`)
-      process.exit(1)
+      process.exit(EXIT_TOOL_ERROR)
     } finally {
       await driver.close().catch(() => {})
     }
@@ -5423,7 +5523,7 @@ program
       }
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
@@ -5472,7 +5572,7 @@ program
       }
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   });
 
