@@ -20,8 +20,8 @@ import { parseColor } from '../../rules/color-parse.js';
  *   2. STATUS IS ITS OWN SHORT TEXT — at most 24 characters and 3 words, with
  *      the status word leading ("Failed", "Active 3", "● Pending"). "Retry
  *      failed" is an action label that mentions a status, not a status.
- *   3. PILL-ISH — border-radius at least a quarter of its height, or
- *      inline-level display (a chip sitting in a line of text).
+ *   3. (No shape gate.) Corners do not matter: a 4px-radius badge in a flex
+ *      row computes display:block and is still a background badge.
  *   4. SATURATED FILL — HSL saturation >= 0.25 at alpha >= 0.15. Neutral grey
  *      and near-white surfaces are not status colour; `bg-red-100` (#fee2e2)
  *      is, and is the canonical violation.

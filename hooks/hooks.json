@@ -6,7 +6,7 @@
         "hooks": [{
           "type": "command",
             "command": "root=\"${CLAUDE_PLUGIN_ROOT:-$CLAUDE_PROJECT_DIR}\"; hook=\"$root/hooks/ibr-pre-change.sh\"; if [ -x \"$hook\" ]; then \"$hook\"; else printf '{}'; fi",
-          "timeout": 5000
+          "timeout": 5
         }]
       },
       {
@@ -24,7 +24,7 @@
         "hooks": [{
           "type": "command",
             "command": "root=\"${CLAUDE_PLUGIN_ROOT:-$CLAUDE_PROJECT_DIR}\"; hook=\"$root/hooks/ibr-post-change.sh\"; if [ -x \"$hook\" ]; then \"$hook\"; else printf '{}'; fi",
-          "timeout": 30000
+          "timeout": 30
         }]
       }
     ],

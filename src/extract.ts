@@ -569,25 +569,43 @@ async function enrichWithEventListeners(page: PageLike, elements: EnhancedElemen
       // createElement('div') literals would otherwise match nearly every
       // candidate through some ancestor. Literals that match <html>/<body>
       // ('*', 'body', ':root') are never selective and are skipped.
-      const selectorMatches = (el, sel) => {
+      // Split a selector list on top-level commas (not inside [] or ()).
+      const splitSelectorList = (sel) => {
+        const parts = []; let depth = 0; let cur = '';
+        for (const ch of sel) {
+          if (ch === '[' || ch === '(') depth++;
+          else if ((ch === ']' || ch === ')') && depth > 0) depth--;
+          if (ch === ',' && depth === 0) { parts.push(cur.trim()); cur = ''; } else cur += ch;
+        }
+        if (cur.trim()) parts.push(cur.trim());
+        return parts;
+      };
+      // A pure type selector ('button', 'a, button', 'button:not(.x)' still
+      // leads with a type) names no particular control: analytics trackers
+      // and outside-click closers use them (closest('a,button')). A source
+      // literal is evidence of delegation to THIS control only through a
+      // list part that carries a class, id or attribute component outside
+      // any :not(...). jQuery-registered selectors are direct proof of a
+      // bound delegated handler and skip this test (trusted = true).
+      const isSelectivePart = (part) => /[[.#]/.test(part.replace(/:not\\([^)]*\\)/g, ''));
+      const selectorMatches = (el, sel, trusted) => {
         try {
           if (document.documentElement.matches(sel) || (document.body && document.body.matches(sel))) return false;
-          // A pure type selector ('button', 'a, button', 'BUTTON') names no
-          // particular control: analytics trackers and outside-click closers
-          // use it (closest('a,button')). Only a literal carrying a class,
-          // id or attribute component is evidence of delegation to THIS one.
-          if (!/[[.#]/.test(sel)) return false;
-          if (el.matches(sel)) return true;
-          if (bareTagRe.test(sel)) return false;
-          const hit = el.closest(sel);
-          return !!(hit && !isRootEl(hit));
+          const parts = trusted ? [sel] : splitSelectorList(sel).filter(isSelectivePart);
+          for (const part of parts) {
+            if (el.matches(part)) return true;
+            if (bareTagRe.test(part)) continue;
+            const hit = el.closest(part);
+            if (hit && !isRootEl(hit)) return true;
+          }
+          return false;
         } catch (e) {
           return false; // not a valid selector
         }
       };
       const rootDelegatesTo = (el) => {
         for (const sel of rootInfo.jquerySelectors) {
-          if (selectorMatches(el, sel)) return true;
+          if (selectorMatches(el, sel, true)) return true;
         }
         for (const lit of rootLiterals) {
           if (selectorMatches(el, lit)) return true;

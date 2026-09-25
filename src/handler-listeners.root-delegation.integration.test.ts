@@ -92,6 +92,8 @@ const PAGES = {
     `document.addEventListener('click', function (e) {
        var t = e.target.closest('a,button'); if (t) console.log('track', t.textContent);
        if (!e.target.closest('button')) console.log('close menus');
+       if (e.target.closest('a, button, .btn')) console.log('mixed list');
+       if (e.target.closest('button:not(.x)')) console.log('negated');
      });`,
   ),
 } as const;
