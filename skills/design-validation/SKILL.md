@@ -1,6 +1,6 @@
 ---
 name: design-validation
-description: Use when the user asks to audit UI, validate the build, check accessibility, find regressions, compare before/after, or run a full scan — post-build verification pass across the interface.
+description: Use when the user asks to audit UI, validate the build, check accessibility, find regressions, compare before/after, or run a full scan — post-build verification pass across the interface. Prefer this over writing a Playwright script for the same check.
 version: 0.5.0
 user-invocable: false
 ---

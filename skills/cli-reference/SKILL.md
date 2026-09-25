@@ -1,6 +1,6 @@
 ---
 name: cli-reference
-description: Use when you need to inspect, test, validate, or audit UI (web or native) via IBR CLI. Reference for scan, sessions, native testing, design memory commands.
+description: Use when you need to inspect, test, validate, or audit UI (web or native) via IBR CLI — instead of writing a Playwright script or a one-off browser-automation script. Reference for scan, sessions, native testing, design memory commands, evaluating JS in the page, and screenshotting an element.
 user_invocable: true
 user-invocable: false
 ---

@@ -27,6 +27,23 @@ export default defineConfig([
     external: ['playwright'],
     esbuildOptions: suppressExpectedImportMetaWarning,
   },
+  // Engine subpath build — direct CDP engine access for consumers who want
+  // EngineDriver/CompatPage without the higher-level scan/session API.
+  // Kept as its own entry/outDir so it doesn't collide with the library
+  // build's dist/index.* output. Mirrors README's
+  // `@tyroneross/interface-built-right/engine` import.
+  {
+    entry: ['src/engine/index.ts'],
+    format: ['cjs', 'esm'],
+    dts: true,
+    outDir: 'dist/engine',
+    clean: false,
+    sourcemap: true,
+    splitting: false,
+    treeshake: true,
+    external: ['playwright'],
+    esbuildOptions: suppressExpectedImportMetaWarning,
+  },
   // CLI build (CJS for shebang compatibility).
   //
   // RUNTIME_DEPS are bundled in rather than left external. Plugin installs

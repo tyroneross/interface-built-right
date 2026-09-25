@@ -1,6 +1,6 @@
 ---
 name: interactive-testing
-description: Use when the user asks to test a form, click through a flow, test search or login, interact with a page, or needs browser interaction testing.
+description: Use when the user asks to test a form, click through a flow, test search or login, interact with a page, evaluate JS in the page, screenshot an element, or needs browser interaction testing — instead of writing a Playwright script.
 version: 0.8.0
 user-invocable: false
 argument-hint: <url>
@@ -91,11 +91,21 @@ npx ibr extract http://localhost:3000
 
 ## Common Flows
 
+Each `npx ibr interact <url> ...` / `npx ibr extract <url>` call opens its own
+fresh page — nothing typed or clicked in one call carries over to the next.
+That's fine for a single action, but chaining several `interact` calls against
+the same URL to fill a form, open a modal, or read post-filter results is a
+bug: the second call never sees what the first one did. For any flow with
+more than one step, start a session (`session:start --detach`) and drive it
+with `session:*` commands, which share one live page until `session:close`.
+
 ### Test search filtering
 ```bash
-npx ibr observe http://localhost:3000        # Find the search input name
-npx ibr interact http://localhost:3000 --action fill --target "Search tools" --value "debug"
-npx ibr extract http://localhost:3000         # Verify filtered results
+npx ibr observe http://localhost:3000                                      # optional: find selectors before interacting
+SESSION_ID=$(npx ibr session:start http://localhost:3000 --detach | grep "Session started:" | awk '{print $NF}')
+npx ibr session:type $SESSION_ID "input[name=search]" "debug"
+npx ibr session:text $SESSION_ID -a ".result-item"                         # verify filtered results
+npx ibr session:close $SESSION_ID
 ```
 
 ### Test semantic AI search
@@ -105,16 +115,21 @@ npx ibr search-test http://localhost:3000 --query "pricing plan" --intent "Find 
 
 ### Test modal popup
 ```bash
-npx ibr interact http://localhost:3000 --action click --target "FlowDoro"
-npx ibr extract http://localhost:3000         # Verify modal content appeared
-npx ibr interact http://localhost:3000 --action click --target "Close"  # or press Escape
+SESSION_ID=$(npx ibr session:start http://localhost:3000 --detach | grep "Session started:" | awk '{print $NF}')
+npx ibr session:click $SESSION_ID "[data-testid=flowdoro-card]"            # session:click is CSS-selector only; for a one-shot accessible-name click use `interact --target`, at the cost of a fresh page
+npx ibr session:text $SESSION_ID ".modal"                                  # verify modal content appeared
+npx ibr session:press $SESSION_ID Escape                                   # or: npx ibr session:click $SESSION_ID ".modal .close"
+npx ibr session:close $SESSION_ID
 ```
 
 ### Test form submission
 ```bash
-npx ibr interact http://localhost:3000 --action fill --target "Name" --value "John"
-npx ibr interact http://localhost:3000 --action fill --target "Email" --value "john@test.com"
-npx ibr interact http://localhost:3000 --action click --target "Submit"
+SESSION_ID=$(npx ibr session:start http://localhost:3000/form --detach | grep "Session started:" | awk '{print $NF}')
+npx ibr session:type $SESSION_ID "input[name=name]" "John"
+npx ibr session:type $SESSION_ID "input[name=email]" "john@test.com"
+npx ibr session:click $SESSION_ID "button[type=submit]"
+npx ibr session:text $SESSION_ID ".success-message"                        # verify submission succeeded
+npx ibr session:close $SESSION_ID
 ```
 
 ## Element Resolution
