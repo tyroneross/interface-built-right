@@ -142,6 +142,9 @@ describe('ask: signal-noise', () => {
       selector: '.badge',
       text: 'Success',
       tagName: 'span',
+      // Badge-shaped: signal-noise-status only grades small pill-like status
+      // elements, not card/row surfaces that merely contain a status word.
+      bounds: { x: 0, y: 0, width: 64, height: 20 },
       computedStyles: { backgroundColor: 'rgb(34, 197, 94)' },
       interactive: { hasOnClick: false, hasHref: false, isDisabled: false, tabIndex: -1, cursor: 'default' },
     })

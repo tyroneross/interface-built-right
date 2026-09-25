@@ -116,6 +116,90 @@ describe('Calm Precision Principles', () => {
       expect(rule.check(el, mockContext())).toBeNull();
     });
 
+    // Calm Precision PRESCRIBES a one-sided divider between items of a
+    // single bordered group. It used to fire as an error.
+    it('passes a list item carrying only a one-sided divider', () => {
+      const el = mockElement({
+        tagName: 'li',
+        computedStyles: {
+          borderTopWidth: '1px',
+          borderRightWidth: '0px',
+          borderBottomWidth: '0px',
+          borderLeftWidth: '0px',
+          borderStyle: 'solid none none',
+        },
+      });
+      expect(rule.check(el, mockContext())).toBeNull();
+    });
+
+    it('passes a list item with top and bottom dividers only', () => {
+      const el = mockElement({
+        tagName: 'li',
+        computedStyles: {
+          borderTopWidth: '1px',
+          borderRightWidth: '0px',
+          borderBottomWidth: '1px',
+          borderLeftWidth: '0px',
+          borderStyle: 'solid none',
+        },
+      });
+      expect(rule.check(el, mockContext())).toBeNull();
+    });
+
+    it('still flags a three-sided box', () => {
+      const el = mockElement({
+        tagName: 'li',
+        computedStyles: {
+          borderTopWidth: '1px',
+          borderRightWidth: '1px',
+          borderBottomWidth: '1px',
+          borderLeftWidth: '0px',
+          borderStyle: 'solid solid solid none',
+        },
+      });
+      expect(rule.check(el, mockContext())?.ruleId).toBe('calm-precision/gestalt-grouping');
+    });
+
+    // The old test was `selector.includes('item')` over the ANCESTOR path.
+    it('does not treat a filled button inside a .run-item row as a list item', () => {
+      const el = mockElement({
+        tagName: 'button',
+        selector: 'main > ul > li.run-item > button',
+        className: 'btn',
+        computedStyles: {
+          borderTopWidth: '1px', borderRightWidth: '1px', borderBottomWidth: '1px', borderLeftWidth: '1px',
+          borderStyle: 'solid',
+        },
+      });
+      expect(rule.check(el, mockContext())).toBeNull();
+    });
+
+    it('does not treat a control whose own class is *-item as a list item', () => {
+      const el = mockElement({
+        tagName: 'button',
+        selector: 'button.menu-item',
+        className: 'menu-item',
+        computedStyles: {
+          borderTopWidth: '1px', borderRightWidth: '1px', borderBottomWidth: '1px', borderLeftWidth: '1px',
+          borderStyle: 'solid',
+        },
+      });
+      expect(rule.check(el, mockContext())).toBeNull();
+    });
+
+    it('flags a boxed div whose OWN class token is an item class', () => {
+      const el = mockElement({
+        tagName: 'div',
+        selector: 'div.card-item',
+        className: 'card-item featured',
+        computedStyles: {
+          borderTopWidth: '1px', borderRightWidth: '1px', borderBottomWidth: '1px', borderLeftWidth: '1px',
+          borderStyle: 'solid',
+        },
+      });
+      expect(rule.check(el, mockContext())?.ruleId).toBe('calm-precision/gestalt-grouping');
+    });
+
     it('passes for non-list elements with borders', () => {
       const el = mockElement({
         tagName: 'div',
@@ -127,39 +211,67 @@ describe('Calm Precision Principles', () => {
 
   describe('Signal-to-Noise: Status Indication', () => {
     const rule = signalNoiseRules[0];
+    const pill = (overrides: Partial<EnhancedElement> = {}, styles: Record<string, string> = {}) => mockElement({
+      tagName: 'a',
+      selector: 'a.pill',
+      text: 'Failed',
+      bounds: { x: 0, y: 0, width: 56, height: 20 },
+      ...overrides,
+      computedStyles: { backgroundColor: 'rgb(220, 38, 38)', borderRadius: '9999px', display: 'inline-block', ...styles },
+    });
 
-    it('flags status text with heavy background', () => {
-      const el = mockElement({
-        text: 'Success',
-        computedStyles: { backgroundColor: '#22c55e' },
-      });
-      const result = rule.check(el, mockContext());
+    it('flags a small saturated pill whose label is a status word', () => {
+      const result = rule.check(pill(), mockContext());
       expect(result).not.toBeNull();
       expect(result!.fix).toContain('text color');
     });
 
+    // bg-red-100 text-red-700 rounded-full: pale, but saturated. The
+    // canonical Calm Precision violation.
+    it('flags a pale tinted badge (bg-red-100)', () => {
+      expect(rule.check(pill({}, { backgroundColor: 'rgb(254, 226, 226)' }), mockContext())).not.toBeNull();
+    });
+
+    it('flags a status word with a count ("Active 3")', () => {
+      expect(rule.check(pill({ text: 'Active 3' }), mockContext())).not.toBeNull();
+    });
+
     it('passes for status text without background', () => {
-      const el = mockElement({
-        text: 'Success',
-        computedStyles: { backgroundColor: 'transparent' },
-      });
-      expect(rule.check(el, mockContext())).toBeNull();
+      expect(rule.check(pill({}, { backgroundColor: 'transparent' }), mockContext())).toBeNull();
     });
 
     it('allows subtle backgrounds (low opacity)', () => {
-      const el = mockElement({
-        text: 'Pending',
-        computedStyles: { backgroundColor: 'rgba(0, 128, 0, 0.08)' },
-      });
-      expect(rule.check(el, mockContext())).toBeNull();
+      expect(rule.check(pill({ text: 'Pending' }, { backgroundColor: 'rgba(0, 128, 0, 0.08)' }), mockContext())).toBeNull();
     });
 
     it('ignores non-status text', () => {
-      const el = mockElement({
-        text: 'Hello World',
-        computedStyles: { backgroundColor: '#ff0000' },
-      });
-      expect(rule.check(el, mockContext())).toBeNull();
+      expect(rule.check(pill({ text: 'Hello World' }), mockContext())).toBeNull();
+    });
+
+    // The false positives this rule shipped with.
+    it('ignores a card surface whose body text mentions a status', () => {
+      const card = pill(
+        { tagName: 'details', text: 'Build 41 failed on the lint step', bounds: { x: 0, y: 0, width: 900, height: 120 } },
+        { backgroundColor: 'rgb(254, 242, 242)', borderRadius: '8px', display: 'block' },
+      );
+      expect(rule.check(card, mockContext())).toBeNull();
+    });
+
+    it('ignores a large row even when its text is only a status word', () => {
+      const row = pill({ bounds: { x: 0, y: 0, width: 900, height: 48 } }, { display: 'block', borderRadius: '0px' });
+      expect(rule.check(row, mockContext())).toBeNull();
+    });
+
+    it('ignores an action label that merely mentions a status', () => {
+      expect(rule.check(pill({ tagName: 'button', text: 'Retry failed' }), mockContext())).toBeNull();
+    });
+
+    it('ignores neutral grey fills', () => {
+      expect(rule.check(pill({}, { backgroundColor: 'rgb(229, 231, 235)' }), mockContext())).toBeNull();
+    });
+
+    it('ignores square block chips (not pill-shaped)', () => {
+      expect(rule.check(pill({}, { display: 'block', borderRadius: '0px' }), mockContext())).toBeNull();
     });
   });
 
@@ -296,6 +408,66 @@ describe('Calm Precision Principles', () => {
       expect(rule.check(el, ctx)).toBeNull();
     });
 
+    it('names every chrome element it counted, with its box', () => {
+      const header = mockElement({ selector: 'header.site', tagName: 'header', bounds: { x: 0, y: 0, width: 1920, height: 300 } });
+      const nav = mockElement({ selector: 'nav.side', tagName: 'nav', bounds: { x: 0, y: 300, width: 500, height: 780 } });
+      const inner = mockElement({ selector: 'header.site > nav', tagName: 'nav', bounds: { x: 0, y: 0, width: 400, height: 60 } });
+      const first = mockElement({ selector: 'div.first' });
+      const result = rule.check(first, mockContext([first, header, nav, inner])) as
+        (ReturnType<typeof rule.check> & { chromeElements?: Array<{ selector: string }> });
+      expect(result).not.toBeNull();
+      expect(result!.message).toContain('header.site (0,0 1920x300)');
+      expect(result!.message).toContain('nav.side (0,300 500x780)');
+      // Nested chrome adds no area and is not named separately.
+      expect(result!.chromeElements!.map((c) => c.selector)).toEqual(['header.site', 'nav.side']);
+    });
+
+    it('caps the named list at 10 with "+N more"', () => {
+      const els = [mockElement({ selector: 'div.first' })];
+      for (let i = 0; i < 14; i++) {
+        els.push(mockElement({ selector: `nav.n${i}`, tagName: 'nav', bounds: { x: i * 130, y: 0, width: 120, height: 1080 } }));
+      }
+      const result = rule.check(els[0]!, mockContext(els));
+      expect(result!.message).toContain('+4 more');
+    });
+
+    // HTML-AAM: <header> scoped inside main/section/article is not a banner.
+    it('does not count a <header> inside <main> (or its text) as chrome', () => {
+      const hero = mockElement({ selector: 'main > header', tagName: 'header', bounds: { x: 0, y: 0, width: 1920, height: 600 } });
+      const heroText = mockElement({ selector: 'main > header > p.eyebrow', tagName: 'p', bounds: { x: 0, y: 0, width: 1920, height: 40 } });
+      const first = mockElement({ selector: 'div.first' });
+      expect(rule.check(first, mockContext([first, hero, heroText]))).toBeNull();
+    });
+
+    it('scopes an id-rooted <header> by its box when the path cannot say', () => {
+      const main = mockElement({ selector: 'main', tagName: 'main', bounds: { x: 0, y: 0, width: 1920, height: 3000 } });
+      const hero = mockElement({ selector: '#top', tagName: 'header', bounds: { x: 16, y: 32, width: 1800, height: 600 } });
+      const first = mockElement({ selector: 'div.first' });
+      expect(rule.check(first, mockContext([first, main, hero]))).toBeNull();
+    });
+
+    it('does not count .card-header content as chrome', () => {
+      const cardHeader = mockElement({ selector: 'main > div.card-header', tagName: 'div', className: 'card-header', bounds: { x: 0, y: 0, width: 1920, height: 600 } });
+      const first = mockElement({ selector: 'div.first' });
+      expect(rule.check(first, mockContext([first, cardHeader]))).toBeNull();
+    });
+
+    it('does not count form answer buttons as chrome, even under a chrome-classed wrapper', () => {
+      const answers = [0, 1, 2, 3].map((i) => mockElement({
+        selector: `div.toolbar > form > button:nth-of-type(${i + 1})`,
+        tagName: 'button',
+        bounds: { x: i * 480, y: 0, width: 470, height: 800 },
+      }));
+      const radio = mockElement({
+        selector: 'div.menu > button.choice',
+        tagName: 'button',
+        a11y: { role: 'radio', ariaLabel: null, ariaDescribedBy: null },
+        bounds: { x: 0, y: 800, width: 1920, height: 200 },
+      });
+      const first = mockElement({ selector: 'div.first' });
+      expect(rule.check(first, mockContext([first, ...answers, radio]))).toBeNull();
+    });
+
     it('only runs on first element', () => {
       const nav = mockElement({
         tagName: 'nav',
@@ -330,7 +502,7 @@ describe('Calm Precision Principles', () => {
 
       const result = rule.check(container, mockContext(children));
       expect(result).not.toBeNull();
-      expect(result!.message).toContain('interactive elements');
+      expect(result!.message).toContain('12 visible controls');
     });
 
     it('passes for containers with few children', () => {
@@ -348,6 +520,53 @@ describe('Calm Precision Principles', () => {
       }
 
       expect(rule.check(container, mockContext(children))).toBeNull();
+    });
+
+    const control = (selector: string, x: number, y: number) => mockElement({
+      selector,
+      tagName: 'button',
+      bounds: { x, y, width: 50, height: 40 },
+      interactive: { hasOnClick: true, hasHref: false, isDisabled: false, tabIndex: 0, cursor: 'pointer' },
+    });
+
+    // <main> used to absorb every control of every nested <section>.
+    it('does not count controls owned by nested sections against <main> (bounds fallback)', () => {
+      const main = mockElement({ selector: 'main', tagName: 'main', bounds: { x: 0, y: 0, width: 1000, height: 900 } });
+      const all: EnhancedElement[] = [main];
+      for (let s = 0; s < 3; s++) {
+        const section = mockElement({ selector: `main > section:nth-of-type(${s + 1})`, tagName: 'section', bounds: { x: 0, y: s * 300, width: 1000, height: 290 } });
+        all.push(section);
+        for (let i = 0; i < 6; i++) all.push(control(`main > section:nth-of-type(${s + 1}) > button:nth-of-type(${i + 1})`, 10 + i * 60, s * 300 + 10));
+      }
+      for (const el of all) {
+        if (el.tagName === 'button') continue;
+        expect(rule.check(el, mockContext(all))).toBeNull();
+      }
+    });
+
+    it('counts role=group children against the group, not the section around it', () => {
+      const section = mockElement({ selector: 'section', tagName: 'section', bounds: { x: 0, y: 0, width: 1000, height: 400 } });
+      const group = mockElement({
+        selector: 'section > div.filters', tagName: 'div', bounds: { x: 0, y: 0, width: 1000, height: 100 },
+        a11y: { role: 'group', ariaLabel: 'Filters', ariaDescribedBy: null },
+      });
+      const all: EnhancedElement[] = [section, group];
+      for (let i = 0; i < 12; i++) all.push(control(`section > div.filters > button:nth-of-type(${i + 1})`, i * 70, 10));
+      expect(rule.check(section, mockContext(all))).toBeNull();
+      expect(rule.check(group, mockContext(all))?.message).toContain('12 visible controls');
+    });
+
+    it('uses DOM ownership facts from the scan when attached', () => {
+      const main = mockElement({ selector: 'main', tagName: 'main', bounds: { x: 0, y: 0, width: 1000, height: 900 } });
+      const all: EnhancedElement[] = [main];
+      for (let i = 0; i < 25; i++) all.push(control(`b${i}`, (i % 10) * 60, Math.floor(i / 10) * 50));
+      // Bounds alone say 25; the DOM says main owns only 2 directly.
+      const withFacts = { ...main, controlGroup: { ownedControls: 2, controlSelectors: ['b0', 'b1'] } };
+      expect(rule.check(withFacts, mockContext(all))).toBeNull();
+      const crowded = { ...main, controlGroup: { ownedControls: 12, controlSelectors: Array.from({ length: 10 }, (_, i) => `b${i}`) } };
+      const result = rule.check(crowded, mockContext(all));
+      expect(result?.message).toContain('12 visible controls');
+      expect(result?.message).toContain('+7 more');
     });
 
     it('ignores controls retained in hidden panels', () => {

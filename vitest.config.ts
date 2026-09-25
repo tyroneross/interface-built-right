@@ -17,6 +17,7 @@ const BROWSER_INTEGRATION = [
   'src/native-activation.integration.test.ts',
   'src/handler-listeners.root-delegation.integration.test.ts',
   'src/engine/cdp/browser-concurrent-launch.integration.test.ts',
+  'src/design-system/principles/calm-precision.integration.test.ts',
 ];
 
 export default defineConfig({

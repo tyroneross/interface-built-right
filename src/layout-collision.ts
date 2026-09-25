@@ -1,4 +1,5 @@
 import type { EnhancedElement } from './schemas.js';
+import type { PageLike } from './engine/page-like.js';
 
 export interface LayoutCollision {
   element1: { selector: string; text: string; bounds: { x: number; y: number; width: number; height: number } };
@@ -39,7 +40,12 @@ export function detectLayoutCollisions(elements: EnhancedElement[]): LayoutColli
       // Early exit: b is too far below a to overlap (sorted by y, so all later elements are even lower)
       if (b.bounds.y > aBottom + 2) break;
 
-      // 6. Skip parent/child relationships (selector prefix check)
+      // 6. Skip the same node and parent/child relationships (selector prefix
+      // check). This is only a heuristic: a selector path stops at the first
+      // ancestor with an id, so `#copy-sum` does not start with its own
+      // `details.copy` ancestor's path. `excludeDomRelatedCollisions` settles
+      // containment from the live DOM afterwards.
+      if (a.selector === b.selector) continue;
       if (b.selector.startsWith(a.selector) || a.selector.startsWith(b.selector)) continue;
 
       // 3. Calculate bounding box intersection
@@ -88,4 +94,54 @@ export function detectLayoutCollisions(elements: EnhancedElement[]): LayoutColli
     collisions,
     hasCollisions: collisions.length > 0,
   };
+}
+
+/**
+ * Drop collisions whose two elements are the same DOM node or where one
+ * CONTAINS the other in the DOM.
+ *
+ * A `<summary>` always sits inside its `<details>`, and a label inside its
+ * button; their boxes overlap by construction, not by layout failure. The
+ * selector-prefix heuristic above misses them whenever the inner element has
+ * an id — `#copy-sum` versus `main > section:nth-of-type(5) > details.copy`
+ * was reported as a 100% self-collision. Identical bounds are NOT the test:
+ * two genuinely stacked siblings can share a box, and that is a real defect.
+ *
+ * Each selector is resolved with `querySelectorAll`; containment is decided
+ * with `Node.contains`. A selector that does not resolve to exactly one node
+ * leaves the pair undecided, and an undecided pair is KEPT — dropping a
+ * collision we could not disprove would hide a real one.
+ *
+ * Best-effort: if the page cannot be evaluated, the input is returned as is.
+ */
+export async function excludeDomRelatedCollisions(
+  page: PageLike,
+  result: LayoutCollisionResult,
+): Promise<LayoutCollisionResult> {
+  if (result.collisions.length === 0) return result;
+  const pairs = result.collisions.map((c) => [c.element1.selector, c.element2.selector]);
+  let related: boolean[];
+  try {
+    related = await page.evaluate((input: string[][]) => {
+      const resolve = (sel: string): Element | null => {
+        try {
+          const found = document.querySelectorAll(sel);
+          return found.length === 1 ? found[0]! : null;
+        } catch {
+          return null;
+        }
+      };
+      return input.map(([s1, s2]) => {
+        const n1 = resolve(s1!);
+        const n2 = resolve(s2!);
+        if (!n1 || !n2) return false;
+        return n1 === n2 || n1.contains(n2) || n2.contains(n1);
+      });
+    }, pairs) as boolean[];
+  } catch {
+    return result;
+  }
+  if (!Array.isArray(related) || related.length !== result.collisions.length) return result;
+  const collisions = result.collisions.filter((_, i) => !related[i]);
+  return { collisions, hasCollisions: collisions.length > 0 };
 }

@@ -1,0 +1,18 @@
+<!doctype html>
+<!-- TRUE violation for calm-precision/content-chrome-ratio: a tall site
+     header, a wide sidebar nav and a fixed footer leave little room for
+     content. The finding must NAME these elements. -->
+<html lang="en"><head><meta charset="utf-8"><title>Chrome heavy</title>
+<style>
+  body { margin: 0; font: 16px/1.5 system-ui, sans-serif; color: #111827; }
+  body > header { height: 360px; background: #f3f4f6; padding: 24px; }
+  body > nav { position: fixed; left: 0; top: 360px; width: 480px; bottom: 200px; background: #f9fafb; padding: 24px; }
+  body > footer { position: fixed; left: 0; right: 0; bottom: 0; height: 200px; background: #f3f4f6; padding: 24px; }
+  main { margin-left: 480px; padding: 24px; }
+</style></head>
+<body>
+  <header id="site-header"><strong>Acme</strong></header>
+  <nav id="side-nav" aria-label="Sections"><a href="#a">Alpha</a> <a href="#b">Beta</a></nav>
+  <main><p>A little content.</p></main>
+  <footer id="site-footer">Acme · 2026</footer>
+</body></html>

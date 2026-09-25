@@ -1,0 +1,18 @@
+<!doctype html>
+<!-- TRUE layout collision: two SIBLING buttons positioned on top of each
+     other. Neither contains the other, so the DOM-ancestry filter must keep
+     the pair. -->
+<html lang="en"><head><meta charset="utf-8"><title>Overlap</title>
+<style>
+  body { margin: 0; font: 16px/1.5 system-ui, sans-serif; color: #111827; }
+  .stage { position: relative; height: 120px; margin: 24px; }
+  .stage button { position: absolute; top: 20px; width: 160px; height: 48px; }
+  #left { left: 20px; }
+  #right { left: 80px; }
+</style></head>
+<body><main>
+  <div class="stage">
+    <button type="button" id="left">Save draft</button>
+    <button type="button" id="right">Publish now</button>
+  </div>
+</main></body></html>

@@ -33,6 +33,48 @@ import { resolveBorderPresence, unmeasuredStyleViolation } from '../../rules/sty
  * says so rather than returning null and reading as a pass.
  */
 
+/*
+ * WHAT COUNTS AS A LIST ITEM, AND WHAT COUNTS AS BOXING IT.
+ *
+ * The first version of the item test was `selector.includes('item')` — a
+ * substring of the FULL ancestor path. A filled `<button>` inside a
+ * `div.run-item` therefore qualified as a "list item", and so did every
+ * control anywhere under a `.menu-items` wrapper. The border test was "any
+ * nonzero width on any side", so a one-sided divider — `border-bottom: 1px`
+ * between rows of a single bordered group, which is exactly the pattern
+ * Calm Precision prescribes — fired as an error. Pages that FOLLOWED the rule
+ * failed it, which teaches an agent to ignore the rule.
+ *
+ * Now:
+ *   - Item-ness is a property of the element itself: `<li>`,
+ *     `role="listitem"`, or one of its OWN class tokens being `item`,
+ *     `list-item`, or `<something>-item`. Never a substring of an ancestor.
+ *   - Controls (button, input, select, textarea, summary, role=button) are not
+ *     list items, whatever their class says. A link styled as a row (`a.list-item`)
+ *     still is: a clickable row is a list item.
+ *   - Boxing means three or more painted sides. One side is a divider; two
+ *     sides (typically top + bottom) are still dividers, just drawn by the
+ *     item instead of its neighbour. Three or four sides draw a box around
+ *     each item, which is the defect.
+ */
+
+const ITEM_CLASS_TOKEN = /^(item|list-item|[a-z0-9_]+-item)$/i;
+const CONTROL_TAGS: ReadonlySet<string> = new Set(['button', 'input', 'select', 'textarea', 'summary', 'option']);
+const CONTROL_ROLES: ReadonlySet<string> = new Set(['button', 'checkbox', 'radio', 'switch', 'tab', 'menuitem', 'slider', 'textbox', 'combobox']);
+
+/** Is THIS element an item in a list — judged on the element, not its ancestors? */
+export function isListItemElement(element: EnhancedElement): boolean {
+  const tag = (element.tagName || '').toLowerCase();
+  const role = (element.a11y?.role || '').toLowerCase();
+  if (CONTROL_TAGS.has(tag) || CONTROL_ROLES.has(role)) return false;
+  if (tag === 'li' || role === 'listitem') return true;
+  const tokens = (element.className || '').split(/\s+/).filter(Boolean);
+  return tokens.some((t) => ITEM_CLASS_TOKEN.test(t));
+}
+
+/** Minimum painted sides that turn a border into a box around the item. */
+export const BOXED_MIN_SIDES = 3;
+
 export const gestaltRules: Rule[] = [
   {
     id: 'calm-precision/gestalt-grouping',
@@ -44,13 +86,10 @@ export const gestaltRules: Rule[] = [
     // `<li>` never reached it even once the styles existed.
     appliesTo: 'any',
     check: (element: EnhancedElement, _context): Violation | null => {
-      const isListItem = element.tagName === 'li' ||
-        (element.selector?.includes('item') && !element.selector?.includes('item-'));
-
       // Not-applicable, genuinely: a paragraph is not a list item, and no
       // border reading would change that. Checked BEFORE the style read so a
       // page of ordinary prose does not emit a measurement warning per element.
-      if (!isListItem) return null;
+      if (!isListItemElement(element)) return null;
 
       const border = resolveBorderPresence(element);
       if (border.status === 'unmeasured') {
@@ -64,14 +103,18 @@ export const gestaltRules: Rule[] = [
 
       if (!border.hasBorder) return null;
 
+      // One or two painted sides are dividers — the prescribed pattern.
+      const paintedSides = border.widths.filter((w) => w > 0).length;
+      if (paintedSides < BOXED_MIN_SIDES) return null;
+
       return {
         ruleId: 'calm-precision/gestalt-grouping',
         ruleName: 'Gestalt: Border Grouping',
         severity: 'error',
-        message: `List item "${(element.text || '').slice(0, 40)}" has individual border (${border.widths.map((w) => `${w}px`).join(' ')}). Group related items with a single container border.`,
+        message: `List item "${(element.text || '').slice(0, 40)}" is individually boxed (${paintedSides}-sided border: ${border.widths.map((w) => `${w}px`).join(' ')}). Group related items with a single container border.`,
         element: element.selector,
         bounds: element.bounds,
-        fix: 'Use single border around the group container with dividers between items, not individual item borders.',
+        fix: 'Put one border around the group container and separate items with one-sided dividers (e.g. border-top), not a box per item.',
       };
     },
   },

@@ -19,7 +19,13 @@ import {
 } from './extract.js';
 import { testInteractivity, type InteractivityResult } from './interactivity.js';
 import { getSemanticOutput, type SemanticResult } from './semantic/index.js';
-import { detectLayoutCollisions, type LayoutCollisionResult } from './layout-collision.js';
+import { detectLayoutCollisions, excludeDomRelatedCollisions, type LayoutCollisionResult } from './layout-collision.js';
+import {
+  GROUPING_TAGS,
+  GROUPING_ROLES,
+  type ControlGroupElement,
+} from './design-system/principles/cognitive-load.js';
+import { isVisibleInteractive } from './design-system/principles/visibility.js';
 import { analyzeThemeConsistency, type ThemeAnalysis } from './consistency.js';
 import { runDesignSystemCheck } from './design-system/index.js';
 import type { DesignSystemResult } from './schemas.js';
@@ -45,6 +51,140 @@ import type { RuleContext as PresetRuleContext } from './rules/types.js';
 const CONTAINER_TAGS: ReadonlySet<string> = new Set([
   'header', 'nav', 'main', 'aside', 'footer', 'section', 'form',
 ]);
+
+const COGNITIVE_LOAD_RULE_ID = 'calm-precision/cognitive-load-elements';
+
+/**
+ * Live-DOM ownership of controls by grouping container, for
+ * `calm-precision/cognitive-load-elements`.
+ *
+ * WHY THIS RUNS IN THE PAGE: the container pass only had bounds, so `<main>`
+ * counted every control inside its rectangle — including those of each
+ * `<section>` nested in it. Ownership is a DOM fact: a control belongs to its
+ * nearest grouping ancestor (section, fieldset, list, role=group...). The
+ * structural extractor does not collect fieldsets, lists, rows or ARIA groups,
+ * and selectors stop at the first `#id`, so ancestry cannot be rebuilt in Node.
+ *
+ * Controls = the extracted interactive elements that are visibly rendered
+ * (resolved back to nodes by selector) plus native controls found directly.
+ * A control nested inside another control counts once, as the outer one.
+ *
+ * Only containers owning at least one control are returned; the rule decides
+ * the threshold.
+ */
+async function extractControlGroups(
+  page: PageLike,
+  visibleControlSelectors: string[],
+): Promise<ControlGroupElement[]> {
+  const raw = await page.evaluate((input: { selectors: string[]; groupTags: string[]; groupRoles: string[] }) => {
+    const groupTags = new Set(input.groupTags);
+    const groupRoles = new Set(input.groupRoles);
+    const NATIVE = 'a[href], button, input:not([type="hidden"]), select, textarea, summary, ' +
+      '[role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="switch"], ' +
+      '[role="tab"], [role="menuitem"], [role="option"]';
+
+    // MUST stay byte-compatible with buildStructuralSelector in
+    // src/sensors/css-extract.ts / generateSelector in src/extract.ts, so a
+    // group reported here names the same node the other lanes name.
+    const selectorOf = (el: Element): string => {
+      const path: string[] = [];
+      let cur: Element | null = el;
+      while (cur && cur !== document.body) {
+        let seg = cur.tagName.toLowerCase();
+        if (cur.id) { path.unshift('#' + cur.id); break; }
+        const cn = (cur as HTMLElement).className;
+        if (typeof cn === 'string' && cn.trim()) {
+          const c = cn.split(' ').filter((x) => x.trim() && !x.includes(':'))[0];
+          if (c) seg += '.' + c;
+        }
+        const parent: Element | null = cur.parentElement;
+        if (parent) {
+          const tag = cur.tagName;
+          const sibs = Array.from(parent.children).filter((c) => c.tagName === tag);
+          if (sibs.length > 1) seg += ':nth-of-type(' + (sibs.indexOf(cur) + 1) + ')';
+        }
+        path.unshift(seg);
+        cur = cur.parentElement;
+      }
+      return path.join(' > ').slice(0, 200);
+    };
+
+    const visible = (el: Element): boolean => {
+      const r = el.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) return false;
+      const cv = (el as HTMLElement & { checkVisibility?: (o: object) => boolean }).checkVisibility;
+      if (typeof cv === 'function') {
+        return cv.call(el, { opacityProperty: true, visibilityProperty: true });
+      }
+      const cs = window.getComputedStyle(el);
+      return cs.visibility !== 'hidden' && cs.visibility !== 'collapse' && cs.opacity !== '0';
+    };
+
+    const controls = new Set<Element>();
+    for (const sel of input.selectors) {
+      try {
+        const found = document.querySelectorAll(sel);
+        if (found.length === 1) controls.add(found[0]!);
+      } catch { /* unresolvable selector: covered by the native query below if native */ }
+    }
+    document.querySelectorAll(NATIVE).forEach((el) => { if (visible(el)) controls.add(el); });
+
+    const isGrouping = (el: Element): boolean => {
+      const role = (el.getAttribute('role') || '').toLowerCase();
+      if (role && groupRoles.has(role)) return true;
+      return groupTags.has(el.tagName.toLowerCase());
+    };
+    const isWrapper = (el: Element): boolean =>
+      el.tagName.toLowerCase() === 'main' || (el.getAttribute('role') || '').toLowerCase() === 'main';
+
+    const owned = new Map<Element, Element[]>();
+    controls.forEach((c) => {
+      // Counted once, as the outermost control.
+      for (let a = c.parentElement; a; a = a.parentElement) if (controls.has(a)) return;
+      for (let a = c.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+        const grouping = isGrouping(a);
+        if (grouping || isWrapper(a)) {
+          const list = owned.get(a) ?? [];
+          list.push(c);
+          owned.set(a, list);
+        }
+        if (grouping) break;
+      }
+    });
+
+    const out: Array<{
+      selector: string; tagName: string; role: string | null;
+      bounds: { x: number; y: number; width: number; height: number };
+      ownedControls: number; controlSelectors: string[];
+    }> = [];
+    owned.forEach((list, g) => {
+      const r = g.getBoundingClientRect();
+      out.push({
+        selector: selectorOf(g),
+        tagName: g.tagName.toLowerCase(),
+        role: g.getAttribute('role'),
+        bounds: { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) },
+        ownedControls: list.length,
+        controlSelectors: list.slice(0, 10).map(selectorOf),
+      });
+    });
+    return out;
+  }, { selectors: visibleControlSelectors, groupTags: [...GROUPING_TAGS], groupRoles: [...GROUPING_ROLES] });
+
+  return (raw as Array<{
+    selector: string; tagName: string; role: string | null;
+    bounds: { x: number; y: number; width: number; height: number };
+    ownedControls: number; controlSelectors: string[];
+  }>).map((g) => ({
+    selector: g.selector,
+    tagName: g.tagName,
+    text: '',
+    bounds: g.bounds,
+    interactive: { hasOnClick: false, hasHref: false, isDisabled: false, tabIndex: -1, cursor: 'default' },
+    a11y: { role: g.role, ariaLabel: null, ariaDescribedBy: null },
+    controlGroup: { ownedControls: g.ownedControls, controlSelectors: g.controlSelectors },
+  }) as ControlGroupElement);
+}
 
 
 /**
@@ -203,6 +343,8 @@ export interface ScanIssue {
   element?: string;
   description: string;
   fix?: string;
+  /** Rule-specific structured evidence (e.g. `chromeElements` for content-chrome-ratio). */
+  evidence?: Record<string, unknown>;
 }
 
 /**
@@ -634,7 +776,9 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     }
 
     // Detect layout collisions in extracted elements
-    const layoutCollisions = detectLayoutCollisions(elements.all);
+    // Containment is settled against the live DOM: a <summary> inside its own
+    // <details> overlaps it by construction, not by layout failure.
+    const layoutCollisions = await excludeDomRelatedCollisions(page, detectLayoutCollisions(elements.all));
 
     // Aggregate issues
     const issues = aggregateIssues(elements.audit, interactivity, semantic, consoleErrors, themeAnalysis);
@@ -849,6 +993,28 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     );
 
     if (resolvedRules.presets.length > 0 || Object.keys(resolvedRules.config.rules ?? {}).length > 0) {
+      // Control ownership per grouping container, from the live DOM. When it
+      // is available it is the ONLY input cognitive-load grades: the container
+      // pass below would otherwise grade <main> on every control in its
+      // rectangle. On failure the container pass keeps its bounds-based
+      // fallback (see cognitive-load.ts), so the rule still runs.
+      let controlGroups: ControlGroupElement[] | undefined;
+      if (activeRuleIds.has(COGNITIVE_LOAD_RULE_ID)) {
+        try {
+          controlGroups = await extractControlGroups(
+            page,
+            elements.all.filter(isVisibleInteractive).map((el) => el.selector),
+          );
+        } catch {
+          controlGroups = undefined;
+        }
+      }
+      const containerViolations = runRules(containerElements, ruleContext as PresetRuleContext, resolvedRules.config, { surface: 'content' })
+        .filter((v) => !controlGroups || v.ruleId !== COGNITIVE_LOAD_RULE_ID);
+      const groupViolations = controlGroups
+        ? runRules(controlGroups, ruleContext as PresetRuleContext, resolvedRules.config, { surface: 'content' })
+            .filter((v) => v.ruleId === COGNITIVE_LOAD_RULE_ID)
+        : [];
       const presetViolations = [
         ...runRules(elements.all, ruleContext as PresetRuleContext, resolvedRules.config, { surface: 'interactive' }),
         ...runRules(contentAsElements, ruleContext as PresetRuleContext, resolvedRules.config, { surface: 'content' }),
@@ -858,16 +1024,22 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
         // rules could not fire even once the styles existed. Filtered to the
         // tags the content pass does not already carry, so nothing is graded
         // twice.
-        ...runRules(containerElements, ruleContext as PresetRuleContext, resolvedRules.config, { surface: 'content' }),
+        ...containerViolations,
+        ...groupViolations,
       ];
       // Inject preset violations into issues so they appear in the standard output
       for (const v of presetViolations) {
+        // Structured evidence a rule attached beyond the Violation shape
+        // (content-chrome names the chrome it counted). Carried so JSON
+        // consumers can check each element instead of trusting a count.
+        const chromeElements = (v as { chromeElements?: unknown }).chromeElements;
         issues.push({
           category: 'interactivity' as const,
           severity: v.severity === 'error' ? 'error' : 'warning',
           element: v.element,
           description: `[${v.ruleId}] ${v.message}`,
           fix: v.fix,
+          ...(chromeElements ? { evidence: { chromeElements } } : {}),
         });
       }
     }
@@ -1553,6 +1725,7 @@ export function formatScanResult(result: ScanResult): string {
       const t1 = c.element1.text.slice(0, 30);
       const t2 = c.element2.text.slice(0, 30);
       lines.push(`    \x1b[31m✗\x1b[0m "${t1}" overlaps "${t2}" by ${pct}% (${overlapPx}px overlap)`);
+      lines.push(`      ${c.element1.selector}  ×  ${c.element2.selector}`);
     }
     lines.push('');
   }
