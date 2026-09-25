@@ -200,6 +200,19 @@ describe('Calm Precision Principles', () => {
       expect(rule.check(el, mockContext())?.ruleId).toBe('calm-precision/gestalt-grouping');
     });
 
+    it('flags a boxed BEM list__item', () => {
+      const el = mockElement({
+        tagName: 'div',
+        selector: 'div.list__item',
+        className: 'list__item',
+        computedStyles: {
+          borderTopWidth: '1px', borderRightWidth: '1px', borderBottomWidth: '1px', borderLeftWidth: '1px',
+          borderStyle: 'solid',
+        },
+      });
+      expect(rule.check(el, mockContext())?.ruleId).toBe('calm-precision/gestalt-grouping');
+    });
+
     it('passes for non-list elements with borders', () => {
       const el = mockElement({
         tagName: 'div',
@@ -270,8 +283,9 @@ describe('Calm Precision Principles', () => {
       expect(rule.check(pill({}, { backgroundColor: 'rgb(229, 231, 235)' }), mockContext())).toBeNull();
     });
 
-    it('ignores square block chips (not pill-shaped)', () => {
-      expect(rule.check(pill({}, { display: 'block', borderRadius: '0px' }), mockContext())).toBeNull();
+    it('flags a square-cornered badge in a flex row (block display, 4px radius)', () => {
+      const chip = pill({ bounds: { x: 0, y: 0, width: 60, height: 20 } }, { display: 'block', borderRadius: '4px' });
+      expect(rule.check(chip, mockContext())).not.toBeNull();
     });
   });
 

@@ -78,18 +78,6 @@ export function saturatedFill(bg: string | undefined): { s: number; l: number; a
   return { s, l, alpha: parsed.alpha };
 }
 
-/** Tags that are inline-level by default, for elements whose display was not captured. */
-const INLINE_BY_DEFAULT: ReadonlySet<string> = new Set(['span', 'a', 'b', 'strong', 'em', 'small', 'mark', 'code', 'label', 'abbr']);
-
-function isPillShaped(element: EnhancedElement): boolean {
-  const style = element.computedStyles ?? {};
-  const display = (style.display || '').trim().toLowerCase();
-  if (display.startsWith('inline')) return true;
-  if (!display && INLINE_BY_DEFAULT.has((element.tagName || '').toLowerCase())) return true;
-  const radius = parseFloat(style.borderRadius || '0');
-  return Number.isFinite(radius) && radius >= element.bounds.height / 4;
-}
-
 export const signalNoiseRules: Rule[] = [
   {
     id: 'calm-precision/signal-noise-status',
@@ -107,7 +95,10 @@ export const signalNoiseRules: Rule[] = [
       if (width <= 0 || height <= 0) return null;
       if (height > BADGE_MAX_HEIGHT || width > BADGE_MAX_WIDTH) return null;
 
-      if (!isPillShaped(element)) return null;
+      // No shape gate: Calm Precision bans background status badges whatever
+      // their corners, and a flex-row badge with a 4px radius computes as
+      // display:block. Size + own status label + saturated fill already
+      // exclude card and row surfaces.
 
       const bg = style.backgroundColor || style['background-color'];
       const fill = saturatedFill(bg);
@@ -117,7 +108,7 @@ export const signalNoiseRules: Rule[] = [
         ruleId: 'calm-precision/signal-noise-status',
         ruleName: 'Signal-to-Noise: Status Indication',
         severity: 'error',
-        message: `Status badge "${(element.text || '').trim()}" (${width}x${height}px) is a filled pill (${bg}). Show status as coloured text, not a background badge.`,
+        message: `Status badge "${(element.text || '').trim()}" (${width}x${height}px) is a filled badge (${bg}). Show status as coloured text, not a background badge.`,
         element: element.selector,
         bounds: element.bounds,
         fix: 'Remove background color. Use text color (green for success, red for error, amber for warning) with font-medium instead of a background badge.',

@@ -572,6 +572,11 @@ async function enrichWithEventListeners(page: PageLike, elements: EnhancedElemen
       const selectorMatches = (el, sel) => {
         try {
           if (document.documentElement.matches(sel) || (document.body && document.body.matches(sel))) return false;
+          // A pure type selector ('button', 'a, button', 'BUTTON') names no
+          // particular control: analytics trackers and outside-click closers
+          // use it (closest('a,button')). Only a literal carrying a class,
+          // id or attribute component is evidence of delegation to THIS one.
+          if (!/[[.#]/.test(sel)) return false;
           if (el.matches(sel)) return true;
           if (bareTagRe.test(sel)) return false;
           const hit = el.closest(sel);

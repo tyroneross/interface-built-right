@@ -58,7 +58,7 @@ import { resolveBorderPresence, unmeasuredStyleViolation } from '../../rules/sty
  *     each item, which is the defect.
  */
 
-const ITEM_CLASS_TOKEN = /^(item|list-item|[a-z0-9_]+-item)$/i;
+const ITEM_CLASS_TOKEN = /^(item|list-item|[a-z0-9_-]+(-|__)item)$/i;
 const CONTROL_TAGS: ReadonlySet<string> = new Set(['button', 'input', 'select', 'textarea', 'summary', 'option']);
 const CONTROL_ROLES: ReadonlySet<string> = new Set(['button', 'checkbox', 'radio', 'switch', 'tab', 'menuitem', 'slider', 'textbox', 'combobox']);
 

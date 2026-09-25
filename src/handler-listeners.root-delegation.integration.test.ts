@@ -85,6 +85,15 @@ const PAGES = {
        if (!document.body.matches('body')) console.log(d, all);
      });`,
   ),
+  // Generic type selectors (analytics tracker / outside-click closer) name
+  // no particular control and must not credit a dead button on self-match.
+  genericTypeSelector: page(
+    `<button type="button" id="tracked">Tracked dead</button>`,
+    `document.addEventListener('click', function (e) {
+       var t = e.target.closest('a,button'); if (t) console.log('track', t.textContent);
+       if (!e.target.closest('button')) console.log('close menus');
+     });`,
+  ),
 } as const;
 
 const pool = new BrowserPool({ launchOptions: { headless: true } });
@@ -169,5 +178,9 @@ describe('root-level click delegation credited only with evidence', () => {
 
   it('incidental bare-tag / universal / body literals do not credit a dead button', () => {
     expect(flagged('incidentalLiterals', 'In card dead')).toBe(true);
+  });
+
+  it('a generic type selector (closest("a,button")) does not credit a dead button', () => {
+    expect(flagged('genericTypeSelector', 'Tracked dead')).toBe(true);
   });
 });

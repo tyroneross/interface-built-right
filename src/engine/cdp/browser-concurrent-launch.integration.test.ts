@@ -17,7 +17,8 @@
  * actual `~/.ibr/chromium-profile` on this machine.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -78,5 +79,40 @@ describe('BrowserManager.launch — concurrent launches on the shared default pr
     // contended and fall back to a throwaway profile forever.
     const lockPath = join(fakeHome, '.ibr', 'chromium-profile.ibr-lock')
     expect(existsSync(lockPath)).toBe(false)
+  }, CONCURRENT_LAUNCH_TIMEOUT_MS)
+
+  // The reported bug was between separate `ibr scan` PROCESSES. In-process
+  // launches share a pid, so they cannot exercise cross-process lock
+  // contention; this spawns 4 independent Node processes on the same HOME.
+  it('4 concurrent launches from 4 separate processes all come up (cross-process race)', async () => {
+    const here = __dirname
+    const repoRoot = join(here, '..', '..', '..')
+    const tsx = join(repoRoot, 'node_modules', '.bin', 'tsx')
+    const driverPath = join(here, '..', 'driver.ts')
+    const script = `
+      const { EngineDriver } = await import(${JSON.stringify(driverPath)});
+      const d = new EngineDriver();
+      try {
+        await d.launch({ headless: true });
+        const v = await d.evaluate('1 + 1');
+        process.stdout.write('RESULT=' + v + '\\n');
+      } finally { await d.close(); }
+    `
+    const scriptPath = join(fakeHome, 'launch-one.mts')
+    writeFileSync(scriptPath, script)
+    const runOne = () => new Promise<{ code: number | null; out: string }>((resolve) => {
+      const child = spawn(tsx, [scriptPath], { env: { ...process.env, HOME: fakeHome } })
+      let out = ''
+      child.stdout.on('data', (b) => { out += b })
+      child.stderr.on('data', (b) => { out += b })
+      child.on('close', (code) => resolve({ code, out }))
+    })
+
+    const runs = await Promise.all([runOne(), runOne(), runOne(), runOne()])
+    for (const r of runs) {
+      expect(r.code, r.out).toBe(0)
+      expect(r.out).toMatch(/RESULT=2/)
+    }
+    expect(existsSync(join(fakeHome, '.ibr', 'chromium-profile.ibr-lock'))).toBe(false)
   }, CONCURRENT_LAUNCH_TIMEOUT_MS)
 })

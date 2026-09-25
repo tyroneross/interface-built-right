@@ -14,7 +14,7 @@
         "hooks": [{
           "type": "command",
             "command": "root=\"${CLAUDE_PLUGIN_ROOT:-$CLAUDE_PROJECT_DIR}\"; hook=\"$root/hooks/ibr-playwright-tip.sh\"; if [ -x \"$hook\" ]; then \"$hook\"; else printf '{}'; fi",
-          "timeout": 3000
+          "timeout": 5
         }]
       }
     ],

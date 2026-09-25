@@ -398,14 +398,15 @@ Recipes:
     for url in "\${urls[@]}"; do
       ibr scan "$url" --json > "out-$(basename "$url").json"
       case $? in
-        0) echo "PASS $url" ;;
-        1) echo "ISSUES $url" ;;
+        0) echo "OK $url (verdict PASS or ISSUES; read .verdict)" ;;
+        1) echo "FAIL $url" ;;
         2) echo "TOOL ERROR $url — investigate before trusting the output" ;;
       esac
     done
 
-Exit codes: 0 pass (no issues) | 1 issues found (verdict FAIL/ISSUES, a
-failed comparison/test/interaction — per that command's own policy) | 2 tool
+Exit codes: 0 pass | 1 issues found at the command's failure threshold
+(scan/ask: verdict FAIL; ISSUES-level warnings still exit 0, so read
+.verdict; check/test/interact: a failed comparison, test or action) | 2 tool
 error (exception, bad argument, navigation/Chrome failure, timeout, or a CLI
 parse error). Loop on 1, stop and investigate on 2.
 

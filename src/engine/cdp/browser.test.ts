@@ -242,6 +242,35 @@ describe('acquireProfileLock — atomic profile selection (T-01/Fix1)', () => {
 
     expect(existsSync(lockPath)).toBe(true)
   })
+
+  it('releaseProfileLock does not delete a successor\'s lock that replaced ours at the same path', () => {
+    workDir = mkdtempSync(join(tmpdir(), 'ibr-lock-test-'))
+    const profileDir = join(workDir, 'profile')
+    const ours = acquireProfileLock(profileDir)
+    expect(ours.acquired).toBe(true)
+
+    // Another process reclaimed the path (e.g. after a reclaim race). Our
+    // release must re-read the holder and leave its lock alone.
+    writeFileSync(ours.lockPath, 'other-host.local-777')
+    releaseProfileLock(ours.lockPath)
+
+    expect(readFileSync(ours.lockPath, 'utf8')).toBe('other-host.local-777')
+  })
+
+  it('a reclaimer that read a stale holder backs off when the lock was already reclaimed (no double ownership)', () => {
+    workDir = mkdtempSync(join(tmpdir(), 'ibr-lock-test-'))
+    const profileDir = join(workDir, 'profile')
+    const lockPath = `${profileDir}.ibr-lock`
+
+    // A reclaim is in flight elsewhere: the serializing mutex is held.
+    writeFileSync(`${lockPath}.reclaim`, 'other-host.local-1')
+    writeFileSync(lockPath, `${hostname()}-${guaranteedDeadPid()}`)
+
+    const result = acquireProfileLock(profileDir)
+    expect(result.acquired).toBe(false)
+    // The stale lock is untouched — only the mutex holder may replace it.
+    expect(readFileSync(lockPath, 'utf8')).not.toBe(`${hostname()}-${process.pid}`)
+  })
 })
 
 describe('looksLikeSingletonCollision', () => {

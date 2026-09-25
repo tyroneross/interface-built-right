@@ -74,6 +74,17 @@ describe('ibr scan exit codes', () => {
   );
 
   it(
+    'a page with a FAIL verdict exits 1 (EXIT_ISSUES), not 2',
+    () => {
+      const failFixture = `file://${join(__dirname, '..', 'design-system', 'principles', 'fixtures', 'status-pill.html')}`;
+      const result = runCli(['scan', failFixture, '--json'], 60_000);
+      expect(result.output).toMatch(/"verdict":\s*"FAIL"/);
+      expect(result.status, result.output).toBe(1);
+    },
+    75_000,
+  );
+
+  it(
     'a clean fixture (no interactive elements, no low-contrast text) exits 0 (EXIT_PASS)',
     () => {
       const result = runCli(['scan', CLEAN_FIXTURE, '--json'], 60_000);

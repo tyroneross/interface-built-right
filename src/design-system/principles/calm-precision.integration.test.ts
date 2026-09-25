@@ -104,10 +104,10 @@ describe('calm-precision rules on real pages', () => {
     expect(hits[0]!.description).toContain('individually boxed');
   }, 60_000);
 
-  it('signal-noise-status still fires on a small saturated "Failed" pill', async () => {
+  it('signal-noise-status still fires on a saturated pill and a square flex-row badge', async () => {
     const result = await scanRoute('status-pill');
     const hits = findings(result, 'calm-precision/signal-noise-status');
-    expect(hits.map((h) => h.element)).toEqual(['#pill']);
+    expect(hits.map((h) => h.element).sort()).toEqual(['#chip', '#pill']);
   }, 60_000);
 
   it('cognitive-load-elements fires on the section owning 12 controls, not on <main>', async () => {

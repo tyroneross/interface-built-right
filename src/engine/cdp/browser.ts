@@ -421,8 +421,52 @@ export function acquireProfileLock(profileDir: string): ProfileLockResult {
 
   if (!stale) return { acquired: false, lockPath, holder: contents }
 
-  try { unlinkSync(lockPath) } catch { /* already gone */ }
-  return retryAcquire(lockPath, holderId)
+  return reclaimStaleLock(lockPath, holderId, contents)
+}
+
+/** A reclaim mutex older than this is itself a crash leftover. */
+const RECLAIM_MUTEX_STALE_MS = 30_000
+
+/**
+ * Replace a stale lock without letting two reclaimers both win.
+ *
+ * A bare unlink + create lets reclaimer B, which read the SAME stale holder
+ * as reclaimer A, unlink the fresh lock A just created and then create its
+ * own — both would believe they hold the shared profile. So reclaim is
+ * serialized through a second O_EXCL file, and the stale contents are
+ * re-read under it: if they changed, somebody already reclaimed and we back
+ * off to an ephemeral profile.
+ */
+function reclaimStaleLock(lockPath: string, holderId: string, staleContents: string): ProfileLockResult {
+  const mutexPath = `${lockPath}.reclaim`
+  try {
+    createLockFile(mutexPath, holderId)
+  } catch {
+    try {
+      if (Date.now() - statSync(mutexPath).mtimeMs >= RECLAIM_MUTEX_STALE_MS) unlinkSync(mutexPath)
+    } catch { /* gone or unreadable */ }
+    return { acquired: false, lockPath, holder: staleContents }
+  }
+  try {
+    let current: string | null
+    try { current = readFileSync(lockPath, 'utf8').trim() } catch { current = null }
+    if (current !== null && current !== staleContents) {
+      return { acquired: false, lockPath, holder: current }
+    }
+    if (current !== null) {
+      try { unlinkSync(lockPath) } catch { /* already gone */ }
+    }
+    return retryAcquire(lockPath, holderId)
+  } finally {
+    try { unlinkSync(mutexPath) } catch { /* best effort */ }
+  }
+}
+
+/** Unlink a lock only if it still names this process — never a successor's. */
+function unlinkIfOwned(lockPath: string): void {
+  try {
+    if (readFileSync(lockPath, 'utf8').trim() === `${hostname()}-${process.pid}`) unlinkSync(lockPath)
+  } catch { /* gone or unreadable: nothing of ours to remove */ }
 }
 
 function retryAcquire(lockPath: string, holderId: string): ProfileLockResult {
@@ -440,7 +484,7 @@ function retryAcquire(lockPath: string, holderId: string): ProfileLockResult {
 /** Release a lock this process holds. Safe to call with `null` or a foreign path. */
 export function releaseProfileLock(lockPath: string | null | undefined): void {
   if (!lockPath || !heldProfileLocks.has(lockPath)) return
-  try { unlinkSync(lockPath) } catch { /* best effort */ }
+  unlinkIfOwned(lockPath)
   heldProfileLocks.delete(lockPath)
 }
 
@@ -448,9 +492,7 @@ export function releaseProfileLock(lockPath: string | null | undefined): void {
 // unlinkSync satisfies. Registered once at module load, shared across every
 // BrowserManager instance in this process.
 process.once('exit', () => {
-  for (const lockPath of heldProfileLocks) {
-    try { unlinkSync(lockPath) } catch { /* process is exiting; best effort */ }
-  }
+  for (const lockPath of heldProfileLocks) unlinkIfOwned(lockPath)
 })
 
 /**
