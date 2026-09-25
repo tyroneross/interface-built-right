@@ -15,18 +15,19 @@ final class PermissionTests: XCTestCase {
     }
 
     func testTrustedNeverPrompts() {
-        for asked in [false, true] {
-            for requested in [false, true] {
-                XCTAssertEqual(accessibilityPromptDecision(trusted: true, alreadyAsked: asked, promptRequested: requested), .trusted)
-            }
+        for requested in [false, true] {
+            XCTAssertEqual(accessibilityPromptDecision(trusted: true, promptRequested: requested), .trusted)
         }
     }
 
-    func testUntrustedPromptsOnlyWhenRequestedAndNeverAsked() {
-        XCTAssertEqual(accessibilityPromptDecision(trusted: false, alreadyAsked: false, promptRequested: true), .prompt)
-        XCTAssertEqual(accessibilityPromptDecision(trusted: false, alreadyAsked: false, promptRequested: false), .failWithoutPrompt)
-        XCTAssertEqual(accessibilityPromptDecision(trusted: false, alreadyAsked: true, promptRequested: true), .failWithoutPrompt)
-        XCTAssertEqual(accessibilityPromptDecision(trusted: false, alreadyAsked: true, promptRequested: false), .failWithoutPrompt)
+    func testUntrustedPromptsWhenAndOnlyWhenRequested() {
+        XCTAssertEqual(accessibilityPromptDecision(trusted: false, promptRequested: true), .prompt)
+        XCTAssertEqual(accessibilityPromptDecision(trusted: false, promptRequested: false), .failWithoutPrompt)
+    }
+
+    func testSettingsURLTargetsAccessibilityPane() {
+        XCTAssertEqual(accessibilitySettingsURL,
+                       "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
     }
 
     func testMissingOrMalformedRecordCountsAsNotAsked() throws {
@@ -45,8 +46,8 @@ final class PermissionTests: XCTestCase {
         XCTAssertEqual(accessibilityAskedAt(recordURL: recordURL), "1970-01-01T00:00:00Z")
         let root = try JSONSerialization.jsonObject(with: Data(contentsOf: recordURL)) as? [String: Any]
         XCTAssertNotNil(root?["screenRecording"])
-        // Once recorded, a second explicit request must not prompt.
-        XCTAssertEqual(accessibilityPromptDecision(trusted: false, alreadyAsked: accessibilityAskedAt(recordURL: recordURL) != nil, promptRequested: true), .failWithoutPrompt)
+        // A record never blocks an explicit request: the user asked to see it.
+        XCTAssertEqual(accessibilityPromptDecision(trusted: false, promptRequested: true), .prompt)
     }
 
     func testMessagesNameSettingsPathAndReRequestStep() {
@@ -55,7 +56,8 @@ final class PermissionTests: XCTestCase {
         XCTAssertTrue(fresh.contains("ibr native:request-permission"))
 
         let asked = accessibilityUntrustedMessage(askedAt: "2026-09-17T00:00:00Z", recordURL: recordURL)
-        XCTAssertTrue(asked.contains("will not show it again"))
-        XCTAssertTrue(asked.contains("rm \(recordURL.path)"))
+        XCTAssertTrue(asked.contains("2026-09-17T00:00:00Z"))
+        XCTAssertTrue(asked.contains("ibr native:request-permission"))
+        XCTAssertFalse(asked.contains("will not show it again"))
     }
 }

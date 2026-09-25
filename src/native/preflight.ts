@@ -295,7 +295,7 @@ export function detectSimulatorChromeOnly(
  */
 export const ACCESSIBILITY_UNTRUSTED_EXIT_CODE = 77;
 
-/** CLI command that shows the macOS Accessibility prompt — at most once per user. */
+/** CLI command that opens the macOS Accessibility prompt and settings pane when access is missing. */
 export const REQUEST_PERMISSION_COMMAND = 'ibr native:request-permission';
 
 /**
@@ -305,9 +305,8 @@ export const REQUEST_PERMISSION_COMMAND = 'ibr native:request-permission';
  *
  * Passive by design: this never spawns the extractor and never retries. The
  * extractor itself only shows the macOS Accessibility prompt when invoked with
- * `--request-permission` and no prompt was ever recorded in
- * ~/.ibr/permissions.json, so callers must surface this message rather than
- * re-running the extraction.
+ * `--request-permission` (the explicit `ibr native:request-permission`), so
+ * callers must surface this message rather than re-running the extraction.
  *
  * Currently handles: AX permission denied. Extend as new failure modes
  * surface in the transcript audit.

@@ -3959,7 +3959,7 @@ program
 
 program
   .command('native:request-permission')
-  .description('Show the macOS Accessibility permission prompt for this terminal (at most once per user)')
+  .description('Open the macOS Accessibility permission prompt and settings pane for this terminal when access is missing')
   .action(async () => {
     try {
       const { requestAccessibilityPermission } = await import('../native/index.js');

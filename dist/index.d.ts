@@ -8351,9 +8351,9 @@ type ExtractorRunner = (binary: string, args: string[]) => Promise<{
 /**
  * Explicitly request macOS Accessibility permission for the host terminal/IDE.
  *
- * Runs the extractor once with `--request-permission`. The extractor shows the
- * macOS prompt only if no prompt was ever recorded in ~/.ibr/permissions.json,
- * records it, and never prompts again afterwards. Never retries.
+ * Runs the extractor once with `--request-permission`. When the host is not
+ * trusted, the extractor shows the macOS prompt and opens System Settings >
+ * Privacy & Security > Accessibility. Never retries.
  */
 declare function requestAccessibilityPermission(deps?: {
     ensure?: () => Promise<string>;

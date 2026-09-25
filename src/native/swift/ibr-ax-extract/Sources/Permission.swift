@@ -1,7 +1,7 @@
 import ApplicationServices
 import Foundation
 
-// MARK: - Accessibility permission: ask at most once per user
+// MARK: - Accessibility permission: never prompt implicitly, always on request
 //
 // macOS shows the "Open System Settings" Accessibility dialog every time a
 // process calls AXIsProcessTrustedWithOptions with prompt=true while untrusted.
@@ -10,12 +10,16 @@ import Foundation
 // untrusted host terminal saw the dialog over and over.
 //
 // Policy:
-//   - Every trust check uses prompt=false.
-//   - The dialog is shown only when the caller passes --request-permission AND
-//     no record exists in ~/.ibr/permissions.json (user-level, shared by every
-//     project and worktree). Prompting writes the record first.
+//   - Every implicit trust check uses prompt=false, so scans never pop dialogs.
+//   - An explicit `--request-permission` (only `ibr native:request-permission`
+//     passes it) prompts whenever the process is untrusted, and also opens
+//     System Settings > Privacy & Security > Accessibility. macOS does not
+//     re-show its dialog for an app already listed there but switched off, so
+//     the Settings pane is what guarantees the user sees somewhere to act.
+//   - ~/.ibr/permissions.json records when the prompt was last shown. It is
+//     informational only and never suppresses an explicit request.
 //   - Untrusted runs exit with `accessibilityUntrustedExitCode` and a stderr
-//     message naming the System Settings path and the explicit re-request step.
+//     message naming the System Settings path and the request command.
 
 /// Distinct exit code for "Accessibility not granted" (EX_NOPERM).
 let accessibilityUntrustedExitCode: Int32 = 77
@@ -25,18 +29,20 @@ let requestPermissionCommand = "ibr native:request-permission"
 enum AccessibilityPromptDecision: Equatable {
     /// Process is already trusted; proceed.
     case trusted
-    /// Show the macOS dialog once and record that it was shown.
+    /// Show the macOS dialog and open the Accessibility settings pane.
     case prompt
     /// Untrusted; exit without showing any dialog.
     case failWithoutPrompt
 }
 
-/// Pure decision: prompt only when untrusted, explicitly requested, and never asked before.
-func accessibilityPromptDecision(trusted: Bool, alreadyAsked: Bool, promptRequested: Bool) -> AccessibilityPromptDecision {
+/// Pure decision: prompt only when untrusted and explicitly requested.
+func accessibilityPromptDecision(trusted: Bool, promptRequested: Bool) -> AccessibilityPromptDecision {
     if trusted { return .trusted }
-    if promptRequested && !alreadyAsked { return .prompt }
-    return .failWithoutPrompt
+    return promptRequested ? .prompt : .failWithoutPrompt
 }
+
+/// System Settings > Privacy & Security > Accessibility.
+let accessibilitySettingsURL = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
 
 func defaultPermissionRecordURL() -> URL {
     let home = ProcessInfo.processInfo.environment["HOME"].map { URL(fileURLWithPath: $0) }
@@ -76,32 +82,32 @@ private let grantInstruction =
     "System Settings > Privacy & Security > Accessibility, then quit and reopen that app and re-run."
 
 func accessibilityUntrustedMessage(askedAt: String?, recordURL: URL) -> String {
-    if let askedAt = askedAt {
-        return "Error: Accessibility permission required. IBR already showed the macOS permission prompt " +
-            "(\(askedAt)) and will not show it again. \(grantInstruction) " +
-            "To re-request the prompt explicitly: rm \(recordURL.path) && \(requestPermissionCommand)"
-    }
-    return "Error: Accessibility permission required. IBR does not open the macOS permission prompt " +
-        "automatically. \(grantInstruction) To show the prompt once: \(requestPermissionCommand)"
+    let last = askedAt.map { " IBR last showed the permission prompt at \($0)." } ?? ""
+    return "Error: Accessibility permission required.\(last) IBR does not open the macOS permission " +
+        "prompt during scans. \(grantInstruction) To open the prompt and the Accessibility settings " +
+        "pane: \(requestPermissionCommand)"
 }
 
 func accessibilityPromptedMessage(recordURL: URL) -> String {
-    return "Accessibility permission required. IBR showed the macOS permission prompt once and recorded it " +
-        "in \(recordURL.path); it will not ask again. \(grantInstruction)"
+    return "Accessibility permission required. IBR showed the macOS permission prompt and opened " +
+        "System Settings > Privacy & Security > Accessibility. \(grantInstruction)"
 }
 
 /// Side-effecting gate used by the one-shot entry point. Returns only when trusted;
 /// otherwise writes the stderr message and exits with `accessibilityUntrustedExitCode`.
-func requireAccessibilityTrust(promptRequested: Bool, recordURL: URL = defaultPermissionRecordURL()) {
+func requireAccessibilityTrust(
+    promptRequested: Bool,
+    recordURL: URL = defaultPermissionRecordURL(),
+    openSettings: () -> Void = openAccessibilitySettings
+) {
     let noPrompt = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): false] as CFDictionary
     let trusted = AXIsProcessTrustedWithOptions(noPrompt)
-    let askedAt = trusted ? nil : accessibilityAskedAt(recordURL: recordURL)
 
-    switch accessibilityPromptDecision(trusted: trusted, alreadyAsked: askedAt != nil, promptRequested: promptRequested) {
+    switch accessibilityPromptDecision(trusted: trusted, promptRequested: promptRequested) {
     case .trusted:
         return
     case .failWithoutPrompt:
-        fputs(accessibilityUntrustedMessage(askedAt: askedAt, recordURL: recordURL) + "\n", stderr)
+        fputs(accessibilityUntrustedMessage(askedAt: accessibilityAskedAt(recordURL: recordURL), recordURL: recordURL) + "\n", stderr)
         exit(accessibilityUntrustedExitCode)
     case .prompt:
         do {
@@ -111,7 +117,17 @@ func requireAccessibilityTrust(promptRequested: Bool, recordURL: URL = defaultPe
         }
         let prompt = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
         if AXIsProcessTrustedWithOptions(prompt) { return }
+        openSettings()
         fputs(accessibilityPromptedMessage(recordURL: recordURL) + "\n", stderr)
         exit(accessibilityUntrustedExitCode)
     }
+}
+
+/// Opens the Accessibility pane of System Settings. Failure is non-fatal: the
+/// stderr message still names the path.
+func openAccessibilitySettings() {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+    process.arguments = [accessibilitySettingsURL]
+    try? process.run()
 }
