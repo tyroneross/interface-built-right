@@ -2373,7 +2373,7 @@ var init_actionability = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/pixelmatch/index.js
+// ../../../node_modules/pixelmatch/index.js
 var pixelmatch_exports = {};
 __export(pixelmatch_exports, {
   default: () => pixelmatch
@@ -2560,14 +2560,14 @@ function drawGrayPixel(img, i, alpha, output) {
   drawPixel(output, i, val, val, val);
 }
 var init_pixelmatch = __esm({
-  "../interface-built-right/node_modules/pixelmatch/index.js"() {
+  "../../../node_modules/pixelmatch/index.js"() {
     "use strict";
   }
 });
 
-// ../interface-built-right/node_modules/pngjs/lib/chunkstream.js
+// ../../../node_modules/pngjs/lib/chunkstream.js
 var require_chunkstream = __commonJS({
-  "../interface-built-right/node_modules/pngjs/lib/chunkstream.js"(exports2, module2) {
+  "../../../node_modules/pngjs/lib/chunkstream.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var Stream = require("stream");
@@ -2703,9 +2703,9 @@ var require_chunkstream = __commonJS({
   }
 });
 
-// ../interface-built-right/node_modules/pngjs/lib/interlace.js
+// ../../../node_modules/pngjs/lib/interlace.js
 var require_interlace = __commonJS({
-  "../interface-built-right/node_modules/pngjs/lib/interlace.js"(exports2) {
+  "../../../node_modules/pngjs/lib/interlace.js"(exports2) {
     "use strict";
     var imagePasses = [
       {
@@ -2786,9 +2786,9 @@ var require_interlace = __commonJS({
   }
 });
 
-// ../interface-built-right/node_modules/pngjs/lib/paeth-predictor.js
+// ../../../node_modules/pngjs/lib/paeth-predictor.js
 var require_paeth_predictor = __commonJS({
-  "../interface-built-right/node_modules/pngjs/lib/paeth-predictor.js"(exports2, module2) {
+  "../../../node_modules/pngjs/lib/paeth-predictor.js"(exports2, module2) {
     "use strict";
     module2.exports = function paethPredictor(left, above, upLeft) {
       let paeth = left + above - upLeft;
@@ -2806,9 +2806,9 @@ var require_paeth_predictor = __commonJS({
   }
 });
 
-// ../interface-built-right/node_modules/pngjs/lib/filter-parse.js
+// ../../../node_modules/pngjs/lib/filter-parse.js
 var require_filter_parse = __commonJS({
-  "../interface-built-right/node_modules/pngjs/lib/filter-parse.js"(exports2, module2) {
+  "../../../node_modules/pngjs/lib/filter-parse.js"(exports2, module2) {
     "use strict";
     var interlaceUtils = require_interlace();
     var paethPredictor = require_paeth_predictor();
@@ -2947,9 +2947,9 @@ var require_filter_parse = __commonJS({
   }
 });
 
-// ../interface-built-right/node_modules/pngjs/lib/filter-parse-async.js
+// ../../../node_modules/pngjs/lib/filter-parse-async.js
 var require_filter_parse_async = __commonJS({
-  "../interface-built-right/node_modules/pngjs/lib/filter-parse-async.js"(exports2, module2) {
+  "../../../node_modules/pngjs/lib/filter-parse-async.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var ChunkStream = require_chunkstream();
@@ -2973,9 +2973,9 @@ var require_filter_parse_async = __commonJS({
   }
 });
 
-// ../interface-built-right/node_modules/pngjs/lib/constants.js
+// ../../../node_modules/pngjs/lib/constants.js
 var require_constants = __commonJS({
-  "../interface-built-right/node_modules/pngjs/lib/constants.js"(exports2, module2) {
+  "../../../node_modules/pngjs/lib/constants.js"(exports2, module2) {
     "use strict";
     module2.exports = {
       PNG_SIGNATURE: [137, 80, 78, 71, 13, 10, 26, 10],
@@ -3008,9 +3008,9 @@ var require_constants = __commonJS({
   }
 });
 
-// ../interface-built-right/node_modules/pngjs/lib/crc.js
+// ../../../node_modules/pngjs/lib/crc.js
 var require_crc = __commonJS({
-  "../interface-built-right/node_modules/pngjs/lib/crc.js"(exports2, module2) {
+  "../../../node_modules/pngjs/lib/crc.js"(exports2, module2) {
     "use strict";
     var crcTable = [];
     (function() {
@@ -3048,9 +3048,9 @@ var require_crc = __commonJS({
   }
 });
 
-// ../interface-built-right/node_modules/pngjs/lib/parser.js
+// ../../../node_modules/pngjs/lib/parser.js
 var require_parser = __commonJS({
-  "../interface-built-right/node_modules/pngjs/lib/parser.js"(exports2, module2) {
+  "../../../node_modules/pngjs/lib/parser.js"(exports2, module2) {
     "use strict";
     var constants3 = require_constants();
     var CrcCalculator = require_crc();
@@ -3269,9 +3269,9 @@ var require_parser = __commonJS({
   }
 });
 
-// ../interface-built-right/node_modules/pngjs/lib/bitmapper.js
+// ../../../node_modules/pngjs/lib/bitmapper.js
 var require_bitmapper = __commonJS({
-  "../interface-built-right/node_modules/pngjs/lib/bitmapper.js"(exports2) {
+  "../../../node_modules/pngjs/lib/bitmapper.js"(exports2) {
     "use strict";
     var interlaceUtils = require_interlace();
     var pixelBppMapper = [
@@ -3517,9 +3517,9 @@ var require_bitmapper = __commonJS({
   }
 });
 
-// ../interface-built-right/node_modules/pngjs/lib/format-normaliser.js
+// ../../../node_modules/pngjs/lib/format-normaliser.js
 var require_format_normaliser = __commonJS({
-  "../interface-built-right/node_modules/pngjs/lib/format-normaliser.js"(exports2, module2) {
+  "../../../node_modules/pngjs/lib/format-normaliser.js"(exports2, module2) {
     "use strict";
     function dePalette(indata, outdata, width, height, palette) {
       let pxPos = 0;
@@ -3598,9 +3598,9 @@ var require_format_normaliser = __commonJS({
   }
 });
 
-// ../interface-built-right/node_modules/pngjs/lib/parser-async.js
+// ../../../node_modules/pngjs/lib/parser-async.js
 var require_parser_async = __commonJS({
-  "../interface-built-right/node_modules/pngjs/lib/parser-async.js"(exports2, module2) {
+  "../../../node_modules/pngjs/lib/parser-async.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var zlib = require("zlib");
@@ -3728,9 +3728,9 @@ var require_parser_async = __commonJS({
   }
 });
 
-// ../interface-built-right/node_modules/pngjs/lib/bitpacker.js
+// ../../../node_modules/pngjs/lib/bitpacker.js
 var require_bitpacker = __commonJS({
-  "../interface-built-right/node_modules/pngjs/lib/bitpacker.js"(exports2, module2) {
+  "../../../node_modules/pngjs/lib/bitpacker.js"(exports2, module2) {
     "use strict";
     var constants3 = require_constants();
     module2.exports = function(dataIn, width, height, options) {
@@ -3878,9 +3878,9 @@ var require_bitpacker = __commonJS({
   }
 });
 
-// ../interface-built-right/node_modules/pngjs/lib/filter-pack.js
+// ../../../node_modules/pngjs/lib/filter-pack.js
 var require_filter_pack = __commonJS({
-  "../interface-built-right/node_modules/pngjs/lib/filter-pack.js"(exports2, module2) {
+  "../../../node_modules/pngjs/lib/filter-pack.js"(exports2, module2) {
     "use strict";
     var paethPredictor = require_paeth_predictor();
     function filterNone(pxData, pxPos, byteWidth, rawData, rawPos) {
@@ -4020,9 +4020,9 @@ var require_filter_pack = __commonJS({
   }
 });
 
-// ../interface-built-right/node_modules/pngjs/lib/packer.js
+// ../../../node_modules/pngjs/lib/packer.js
 var require_packer = __commonJS({
-  "../interface-built-right/node_modules/pngjs/lib/packer.js"(exports2, module2) {
+  "../../../node_modules/pngjs/lib/packer.js"(exports2, module2) {
     "use strict";
     var constants3 = require_constants();
     var CrcStream = require_crc();
@@ -4120,9 +4120,9 @@ var require_packer = __commonJS({
   }
 });
 
-// ../interface-built-right/node_modules/pngjs/lib/packer-async.js
+// ../../../node_modules/pngjs/lib/packer-async.js
 var require_packer_async = __commonJS({
-  "../interface-built-right/node_modules/pngjs/lib/packer-async.js"(exports2, module2) {
+  "../../../node_modules/pngjs/lib/packer-async.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var Stream = require("stream");
@@ -4162,9 +4162,9 @@ var require_packer_async = __commonJS({
   }
 });
 
-// ../interface-built-right/node_modules/pngjs/lib/sync-inflate.js
+// ../../../node_modules/pngjs/lib/sync-inflate.js
 var require_sync_inflate = __commonJS({
-  "../interface-built-right/node_modules/pngjs/lib/sync-inflate.js"(exports2, module2) {
+  "../../../node_modules/pngjs/lib/sync-inflate.js"(exports2, module2) {
     "use strict";
     var assert2 = require("assert").ok;
     var zlib = require("zlib");
@@ -4299,9 +4299,9 @@ var require_sync_inflate = __commonJS({
   }
 });
 
-// ../interface-built-right/node_modules/pngjs/lib/sync-reader.js
+// ../../../node_modules/pngjs/lib/sync-reader.js
 var require_sync_reader = __commonJS({
-  "../interface-built-right/node_modules/pngjs/lib/sync-reader.js"(exports2, module2) {
+  "../../../node_modules/pngjs/lib/sync-reader.js"(exports2, module2) {
     "use strict";
     var SyncReader = module2.exports = function(buffer) {
       this._buffer = buffer;
@@ -4337,9 +4337,9 @@ var require_sync_reader = __commonJS({
   }
 });
 
-// ../interface-built-right/node_modules/pngjs/lib/filter-parse-sync.js
+// ../../../node_modules/pngjs/lib/filter-parse-sync.js
 var require_filter_parse_sync = __commonJS({
-  "../interface-built-right/node_modules/pngjs/lib/filter-parse-sync.js"(exports2) {
+  "../../../node_modules/pngjs/lib/filter-parse-sync.js"(exports2) {
     "use strict";
     var SyncReader = require_sync_reader();
     var Filter = require_filter_parse();
@@ -4361,9 +4361,9 @@ var require_filter_parse_sync = __commonJS({
   }
 });
 
-// ../interface-built-right/node_modules/pngjs/lib/parser-sync.js
+// ../../../node_modules/pngjs/lib/parser-sync.js
 var require_parser_sync = __commonJS({
-  "../interface-built-right/node_modules/pngjs/lib/parser-sync.js"(exports2, module2) {
+  "../../../node_modules/pngjs/lib/parser-sync.js"(exports2, module2) {
     "use strict";
     var hasSyncZlib = true;
     var zlib = require("zlib");
@@ -4456,9 +4456,9 @@ var require_parser_sync = __commonJS({
   }
 });
 
-// ../interface-built-right/node_modules/pngjs/lib/packer-sync.js
+// ../../../node_modules/pngjs/lib/packer-sync.js
 var require_packer_sync = __commonJS({
-  "../interface-built-right/node_modules/pngjs/lib/packer-sync.js"(exports2, module2) {
+  "../../../node_modules/pngjs/lib/packer-sync.js"(exports2, module2) {
     "use strict";
     var hasSyncZlib = true;
     var zlib = require("zlib");
@@ -4501,9 +4501,9 @@ var require_packer_sync = __commonJS({
   }
 });
 
-// ../interface-built-right/node_modules/pngjs/lib/png-sync.js
+// ../../../node_modules/pngjs/lib/png-sync.js
 var require_png_sync = __commonJS({
-  "../interface-built-right/node_modules/pngjs/lib/png-sync.js"(exports2) {
+  "../../../node_modules/pngjs/lib/png-sync.js"(exports2) {
     "use strict";
     var parse3 = require_parser_sync();
     var pack = require_packer_sync();
@@ -4516,9 +4516,9 @@ var require_png_sync = __commonJS({
   }
 });
 
-// ../interface-built-right/node_modules/pngjs/lib/png.js
+// ../../../node_modules/pngjs/lib/png.js
 var require_png = __commonJS({
-  "../interface-built-right/node_modules/pngjs/lib/png.js"(exports2) {
+  "../../../node_modules/pngjs/lib/png.js"(exports2) {
     "use strict";
     var util = require("util");
     var Stream = require("stream");
@@ -7211,7 +7211,7 @@ var init_compat = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/core/core.js
+// ../../../node_modules/zod/v4/core/core.js
 // @__NO_SIDE_EFFECTS__
 function $constructor(name, initializer3, params) {
   function init(inst, def) {
@@ -7271,7 +7271,7 @@ function config(newConfig) {
 }
 var _a, NEVER, $brand, $ZodAsyncError, $ZodEncodeError, globalConfig;
 var init_core = __esm({
-  "../interface-built-right/node_modules/zod/v4/core/core.js"() {
+  "../../../node_modules/zod/v4/core/core.js"() {
     "use strict";
     NEVER = /* @__PURE__ */ Object.freeze({
       status: "aborted"
@@ -7293,7 +7293,7 @@ var init_core = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/core/util.js
+// ../../../node_modules/zod/v4/core/util.js
 var util_exports = {};
 __export(util_exports, {
   BIGINT_FORMAT_RANGES: () => BIGINT_FORMAT_RANGES,
@@ -7904,7 +7904,7 @@ function uint8ArrayToHex(bytes) {
 }
 var EVALUATING, captureStackTrace, allowsEval, getParsedType, propertyKeyTypes, primitiveTypes, NUMBER_FORMAT_RANGES, BIGINT_FORMAT_RANGES, Class;
 var init_util = __esm({
-  "../interface-built-right/node_modules/zod/v4/core/util.js"() {
+  "../../../node_modules/zod/v4/core/util.js"() {
     "use strict";
     init_core();
     EVALUATING = /* @__PURE__ */ Symbol("evaluating");
@@ -7996,7 +7996,7 @@ var init_util = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/core/errors.js
+// ../../../node_modules/zod/v4/core/errors.js
 function flattenError(error51, mapper = (issue2) => issue2.message) {
   const fieldErrors = {};
   const formErrors = [];
@@ -8118,7 +8118,7 @@ function prettifyError(error51) {
 }
 var initializer, $ZodError, $ZodRealError;
 var init_errors = __esm({
-  "../interface-built-right/node_modules/zod/v4/core/errors.js"() {
+  "../../../node_modules/zod/v4/core/errors.js"() {
     "use strict";
     init_core();
     init_util();
@@ -8143,10 +8143,10 @@ var init_errors = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/core/parse.js
+// ../../../node_modules/zod/v4/core/parse.js
 var _parse, parse, _parseAsync, parseAsync, _safeParse, safeParse, _safeParseAsync, safeParseAsync, _encode, encode, _decode, decode, _encodeAsync, encodeAsync, _decodeAsync, decodeAsync, _safeEncode, safeEncode, _safeDecode, safeDecode, _safeEncodeAsync, safeEncodeAsync, _safeDecodeAsync, safeDecodeAsync;
 var init_parse = __esm({
-  "../interface-built-right/node_modules/zod/v4/core/parse.js"() {
+  "../../../node_modules/zod/v4/core/parse.js"() {
     "use strict";
     init_core();
     init_errors();
@@ -8240,7 +8240,7 @@ var init_parse = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/core/regexes.js
+// ../../../node_modules/zod/v4/core/regexes.js
 var regexes_exports = {};
 __export(regexes_exports, {
   base64: () => base64,
@@ -8332,7 +8332,7 @@ function fixedBase64url(length) {
 }
 var cuid, cuid2, ulid, xid, ksuid, nanoid, duration, extendedDuration, guid, uuid, uuid4, uuid6, uuid7, email, html5Email, rfc5322Email, unicodeEmail, idnEmail, browserEmail, _emoji, ipv4, ipv6, mac, cidrv4, cidrv6, base64, base64url, hostname2, domain, httpProtocol, e164, dateSource, date, string, bigint, integer, number, boolean, _null, _undefined, lowercase, uppercase, hex, md5_hex, md5_base64, md5_base64url, sha1_hex, sha1_base64, sha1_base64url, sha256_hex, sha256_base64, sha256_base64url, sha384_hex, sha384_base64, sha384_base64url, sha512_hex, sha512_base64, sha512_base64url;
 var init_regexes = __esm({
-  "../interface-built-right/node_modules/zod/v4/core/regexes.js"() {
+  "../../../node_modules/zod/v4/core/regexes.js"() {
     "use strict";
     init_util();
     cuid = /^[cC][0-9a-z]{6,}$/;
@@ -8406,7 +8406,7 @@ var init_regexes = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/core/checks.js
+// ../../../node_modules/zod/v4/core/checks.js
 function handleCheckPropertyResult(result, payload, property) {
   if (result.issues.length) {
     payload.issues.push(...prefixIssues(property, result.issues));
@@ -8414,7 +8414,7 @@ function handleCheckPropertyResult(result, payload, property) {
 }
 var $ZodCheck, numericOriginMap, $ZodCheckLessThan, $ZodCheckGreaterThan, $ZodCheckMultipleOf, $ZodCheckNumberFormat, $ZodCheckBigIntFormat, $ZodCheckMaxSize, $ZodCheckMinSize, $ZodCheckSizeEquals, $ZodCheckMaxLength, $ZodCheckMinLength, $ZodCheckLengthEquals, $ZodCheckStringFormat, $ZodCheckRegex, $ZodCheckLowerCase, $ZodCheckUpperCase, $ZodCheckIncludes, $ZodCheckStartsWith, $ZodCheckEndsWith, $ZodCheckProperty, $ZodCheckMimeType, $ZodCheckOverwrite;
 var init_checks = __esm({
-  "../interface-built-right/node_modules/zod/v4/core/checks.js"() {
+  "../../../node_modules/zod/v4/core/checks.js"() {
     "use strict";
     init_core();
     init_regexes();
@@ -8963,10 +8963,10 @@ var init_checks = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/core/doc.js
+// ../../../node_modules/zod/v4/core/doc.js
 var Doc;
 var init_doc = __esm({
-  "../interface-built-right/node_modules/zod/v4/core/doc.js"() {
+  "../../../node_modules/zod/v4/core/doc.js"() {
     "use strict";
     Doc = class {
       constructor(args = []) {
@@ -9005,10 +9005,10 @@ var init_doc = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/core/versions.js
+// ../../../node_modules/zod/v4/core/versions.js
 var version;
 var init_versions = __esm({
-  "../interface-built-right/node_modules/zod/v4/core/versions.js"() {
+  "../../../node_modules/zod/v4/core/versions.js"() {
     "use strict";
     version = {
       major: 4,
@@ -9018,7 +9018,7 @@ var init_versions = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/core/schemas.js
+// ../../../node_modules/zod/v4/core/schemas.js
 function isValidBase64(data) {
   if (data === "")
     return true;
@@ -9424,7 +9424,7 @@ function handleRefineResult(result, payload, input, inst) {
 }
 var $ZodType, $ZodString, $ZodStringFormat, $ZodGUID, $ZodUUID, $ZodEmail, $ZodURL, $ZodEmoji, $ZodNanoID, $ZodCUID, $ZodCUID2, $ZodULID, $ZodXID, $ZodKSUID, $ZodISODateTime, $ZodISODate, $ZodISOTime, $ZodISODuration, $ZodIPv4, $ZodIPv6, $ZodMAC, $ZodCIDRv4, $ZodCIDRv6, $ZodBase64, $ZodBase64URL, $ZodE164, $ZodJWT, $ZodCustomStringFormat, $ZodNumber, $ZodNumberFormat, $ZodBoolean, $ZodBigInt, $ZodBigIntFormat, $ZodSymbol, $ZodUndefined, $ZodNull, $ZodAny, $ZodUnknown, $ZodNever, $ZodVoid, $ZodDate, $ZodArray, $ZodObject, $ZodObjectJIT, $ZodUnion, $ZodXor, $ZodDiscriminatedUnion, $ZodIntersection, $ZodTuple, $ZodRecord, $ZodMap, $ZodSet, $ZodEnum, $ZodLiteral, $ZodFile, $ZodTransform, $ZodOptional, $ZodExactOptional, $ZodNullable, $ZodDefault, $ZodPrefault, $ZodNonOptional, $ZodSuccess, $ZodCatch, $ZodNaN, $ZodPipe, $ZodCodec, $ZodPreprocess, $ZodReadonly, $ZodTemplateLiteral, $ZodFunction, $ZodPromise, $ZodLazy, $ZodCustom;
 var init_schemas = __esm({
-  "../interface-built-right/node_modules/zod/v4/core/schemas.js"() {
+  "../../../node_modules/zod/v4/core/schemas.js"() {
     "use strict";
     init_checks();
     init_core();
@@ -11125,7 +11125,7 @@ var init_schemas = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/ar.js
+// ../../../node_modules/zod/v4/locales/ar.js
 function ar_default() {
   return {
     localeError: error()
@@ -11133,7 +11133,7 @@ function ar_default() {
 }
 var error;
 var init_ar = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/ar.js"() {
+  "../../../node_modules/zod/v4/locales/ar.js"() {
     "use strict";
     init_util();
     error = () => {
@@ -11239,7 +11239,7 @@ var init_ar = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/az.js
+// ../../../node_modules/zod/v4/locales/az.js
 function az_default() {
   return {
     localeError: error2()
@@ -11247,7 +11247,7 @@ function az_default() {
 }
 var error2;
 var init_az = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/az.js"() {
+  "../../../node_modules/zod/v4/locales/az.js"() {
     "use strict";
     init_util();
     error2 = () => {
@@ -11352,7 +11352,7 @@ var init_az = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/be.js
+// ../../../node_modules/zod/v4/locales/be.js
 function getBelarusianPlural(count, one, few, many) {
   const absCount = Math.abs(count);
   const lastDigit = absCount % 10;
@@ -11375,7 +11375,7 @@ function be_default() {
 }
 var error3;
 var init_be = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/be.js"() {
+  "../../../node_modules/zod/v4/locales/be.js"() {
     "use strict";
     init_util();
     error3 = () => {
@@ -11516,7 +11516,7 @@ var init_be = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/bg.js
+// ../../../node_modules/zod/v4/locales/bg.js
 function bg_default() {
   return {
     localeError: error4()
@@ -11524,7 +11524,7 @@ function bg_default() {
 }
 var error4;
 var init_bg = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/bg.js"() {
+  "../../../node_modules/zod/v4/locales/bg.js"() {
     "use strict";
     init_util();
     error4 = () => {
@@ -11644,7 +11644,7 @@ var init_bg = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/ca.js
+// ../../../node_modules/zod/v4/locales/ca.js
 function ca_default() {
   return {
     localeError: error5()
@@ -11652,7 +11652,7 @@ function ca_default() {
 }
 var error5;
 var init_ca = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/ca.js"() {
+  "../../../node_modules/zod/v4/locales/ca.js"() {
     "use strict";
     init_util();
     error5 = () => {
@@ -11760,7 +11760,7 @@ var init_ca = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/cs.js
+// ../../../node_modules/zod/v4/locales/cs.js
 function cs_default() {
   return {
     localeError: error6()
@@ -11768,7 +11768,7 @@ function cs_default() {
 }
 var error6;
 var init_cs = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/cs.js"() {
+  "../../../node_modules/zod/v4/locales/cs.js"() {
     "use strict";
     init_util();
     error6 = () => {
@@ -11879,7 +11879,7 @@ var init_cs = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/da.js
+// ../../../node_modules/zod/v4/locales/da.js
 function da_default() {
   return {
     localeError: error7()
@@ -11887,7 +11887,7 @@ function da_default() {
 }
 var error7;
 var init_da = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/da.js"() {
+  "../../../node_modules/zod/v4/locales/da.js"() {
     "use strict";
     init_util();
     error7 = () => {
@@ -12002,7 +12002,7 @@ var init_da = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/de.js
+// ../../../node_modules/zod/v4/locales/de.js
 function de_default() {
   return {
     localeError: error8()
@@ -12010,7 +12010,7 @@ function de_default() {
 }
 var error8;
 var init_de = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/de.js"() {
+  "../../../node_modules/zod/v4/locales/de.js"() {
     "use strict";
     init_util();
     error8 = () => {
@@ -12118,7 +12118,7 @@ var init_de = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/el.js
+// ../../../node_modules/zod/v4/locales/el.js
 function el_default() {
   return {
     localeError: error9()
@@ -12126,7 +12126,7 @@ function el_default() {
 }
 var error9;
 var init_el = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/el.js"() {
+  "../../../node_modules/zod/v4/locales/el.js"() {
     "use strict";
     init_util();
     error9 = () => {
@@ -12235,7 +12235,7 @@ var init_el = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/en.js
+// ../../../node_modules/zod/v4/locales/en.js
 function en_default() {
   return {
     localeError: error10()
@@ -12243,7 +12243,7 @@ function en_default() {
 }
 var error10;
 var init_en = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/en.js"() {
+  "../../../node_modules/zod/v4/locales/en.js"() {
     "use strict";
     init_util();
     error10 = () => {
@@ -12355,7 +12355,7 @@ var init_en = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/eo.js
+// ../../../node_modules/zod/v4/locales/eo.js
 function eo_default() {
   return {
     localeError: error11()
@@ -12363,7 +12363,7 @@ function eo_default() {
 }
 var error11;
 var init_eo = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/eo.js"() {
+  "../../../node_modules/zod/v4/locales/eo.js"() {
     "use strict";
     init_util();
     error11 = () => {
@@ -12472,7 +12472,7 @@ var init_eo = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/es.js
+// ../../../node_modules/zod/v4/locales/es.js
 function es_default() {
   return {
     localeError: error12()
@@ -12480,7 +12480,7 @@ function es_default() {
 }
 var error12;
 var init_es = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/es.js"() {
+  "../../../node_modules/zod/v4/locales/es.js"() {
     "use strict";
     init_util();
     error12 = () => {
@@ -12612,7 +12612,7 @@ var init_es = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/fa.js
+// ../../../node_modules/zod/v4/locales/fa.js
 function fa_default() {
   return {
     localeError: error13()
@@ -12620,7 +12620,7 @@ function fa_default() {
 }
 var error13;
 var init_fa = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/fa.js"() {
+  "../../../node_modules/zod/v4/locales/fa.js"() {
     "use strict";
     init_util();
     error13 = () => {
@@ -12734,7 +12734,7 @@ var init_fa = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/fi.js
+// ../../../node_modules/zod/v4/locales/fi.js
 function fi_default() {
   return {
     localeError: error14()
@@ -12742,7 +12742,7 @@ function fi_default() {
 }
 var error14;
 var init_fi = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/fi.js"() {
+  "../../../node_modules/zod/v4/locales/fi.js"() {
     "use strict";
     init_util();
     error14 = () => {
@@ -12854,7 +12854,7 @@ var init_fi = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/fr.js
+// ../../../node_modules/zod/v4/locales/fr.js
 function fr_default() {
   return {
     localeError: error15()
@@ -12862,7 +12862,7 @@ function fr_default() {
 }
 var error15;
 var init_fr = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/fr.js"() {
+  "../../../node_modules/zod/v4/locales/fr.js"() {
     "use strict";
     init_util();
     error15 = () => {
@@ -12987,7 +12987,7 @@ var init_fr = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/fr-CA.js
+// ../../../node_modules/zod/v4/locales/fr-CA.js
 function fr_CA_default() {
   return {
     localeError: error16()
@@ -12995,7 +12995,7 @@ function fr_CA_default() {
 }
 var error16;
 var init_fr_CA = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/fr-CA.js"() {
+  "../../../node_modules/zod/v4/locales/fr-CA.js"() {
     "use strict";
     init_util();
     error16 = () => {
@@ -13102,7 +13102,7 @@ var init_fr_CA = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/he.js
+// ../../../node_modules/zod/v4/locales/he.js
 function he_default() {
   return {
     localeError: error17()
@@ -13110,7 +13110,7 @@ function he_default() {
 }
 var error17;
 var init_he = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/he.js"() {
+  "../../../node_modules/zod/v4/locales/he.js"() {
     "use strict";
     init_util();
     error17 = () => {
@@ -13304,7 +13304,7 @@ var init_he = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/hr.js
+// ../../../node_modules/zod/v4/locales/hr.js
 function hr_default() {
   return {
     localeError: error18()
@@ -13312,7 +13312,7 @@ function hr_default() {
 }
 var error18;
 var init_hr = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/hr.js"() {
+  "../../../node_modules/zod/v4/locales/hr.js"() {
     "use strict";
     init_util();
     error18 = () => {
@@ -13434,7 +13434,7 @@ var init_hr = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/hu.js
+// ../../../node_modules/zod/v4/locales/hu.js
 function hu_default() {
   return {
     localeError: error19()
@@ -13442,7 +13442,7 @@ function hu_default() {
 }
 var error19;
 var init_hu = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/hu.js"() {
+  "../../../node_modules/zod/v4/locales/hu.js"() {
     "use strict";
     init_util();
     error19 = () => {
@@ -13550,7 +13550,7 @@ var init_hu = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/hy.js
+// ../../../node_modules/zod/v4/locales/hy.js
 function getArmenianPlural(count, one, many) {
   return Math.abs(count) === 1 ? one : many;
 }
@@ -13568,7 +13568,7 @@ function hy_default() {
 }
 var error20;
 var init_hy = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/hy.js"() {
+  "../../../node_modules/zod/v4/locales/hy.js"() {
     "use strict";
     init_util();
     error20 = () => {
@@ -13705,7 +13705,7 @@ var init_hy = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/id.js
+// ../../../node_modules/zod/v4/locales/id.js
 function id_default() {
   return {
     localeError: error21()
@@ -13713,7 +13713,7 @@ function id_default() {
 }
 var error21;
 var init_id = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/id.js"() {
+  "../../../node_modules/zod/v4/locales/id.js"() {
     "use strict";
     init_util();
     error21 = () => {
@@ -13819,7 +13819,7 @@ var init_id = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/is.js
+// ../../../node_modules/zod/v4/locales/is.js
 function is_default() {
   return {
     localeError: error22()
@@ -13827,7 +13827,7 @@ function is_default() {
 }
 var error22;
 var init_is = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/is.js"() {
+  "../../../node_modules/zod/v4/locales/is.js"() {
     "use strict";
     init_util();
     error22 = () => {
@@ -13936,7 +13936,7 @@ var init_is = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/it.js
+// ../../../node_modules/zod/v4/locales/it.js
 function it_default() {
   return {
     localeError: error23()
@@ -13944,7 +13944,7 @@ function it_default() {
 }
 var error23;
 var init_it = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/it.js"() {
+  "../../../node_modules/zod/v4/locales/it.js"() {
     "use strict";
     init_util();
     error23 = () => {
@@ -14052,7 +14052,7 @@ var init_it = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/ja.js
+// ../../../node_modules/zod/v4/locales/ja.js
 function ja_default() {
   return {
     localeError: error24()
@@ -14060,7 +14060,7 @@ function ja_default() {
 }
 var error24;
 var init_ja = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/ja.js"() {
+  "../../../node_modules/zod/v4/locales/ja.js"() {
     "use strict";
     init_util();
     error24 = () => {
@@ -14167,7 +14167,7 @@ var init_ja = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/ka.js
+// ../../../node_modules/zod/v4/locales/ka.js
 function ka_default() {
   return {
     localeError: error25()
@@ -14175,7 +14175,7 @@ function ka_default() {
 }
 var error25;
 var init_ka = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/ka.js"() {
+  "../../../node_modules/zod/v4/locales/ka.js"() {
     "use strict";
     init_util();
     error25 = () => {
@@ -14287,7 +14287,7 @@ var init_ka = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/km.js
+// ../../../node_modules/zod/v4/locales/km.js
 function km_default() {
   return {
     localeError: error26()
@@ -14295,7 +14295,7 @@ function km_default() {
 }
 var error26;
 var init_km = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/km.js"() {
+  "../../../node_modules/zod/v4/locales/km.js"() {
     "use strict";
     init_util();
     error26 = () => {
@@ -14405,18 +14405,18 @@ var init_km = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/kh.js
+// ../../../node_modules/zod/v4/locales/kh.js
 function kh_default() {
   return km_default();
 }
 var init_kh = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/kh.js"() {
+  "../../../node_modules/zod/v4/locales/kh.js"() {
     "use strict";
     init_km();
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/ko.js
+// ../../../node_modules/zod/v4/locales/ko.js
 function ko_default() {
   return {
     localeError: error27()
@@ -14424,7 +14424,7 @@ function ko_default() {
 }
 var error27;
 var init_ko = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/ko.js"() {
+  "../../../node_modules/zod/v4/locales/ko.js"() {
     "use strict";
     init_util();
     error27 = () => {
@@ -14535,7 +14535,7 @@ var init_ko = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/lt.js
+// ../../../node_modules/zod/v4/locales/lt.js
 function getUnitTypeFromNumber(number4) {
   const abs = Math.abs(number4);
   const last = abs % 10;
@@ -14553,7 +14553,7 @@ function lt_default() {
 }
 var capitalizeFirstCharacter, error28;
 var init_lt = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/lt.js"() {
+  "../../../node_modules/zod/v4/locales/lt.js"() {
     "use strict";
     init_util();
     capitalizeFirstCharacter = (text) => {
@@ -14746,7 +14746,7 @@ var init_lt = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/mk.js
+// ../../../node_modules/zod/v4/locales/mk.js
 function mk_default() {
   return {
     localeError: error29()
@@ -14754,7 +14754,7 @@ function mk_default() {
 }
 var error29;
 var init_mk = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/mk.js"() {
+  "../../../node_modules/zod/v4/locales/mk.js"() {
     "use strict";
     init_util();
     error29 = () => {
@@ -14863,7 +14863,7 @@ var init_mk = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/ms.js
+// ../../../node_modules/zod/v4/locales/ms.js
 function ms_default() {
   return {
     localeError: error30()
@@ -14871,7 +14871,7 @@ function ms_default() {
 }
 var error30;
 var init_ms = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/ms.js"() {
+  "../../../node_modules/zod/v4/locales/ms.js"() {
     "use strict";
     init_util();
     error30 = () => {
@@ -14978,7 +14978,7 @@ var init_ms = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/nl.js
+// ../../../node_modules/zod/v4/locales/nl.js
 function nl_default() {
   return {
     localeError: error31()
@@ -14986,7 +14986,7 @@ function nl_default() {
 }
 var error31;
 var init_nl = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/nl.js"() {
+  "../../../node_modules/zod/v4/locales/nl.js"() {
     "use strict";
     init_util();
     error31 = () => {
@@ -15096,7 +15096,7 @@ var init_nl = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/no.js
+// ../../../node_modules/zod/v4/locales/no.js
 function no_default() {
   return {
     localeError: error32()
@@ -15104,7 +15104,7 @@ function no_default() {
 }
 var error32;
 var init_no = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/no.js"() {
+  "../../../node_modules/zod/v4/locales/no.js"() {
     "use strict";
     init_util();
     error32 = () => {
@@ -15212,7 +15212,7 @@ var init_no = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/ota.js
+// ../../../node_modules/zod/v4/locales/ota.js
 function ota_default() {
   return {
     localeError: error33()
@@ -15220,7 +15220,7 @@ function ota_default() {
 }
 var error33;
 var init_ota = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/ota.js"() {
+  "../../../node_modules/zod/v4/locales/ota.js"() {
     "use strict";
     init_util();
     error33 = () => {
@@ -15329,7 +15329,7 @@ var init_ota = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/ps.js
+// ../../../node_modules/zod/v4/locales/ps.js
 function ps_default() {
   return {
     localeError: error34()
@@ -15337,7 +15337,7 @@ function ps_default() {
 }
 var error34;
 var init_ps = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/ps.js"() {
+  "../../../node_modules/zod/v4/locales/ps.js"() {
     "use strict";
     init_util();
     error34 = () => {
@@ -15451,7 +15451,7 @@ var init_ps = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/pl.js
+// ../../../node_modules/zod/v4/locales/pl.js
 function pl_default() {
   return {
     localeError: error35()
@@ -15459,7 +15459,7 @@ function pl_default() {
 }
 var error35;
 var init_pl = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/pl.js"() {
+  "../../../node_modules/zod/v4/locales/pl.js"() {
     "use strict";
     init_util();
     error35 = () => {
@@ -15568,7 +15568,7 @@ var init_pl = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/pt.js
+// ../../../node_modules/zod/v4/locales/pt.js
 function pt_default() {
   return {
     localeError: error36()
@@ -15576,7 +15576,7 @@ function pt_default() {
 }
 var error36;
 var init_pt = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/pt.js"() {
+  "../../../node_modules/zod/v4/locales/pt.js"() {
     "use strict";
     init_util();
     error36 = () => {
@@ -15684,7 +15684,7 @@ var init_pt = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/ro.js
+// ../../../node_modules/zod/v4/locales/ro.js
 function ro_default() {
   return {
     localeError: error37()
@@ -15692,7 +15692,7 @@ function ro_default() {
 }
 var error37;
 var init_ro = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/ro.js"() {
+  "../../../node_modules/zod/v4/locales/ro.js"() {
     "use strict";
     init_util();
     error37 = () => {
@@ -15811,7 +15811,7 @@ var init_ro = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/ru.js
+// ../../../node_modules/zod/v4/locales/ru.js
 function getRussianPlural(count, one, few, many) {
   const absCount = Math.abs(count);
   const lastDigit = absCount % 10;
@@ -15834,7 +15834,7 @@ function ru_default() {
 }
 var error38;
 var init_ru = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/ru.js"() {
+  "../../../node_modules/zod/v4/locales/ru.js"() {
     "use strict";
     init_util();
     error38 = () => {
@@ -15975,7 +15975,7 @@ var init_ru = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/sl.js
+// ../../../node_modules/zod/v4/locales/sl.js
 function sl_default() {
   return {
     localeError: error39()
@@ -15983,7 +15983,7 @@ function sl_default() {
 }
 var error39;
 var init_sl = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/sl.js"() {
+  "../../../node_modules/zod/v4/locales/sl.js"() {
     "use strict";
     init_util();
     error39 = () => {
@@ -16092,7 +16092,7 @@ var init_sl = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/sv.js
+// ../../../node_modules/zod/v4/locales/sv.js
 function sv_default() {
   return {
     localeError: error40()
@@ -16100,7 +16100,7 @@ function sv_default() {
 }
 var error40;
 var init_sv = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/sv.js"() {
+  "../../../node_modules/zod/v4/locales/sv.js"() {
     "use strict";
     init_util();
     error40 = () => {
@@ -16210,7 +16210,7 @@ var init_sv = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/ta.js
+// ../../../node_modules/zod/v4/locales/ta.js
 function ta_default() {
   return {
     localeError: error41()
@@ -16218,7 +16218,7 @@ function ta_default() {
 }
 var error41;
 var init_ta = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/ta.js"() {
+  "../../../node_modules/zod/v4/locales/ta.js"() {
     "use strict";
     init_util();
     error41 = () => {
@@ -16328,7 +16328,7 @@ var init_ta = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/th.js
+// ../../../node_modules/zod/v4/locales/th.js
 function th_default() {
   return {
     localeError: error42()
@@ -16336,7 +16336,7 @@ function th_default() {
 }
 var error42;
 var init_th = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/th.js"() {
+  "../../../node_modules/zod/v4/locales/th.js"() {
     "use strict";
     init_util();
     error42 = () => {
@@ -16446,7 +16446,7 @@ var init_th = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/tr.js
+// ../../../node_modules/zod/v4/locales/tr.js
 function tr_default() {
   return {
     localeError: error43()
@@ -16454,7 +16454,7 @@ function tr_default() {
 }
 var error43;
 var init_tr = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/tr.js"() {
+  "../../../node_modules/zod/v4/locales/tr.js"() {
     "use strict";
     init_util();
     error43 = () => {
@@ -16559,7 +16559,7 @@ var init_tr = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/uk.js
+// ../../../node_modules/zod/v4/locales/uk.js
 function uk_default() {
   return {
     localeError: error44()
@@ -16567,7 +16567,7 @@ function uk_default() {
 }
 var error44;
 var init_uk = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/uk.js"() {
+  "../../../node_modules/zod/v4/locales/uk.js"() {
     "use strict";
     init_util();
     error44 = () => {
@@ -16675,18 +16675,18 @@ var init_uk = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/ua.js
+// ../../../node_modules/zod/v4/locales/ua.js
 function ua_default() {
   return uk_default();
 }
 var init_ua = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/ua.js"() {
+  "../../../node_modules/zod/v4/locales/ua.js"() {
     "use strict";
     init_uk();
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/ur.js
+// ../../../node_modules/zod/v4/locales/ur.js
 function ur_default() {
   return {
     localeError: error45()
@@ -16694,7 +16694,7 @@ function ur_default() {
 }
 var error45;
 var init_ur = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/ur.js"() {
+  "../../../node_modules/zod/v4/locales/ur.js"() {
     "use strict";
     init_util();
     error45 = () => {
@@ -16804,7 +16804,7 @@ var init_ur = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/uz.js
+// ../../../node_modules/zod/v4/locales/uz.js
 function uz_default() {
   return {
     localeError: error46()
@@ -16812,7 +16812,7 @@ function uz_default() {
 }
 var error46;
 var init_uz = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/uz.js"() {
+  "../../../node_modules/zod/v4/locales/uz.js"() {
     "use strict";
     init_util();
     error46 = () => {
@@ -16922,7 +16922,7 @@ var init_uz = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/vi.js
+// ../../../node_modules/zod/v4/locales/vi.js
 function vi_default() {
   return {
     localeError: error47()
@@ -16930,7 +16930,7 @@ function vi_default() {
 }
 var error47;
 var init_vi = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/vi.js"() {
+  "../../../node_modules/zod/v4/locales/vi.js"() {
     "use strict";
     init_util();
     error47 = () => {
@@ -17038,7 +17038,7 @@ var init_vi = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/zh-CN.js
+// ../../../node_modules/zod/v4/locales/zh-CN.js
 function zh_CN_default() {
   return {
     localeError: error48()
@@ -17046,7 +17046,7 @@ function zh_CN_default() {
 }
 var error48;
 var init_zh_CN = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/zh-CN.js"() {
+  "../../../node_modules/zod/v4/locales/zh-CN.js"() {
     "use strict";
     init_util();
     error48 = () => {
@@ -17155,7 +17155,7 @@ var init_zh_CN = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/zh-TW.js
+// ../../../node_modules/zod/v4/locales/zh-TW.js
 function zh_TW_default() {
   return {
     localeError: error49()
@@ -17163,7 +17163,7 @@ function zh_TW_default() {
 }
 var error49;
 var init_zh_TW = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/zh-TW.js"() {
+  "../../../node_modules/zod/v4/locales/zh-TW.js"() {
     "use strict";
     init_util();
     error49 = () => {
@@ -17270,7 +17270,7 @@ var init_zh_TW = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/yo.js
+// ../../../node_modules/zod/v4/locales/yo.js
 function yo_default() {
   return {
     localeError: error50()
@@ -17278,7 +17278,7 @@ function yo_default() {
 }
 var error50;
 var init_yo = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/yo.js"() {
+  "../../../node_modules/zod/v4/locales/yo.js"() {
     "use strict";
     init_util();
     error50 = () => {
@@ -17385,7 +17385,7 @@ var init_yo = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/locales/index.js
+// ../../../node_modules/zod/v4/locales/index.js
 var locales_exports = {};
 __export(locales_exports, {
   ar: () => ar_default,
@@ -17442,7 +17442,7 @@ __export(locales_exports, {
   zhTW: () => zh_TW_default
 });
 var init_locales = __esm({
-  "../interface-built-right/node_modules/zod/v4/locales/index.js"() {
+  "../../../node_modules/zod/v4/locales/index.js"() {
     "use strict";
     init_ar();
     init_az();
@@ -17499,13 +17499,13 @@ var init_locales = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/core/registries.js
+// ../../../node_modules/zod/v4/core/registries.js
 function registry() {
   return new $ZodRegistry();
 }
 var _a2, $output, $input, $ZodRegistry, globalRegistry;
 var init_registries = __esm({
-  "../interface-built-right/node_modules/zod/v4/core/registries.js"() {
+  "../../../node_modules/zod/v4/core/registries.js"() {
     "use strict";
     $output = /* @__PURE__ */ Symbol("ZodOutput");
     $input = /* @__PURE__ */ Symbol("ZodInput");
@@ -17554,7 +17554,7 @@ var init_registries = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/core/api.js
+// ../../../node_modules/zod/v4/core/api.js
 // @__NO_SIDE_EFFECTS__
 function _string(Class2, params) {
   return new Class2({
@@ -18587,7 +18587,7 @@ function _stringFormat(Class2, format, fnOrRegex, _params = {}) {
 }
 var TimePrecision;
 var init_api = __esm({
-  "../interface-built-right/node_modules/zod/v4/core/api.js"() {
+  "../../../node_modules/zod/v4/core/api.js"() {
     "use strict";
     init_checks();
     init_registries();
@@ -18603,7 +18603,7 @@ var init_api = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/core/to-json-schema.js
+// ../../../node_modules/zod/v4/core/to-json-schema.js
 function initializeContext(params) {
   let target = params?.target ?? "draft-2020-12";
   if (target === "draft-4")
@@ -18950,7 +18950,7 @@ function isTransforming(_schema, _ctx) {
 }
 var createToJSONSchemaMethod, createStandardJSONSchemaMethod;
 var init_to_json_schema = __esm({
-  "../interface-built-right/node_modules/zod/v4/core/to-json-schema.js"() {
+  "../../../node_modules/zod/v4/core/to-json-schema.js"() {
     "use strict";
     init_registries();
     createToJSONSchemaMethod = (schema, processors = {}) => (params) => {
@@ -18969,7 +18969,7 @@ var init_to_json_schema = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/core/json-schema-processors.js
+// ../../../node_modules/zod/v4/core/json-schema-processors.js
 function toJSONSchema(input, params) {
   if ("_idmap" in input) {
     const registry2 = input;
@@ -19006,7 +19006,7 @@ function toJSONSchema(input, params) {
 }
 var formatMap, stringProcessor, numberProcessor, booleanProcessor, bigintProcessor, symbolProcessor, nullProcessor, undefinedProcessor, voidProcessor, neverProcessor, anyProcessor, unknownProcessor, dateProcessor, enumProcessor, literalProcessor, nanProcessor, templateLiteralProcessor, fileProcessor, successProcessor, customProcessor, functionProcessor, transformProcessor, mapProcessor, setProcessor, arrayProcessor, objectProcessor, unionProcessor, intersectionProcessor, tupleProcessor, recordProcessor, nullableProcessor, nonoptionalProcessor, defaultProcessor, prefaultProcessor, catchProcessor, pipeProcessor, readonlyProcessor, promiseProcessor, optionalProcessor, lazyProcessor, allProcessors;
 var init_json_schema_processors = __esm({
-  "../interface-built-right/node_modules/zod/v4/core/json-schema-processors.js"() {
+  "../../../node_modules/zod/v4/core/json-schema-processors.js"() {
     "use strict";
     init_to_json_schema();
     init_util();
@@ -19521,10 +19521,10 @@ var init_json_schema_processors = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/core/json-schema-generator.js
+// ../../../node_modules/zod/v4/core/json-schema-generator.js
 var JSONSchemaGenerator;
 var init_json_schema_generator = __esm({
-  "../interface-built-right/node_modules/zod/v4/core/json-schema-generator.js"() {
+  "../../../node_modules/zod/v4/core/json-schema-generator.js"() {
     "use strict";
     init_json_schema_processors();
     init_to_json_schema();
@@ -19604,15 +19604,15 @@ var init_json_schema_generator = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/core/json-schema.js
+// ../../../node_modules/zod/v4/core/json-schema.js
 var json_schema_exports = {};
 var init_json_schema = __esm({
-  "../interface-built-right/node_modules/zod/v4/core/json-schema.js"() {
+  "../../../node_modules/zod/v4/core/json-schema.js"() {
     "use strict";
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/core/index.js
+// ../../../node_modules/zod/v4/core/index.js
 var core_exports2 = {};
 __export(core_exports2, {
   $ZodAny: () => $ZodAny,
@@ -19891,7 +19891,7 @@ __export(core_exports2, {
   version: () => version
 });
 var init_core2 = __esm({
-  "../interface-built-right/node_modules/zod/v4/core/index.js"() {
+  "../../../node_modules/zod/v4/core/index.js"() {
     "use strict";
     init_core();
     init_parse();
@@ -19912,7 +19912,7 @@ var init_core2 = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/classic/checks.js
+// ../../../node_modules/zod/v4/classic/checks.js
 var checks_exports2 = {};
 __export(checks_exports2, {
   endsWith: () => _endsWith,
@@ -19946,13 +19946,13 @@ __export(checks_exports2, {
   uppercase: () => _uppercase
 });
 var init_checks2 = __esm({
-  "../interface-built-right/node_modules/zod/v4/classic/checks.js"() {
+  "../../../node_modules/zod/v4/classic/checks.js"() {
     "use strict";
     init_core2();
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/classic/iso.js
+// ../../../node_modules/zod/v4/classic/iso.js
 var iso_exports = {};
 __export(iso_exports, {
   ZodISODate: () => ZodISODate,
@@ -19978,7 +19978,7 @@ function duration2(params) {
 }
 var ZodISODateTime, ZodISODate, ZodISOTime, ZodISODuration;
 var init_iso = __esm({
-  "../interface-built-right/node_modules/zod/v4/classic/iso.js"() {
+  "../../../node_modules/zod/v4/classic/iso.js"() {
     "use strict";
     init_core2();
     init_schemas2();
@@ -20001,10 +20001,10 @@ var init_iso = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/classic/errors.js
+// ../../../node_modules/zod/v4/classic/errors.js
 var initializer2, ZodError, ZodRealError;
 var init_errors2 = __esm({
-  "../interface-built-right/node_modules/zod/v4/classic/errors.js"() {
+  "../../../node_modules/zod/v4/classic/errors.js"() {
     "use strict";
     init_core2();
     init_core2();
@@ -20050,10 +20050,10 @@ var init_errors2 = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/classic/parse.js
+// ../../../node_modules/zod/v4/classic/parse.js
 var parse2, parseAsync2, safeParse2, safeParseAsync2, encode2, decode2, encodeAsync2, decodeAsync2, safeEncode2, safeDecode2, safeEncodeAsync2, safeDecodeAsync2;
 var init_parse2 = __esm({
-  "../interface-built-right/node_modules/zod/v4/classic/parse.js"() {
+  "../../../node_modules/zod/v4/classic/parse.js"() {
     "use strict";
     init_core2();
     init_errors2();
@@ -20072,7 +20072,7 @@ var init_parse2 = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/classic/schemas.js
+// ../../../node_modules/zod/v4/classic/schemas.js
 var schemas_exports2 = {};
 __export(schemas_exports2, {
   ZodAny: () => ZodAny,
@@ -20756,7 +20756,7 @@ function preprocess(fn, schema) {
 }
 var _installedGroups, ZodType, _ZodString, ZodString, ZodStringFormat, ZodEmail, ZodGUID, ZodUUID, ZodURL, ZodEmoji, ZodNanoID, ZodCUID, ZodCUID2, ZodULID, ZodXID, ZodKSUID, ZodIPv4, ZodMAC, ZodIPv6, ZodCIDRv4, ZodCIDRv6, ZodBase64, ZodBase64URL, ZodE164, ZodJWT, ZodCustomStringFormat, ZodNumber, ZodNumberFormat, ZodBoolean, ZodBigInt, ZodBigIntFormat, ZodSymbol, ZodUndefined, ZodNull, ZodAny, ZodUnknown, ZodNever, ZodVoid, ZodDate, ZodArray, ZodObject, ZodUnion, ZodXor, ZodDiscriminatedUnion, ZodIntersection, ZodTuple, ZodRecord, ZodMap, ZodSet, ZodEnum, ZodLiteral, ZodFile, ZodTransform, ZodOptional, ZodExactOptional, ZodNullable, ZodDefault, ZodPrefault, ZodNonOptional, ZodSuccess, ZodCatch, ZodNaN, ZodPipe, ZodCodec, ZodPreprocess, ZodReadonly, ZodTemplateLiteral, ZodLazy, ZodPromise, ZodFunction, ZodCustom, describe2, meta2, stringbool;
 var init_schemas2 = __esm({
-  "../interface-built-right/node_modules/zod/v4/classic/schemas.js"() {
+  "../../../node_modules/zod/v4/classic/schemas.js"() {
     "use strict";
     init_core2();
     init_core2();
@@ -21544,7 +21544,7 @@ var init_schemas2 = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/classic/compat.js
+// ../../../node_modules/zod/v4/classic/compat.js
 function setErrorMap(map2) {
   config({
     customError: map2
@@ -21555,7 +21555,7 @@ function getErrorMap() {
 }
 var ZodIssueCode, ZodFirstPartyTypeKind;
 var init_compat2 = __esm({
-  "../interface-built-right/node_modules/zod/v4/classic/compat.js"() {
+  "../../../node_modules/zod/v4/classic/compat.js"() {
     "use strict";
     init_core2();
     ZodIssueCode = {
@@ -21576,7 +21576,7 @@ var init_compat2 = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/classic/from-json-schema.js
+// ../../../node_modules/zod/v4/classic/from-json-schema.js
 function detectVersion(schema, defaultTarget) {
   const $schema = schema.$schema;
   if ($schema === "https://json-schema.org/draft/2020-12/schema") {
@@ -21981,7 +21981,7 @@ function fromJSONSchema(schema, params) {
 }
 var z, RECOGNIZED_KEYS;
 var init_from_json_schema = __esm({
-  "../interface-built-right/node_modules/zod/v4/classic/from-json-schema.js"() {
+  "../../../node_modules/zod/v4/classic/from-json-schema.js"() {
     "use strict";
     init_registries();
     init_checks2();
@@ -22066,7 +22066,7 @@ var init_from_json_schema = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/classic/coerce.js
+// ../../../node_modules/zod/v4/classic/coerce.js
 var coerce_exports = {};
 __export(coerce_exports, {
   bigint: () => bigint3,
@@ -22091,14 +22091,14 @@ function date4(params) {
   return _coercedDate(ZodDate, params);
 }
 var init_coerce = __esm({
-  "../interface-built-right/node_modules/zod/v4/classic/coerce.js"() {
+  "../../../node_modules/zod/v4/classic/coerce.js"() {
     "use strict";
     init_core2();
     init_schemas2();
   }
 });
 
-// ../interface-built-right/node_modules/zod/v4/classic/external.js
+// ../../../node_modules/zod/v4/classic/external.js
 var external_exports = {};
 __export(external_exports, {
   $brand: () => $brand,
@@ -22341,7 +22341,7 @@ __export(external_exports, {
   xor: () => xor
 });
 var init_external = __esm({
-  "../interface-built-right/node_modules/zod/v4/classic/external.js"() {
+  "../../../node_modules/zod/v4/classic/external.js"() {
     "use strict";
     init_core2();
     init_schemas2();
@@ -22362,9 +22362,9 @@ var init_external = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/zod/index.js
+// ../../../node_modules/zod/index.js
 var init_zod = __esm({
-  "../interface-built-right/node_modules/zod/index.js"() {
+  "../../../node_modules/zod/index.js"() {
     "use strict";
     init_external();
     init_external();
@@ -24420,16 +24420,16 @@ var init_compare = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/nanoid/url-alphabet/index.js
+// ../../../node_modules/nanoid/url-alphabet/index.js
 var urlAlphabet;
 var init_url_alphabet = __esm({
-  "../interface-built-right/node_modules/nanoid/url-alphabet/index.js"() {
+  "../../../node_modules/nanoid/url-alphabet/index.js"() {
     "use strict";
     urlAlphabet = "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict";
   }
 });
 
-// ../interface-built-right/node_modules/nanoid/index.js
+// ../../../node_modules/nanoid/index.js
 function fillPool(bytes) {
   if (bytes < 0) throw new RangeError("Wrong ID size");
   try {
@@ -24457,7 +24457,7 @@ function nanoid3(size = 21) {
 }
 var import_node_crypto, POOL_SIZE_MULTIPLIER, pool, poolOffset;
 var init_nanoid = __esm({
-  "../interface-built-right/node_modules/nanoid/index.js"() {
+  "../../../node_modules/nanoid/index.js"() {
     "use strict";
     import_node_crypto = require("crypto");
     init_url_alphabet();
@@ -31830,6 +31830,590 @@ var init_layout_collision = __esm({
   }
 });
 
+// src/layout-overflow.ts
+function buildLayoutOverflowProbe(options = {}) {
+  const rootSelector = JSON.stringify(options.rootSelector ?? "#ibr-container");
+  const maxNodes = Math.max(1, Math.floor(options.maxNodes ?? 4e3));
+  return `(function () {
+  var MAX = ${maxNodes};
+  var root = document.querySelector(${rootSelector}) || document.body;
+  if (!root) return [];
+  var out = [];
+
+  function nth(el) {
+    var p = el.parentElement;
+    if (!p) return 1;
+    var n = 0;
+    for (var i = 0; i < p.children.length; i++) {
+      if (p.children[i].tagName === el.tagName) {
+        n++;
+        if (p.children[i] === el) return n;
+      }
+    }
+    return n;
+  }
+
+  function shortSel(el) {
+    var s = el.tagName.toLowerCase();
+    if (el.id) return s + '#' + el.id;
+    var cls = (typeof el.className === 'string' ? el.className : '').trim();
+    if (cls) {
+      var parts = cls.split(/\\s+/).slice(0, 2);
+      s += '.' + parts.join('.');
+    }
+    var i = nth(el);
+    if (i > 1) s += ':nth-of-type(' + i + ')';
+    return s;
+  }
+
+  function pathSel(el, rootEl) {
+    var chain = [];
+    var cur = el;
+    var guard = 0;
+    while (cur && guard++ < 12) {
+      chain.unshift(shortSel(cur));
+      if (cur === rootEl) break;
+      cur = cur.parentElement;
+    }
+    return chain.join(' > ');
+  }
+
+  function directText(el) {
+    var t = '';
+    for (var i = 0; i < el.childNodes.length; i++) {
+      var n = el.childNodes[i];
+      if (n.nodeType === 3) t += n.nodeValue;
+    }
+    t = t.replace(/\\s+/g, ' ').trim();
+    return t.length > 80 ? t.slice(0, 80) : t;
+  }
+
+  // A closed disclosure can retain child geometry while its zero-height
+  // overflow:hidden body paints none of that subtree. Rect intersections alone
+  // would report those hidden descendants as collisions with later content.
+  function isPainted(el, rect) {
+    var cur = el.parentElement;
+    while (cur) {
+      var cs;
+      try { cs = getComputedStyle(cur); } catch (e) { cur = cur.parentElement; continue; }
+      var clipsX = cs.overflowX === 'hidden' || cs.overflowX === 'clip';
+      var clipsY = cs.overflowY === 'hidden' || cs.overflowY === 'clip';
+      if (clipsX || clipsY) {
+        var parentRect = cur.getBoundingClientRect();
+        if (clipsX && (rect.right <= parentRect.left || rect.left >= parentRect.right)) return false;
+        if (clipsY && (rect.bottom <= parentRect.top || rect.top >= parentRect.bottom)) return false;
+      }
+      cur = cur.parentElement;
+    }
+    return true;
+  }
+
+  // DIRECT child text nodes with non-whitespace content \u2014 same population
+  // directText() stringifies, kept as nodes here so a Range can measure them.
+  function directTextNodes(el) {
+    var found = [];
+    for (var i = 0; i < el.childNodes.length; i++) {
+      var n = el.childNodes[i];
+      if (n.nodeType === 3 && /\\S/.test(n.nodeValue)) found.push(n);
+    }
+    return found;
+  }
+
+  // Union bounding box of Range.getClientRects() over this element's direct
+  // text. null when there is no direct text or its measured rect is zero-size
+  // (e.g. collapsed by an ancestor already excluded above).
+  function textRectOf(el) {
+    var nodes = directTextNodes(el);
+    if (nodes.length === 0) return null;
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, found = false;
+    for (var i = 0; i < nodes.length; i++) {
+      var range;
+      try {
+        range = document.createRange();
+        range.selectNodeContents(nodes[i]);
+      } catch (e) { continue; }
+      var rects = range.getClientRects();
+      for (var j = 0; j < rects.length; j++) {
+        var rc = rects[j];
+        if (rc.width <= 0 || rc.height <= 0) continue;
+        found = true;
+        if (rc.left < minX) minX = rc.left;
+        if (rc.top < minY) minY = rc.top;
+        if (rc.right > maxX) maxX = rc.right;
+        if (rc.bottom > maxY) maxY = rc.bottom;
+      }
+    }
+    if (!found) return null;
+    var w = maxX - minX, h = maxY - minY;
+    if (w <= 0 || h <= 0) return null;
+    return { x: minX, y: minY, width: w, height: h };
+  }
+
+  function walk(el, parentIndex, depth) {
+    if (out.length >= MAX) return;
+    var cs;
+    try { cs = getComputedStyle(el); } catch (e) { return; }
+    // display:none has no layout at all; its subtree is not rendered either.
+    if (cs.display === 'none') return;
+
+    var hasCheckVisibility = typeof el.checkVisibility === 'function';
+
+    // Closed <details> content (and content-visibility:hidden generally) is
+    // laid out but never painted, and painted:false alone would still walk
+    // and report its descendants. contentVisibilityAuto:true catches that
+    // whole subtree in one check, so skip it here rather than let every
+    // downstream pass special-case it. The <details>/<summary> element ITSELF
+    // stays visible \u2014 this only trips on the hidden content inside.
+    if (hasCheckVisibility) {
+      try {
+        if (!el.checkVisibility({ contentVisibilityAuto: true })) return;
+      } catch (e) { /* fall through and measure anyway */ }
+    }
+
+    var r = el.getBoundingClientRect();
+
+    // visibility:hidden / opacity:0 still occupy layout space (unlike
+    // content-visibility above), so they are measured but flagged unpainted \u2014
+    // same contract isPainted() already carries for clip-hidden boxes.
+    var visibilityPainted = true;
+    if (hasCheckVisibility) {
+      try {
+        visibilityPainted = el.checkVisibility({ visibilityProperty: true, opacityProperty: true });
+      } catch (e) { visibilityPainted = true; }
+    }
+
+    var index = out.length;
+    out.push({
+      index: index,
+      parent: parentIndex,
+      depth: depth,
+      selector: pathSel(el, root),
+      tagName: el.tagName,
+      ownText: directText(el),
+      rect: { x: r.left, y: r.top, width: r.width, height: r.height },
+      clientWidth: el.clientWidth,
+      clientHeight: el.clientHeight,
+      scrollWidth: el.scrollWidth,
+      scrollHeight: el.scrollHeight,
+      overflowX: cs.overflowX,
+      overflowY: cs.overflowY,
+      display: cs.display,
+      position: cs.position,
+      height: cs.height,
+      minHeight: cs.minHeight,
+      maxHeight: cs.maxHeight,
+      width: cs.width,
+      minWidth: cs.minWidth,
+      maxWidth: cs.maxWidth,
+      boxSizing: cs.boxSizing,
+      hasTransform: cs.transform !== 'none' && cs.transform !== '',
+      painted: isPainted(el, r) && visibilityPainted,
+      inputHeightVar: (cs.getPropertyValue('--input-height') || '').trim(),
+      textRect: textRectOf(el),
+      textOverflow: cs.textOverflow,
+      lineClamp: cs.webkitLineClamp || cs.getPropertyValue('-webkit-line-clamp') || '',
+      gridTemplateColumns: cs.gridTemplateColumns
+    });
+
+    for (var i = 0; i < el.children.length; i++) {
+      walk(el.children[i], index, depth + 1);
+      if (out.length >= MAX) return;
+    }
+  }
+
+  walk(root, null, 0);
+  return out;
+})()`;
+}
+function px(value) {
+  const m = /^(-?\d+(?:\.\d+)?)px$/.exec(value.trim());
+  return m ? Number(m[1]) : null;
+}
+function isVisibleOverflow(value) {
+  return value === "visible";
+}
+function hasBoxMetrics(node) {
+  return node.display !== "inline" && node.display !== "contents" && node.clientHeight > 0;
+}
+function isInFlow(node) {
+  return (node.position === "static" || node.position === "relative") && !node.hasTransform;
+}
+function hasOutOfFlowAncestor(node, byIndex) {
+  let parent = node.parent === null ? void 0 : byIndex.get(node.parent);
+  while (parent) {
+    if (parent.position === "fixed" || parent.position === "sticky" || parent.hasTransform) return true;
+    parent = parent.parent === null ? void 0 : byIndex.get(parent.parent);
+  }
+  return false;
+}
+function short(text, max = 40) {
+  return text.length > max ? `${text.slice(0, max)}\u2026` : text;
+}
+function attributeCulprit(node, axis) {
+  const isVertical = axis === "vertical";
+  const sizeProp = isVertical ? "height" : "width";
+  const maxProp = isVertical ? "max-height" : "max-width";
+  const size = px(isVertical ? node.height : node.width);
+  const maxSize = px(isVertical ? node.maxHeight : node.maxWidth);
+  const content = isVertical ? node.scrollHeight : node.scrollWidth;
+  const FORM_CONTROLS = /* @__PURE__ */ new Set(["BUTTON", "INPUT", "SELECT", "TEXTAREA"]);
+  const inputHeight = px(node.inputHeightVar);
+  if (isVertical && FORM_CONTROLS.has(node.tagName) && size !== null && inputHeight !== null && Math.abs(size - inputHeight) < 0.5) {
+    return {
+      selector: node.selector,
+      property: "height",
+      value: node.height,
+      origin: "obsidian-base",
+      note: `Obsidian's app.css pins every <${node.tagName.toLowerCase()}> to height: var(--input-height) (${node.inputHeightVar}). This element's content is ${Math.round(content)}px tall, so it renders outside the box. A <${node.tagName.toLowerCase()}> used as a multi-line layout container must reset that rule.`
+    };
+  }
+  if (!isVertical && (node.display === "grid" || node.display === "inline-grid")) {
+    return {
+      selector: node.selector,
+      property: "grid-template-columns",
+      value: node.gridTemplateColumns ?? "",
+      origin: "author",
+      note: `grid-template-columns: ${node.gridTemplateColumns ?? "(unknown)"} \u2014 a bare \`1fr\` track is shorthand for \`minmax(auto, 1fr)\`, so the track floors at its content's min-content width, not zero. An unbreakable token inside it raised that floor past the track's fair share.`
+    };
+  }
+  if (!isVertical && (node.display === "flex" || node.display === "inline-flex")) {
+    return {
+      selector: node.selector,
+      property: "min-width",
+      value: "auto",
+      origin: "author",
+      note: `Flex items default to min-width: auto, so this box will not shrink below its content's min-content width even though the row is flex. An unbreakable token inside it raised that floor past the item's fair share of the row.`
+    };
+  }
+  if (size !== null && content > size + 0.5) {
+    return {
+      selector: node.selector,
+      property: sizeProp,
+      value: isVertical ? node.height : node.width,
+      origin: "author",
+      note: `${sizeProp}: ${isVertical ? node.height : node.width} holds this box to a fixed size while its content measures ${Math.round(content)}px.`
+    };
+  }
+  if (maxSize !== null && content > maxSize + 0.5) {
+    return {
+      selector: node.selector,
+      property: maxProp,
+      value: isVertical ? node.maxHeight : node.maxWidth,
+      origin: "author",
+      note: `${maxProp}: ${isVertical ? node.maxHeight : node.maxWidth} caps this box below its ${Math.round(content)}px content.`
+    };
+  }
+  return {
+    selector: node.selector,
+    property: sizeProp,
+    value: isVertical ? node.height : node.width,
+    origin: "unknown",
+    note: `No fixed ${sizeProp} on this element \u2014 the constraint is on an ancestor, or the content genuinely exceeds the space available.`
+  };
+}
+function fixFor(culprit, axis) {
+  if (culprit?.origin === "obsidian-base") {
+    return `Reset the base rule on this element: \`height: auto; min-height: 0;\` (and \`display: block\`/\`grid\` if it must wrap). Or use a non-<button> element with a click handler and \`role="button"\`.`;
+  }
+  if (culprit?.origin === "author" && culprit.property === "grid-template-columns") {
+    return `Change the \`1fr\` tracks to \`minmax(0, 1fr)\` so they can shrink below their content's min-content width, and add \`overflow-wrap: anywhere\` on the text children so they wrap instead of forcing the track wider.`;
+  }
+  if (culprit?.origin === "author" && culprit.property === "min-width" && culprit.value === "auto") {
+    return `Add \`min-width: 0\` on this flex item so it can shrink below its content's min-content width, and \`overflow-wrap: anywhere\` on the text children so they wrap instead of forcing the item wider.`;
+  }
+  if (culprit?.origin === "author") {
+    return `Replace \`${culprit.property}: ${culprit.value}\` with \`min-${culprit.property}\`, or allow the box to grow (\`${culprit.property}: auto\`).`;
+  }
+  return axis === "vertical" ? "Let the box grow (`height: auto`), or give it `overflow: hidden` if clipping is intended." : "Let the box grow (`width: auto`), allow wrapping, or clip deliberately.";
+}
+function analyzeLayoutOverflow(nodes, options = {}) {
+  const selfOverflowPx = options.selfOverflowPx ?? LAYOUT_OVERFLOW_DEFAULTS.selfOverflowPx;
+  const containerEscapePx = options.containerEscapePx ?? LAYOUT_OVERFLOW_DEFAULTS.containerEscapePx;
+  const overlapPx = options.overlapPx ?? LAYOUT_OVERFLOW_DEFAULTS.overlapPx;
+  const clipPx = options.clipPx ?? LAYOUT_OVERFLOW_DEFAULTS.clipPx;
+  const maxFindings = options.maxFindings ?? LAYOUT_OVERFLOW_DEFAULTS.maxFindings;
+  if (nodes.length === 0) return [];
+  const byIndex = /* @__PURE__ */ new Map();
+  for (const n of nodes) byIndex.set(n.index, n);
+  const findings = [];
+  const overflowingBoxes = /* @__PURE__ */ new Set();
+  const EPSILON_PX = 0.5;
+  for (const node of nodes) {
+    if (!node.painted) continue;
+    if (!hasBoxMetrics(node)) continue;
+    if (isVisibleOverflow(node.overflowY) && node.scrollHeight - node.clientHeight > EPSILON_PX) {
+      overflowingBoxes.add(`${node.index}:vertical`);
+    }
+    if (isVisibleOverflow(node.overflowX) && node.clientWidth > 0 && node.scrollWidth - node.clientWidth > EPSILON_PX) {
+      overflowingBoxes.add(`${node.index}:horizontal`);
+    }
+  }
+  const selfOverflowRaw = [];
+  for (const node of nodes) {
+    if (!node.painted) continue;
+    if (!hasBoxMetrics(node)) continue;
+    if (isVisibleOverflow(node.overflowY)) {
+      const spill = node.scrollHeight - node.clientHeight;
+      if (spill >= selfOverflowPx) {
+        const culprit = attributeCulprit(node, "vertical");
+        selfOverflowRaw.push({
+          nodeIndex: node.index,
+          finding: {
+            kind: "self-overflow",
+            severity: "warning",
+            axis: "vertical",
+            selector: node.selector,
+            tagName: node.tagName,
+            text: node.ownText || void 0,
+            spillPx: round(spill),
+            culprit,
+            detail: `layout-overflow: <${node.tagName.toLowerCase()}> ${node.selector} renders ${Math.round(node.scrollHeight)}px of content in a ${Math.round(node.clientHeight)}px box ` + `(overflow: visible) \u2014 ${Math.round(spill)}px paints outside the element. ${culprit?.note ?? ""}`.trim(),
+            fix: fixFor(culprit, "vertical")
+          }
+        });
+      }
+    }
+    if (isVisibleOverflow(node.overflowX) && node.clientWidth > 0) {
+      const spill = node.scrollWidth - node.clientWidth;
+      if (spill >= selfOverflowPx) {
+        const culprit = attributeCulprit(node, "horizontal");
+        selfOverflowRaw.push({
+          nodeIndex: node.index,
+          finding: {
+            kind: "self-overflow",
+            severity: "warning",
+            axis: "horizontal",
+            selector: node.selector,
+            tagName: node.tagName,
+            text: node.ownText || void 0,
+            spillPx: round(spill),
+            culprit,
+            detail: `layout-overflow: <${node.tagName.toLowerCase()}> ${node.selector} renders ${Math.round(node.scrollWidth)}px of content in a ${Math.round(node.clientWidth)}px box ` + `(overflow: visible) \u2014 ${Math.round(spill)}px paints outside the element. ${culprit?.note ?? ""}`.trim(),
+            fix: fixFor(culprit, "horizontal")
+          }
+        });
+      }
+    }
+  }
+  const ancestorsOf = buildAncestorSets(nodes, byIndex);
+  const droppedSelfOverflow = /* @__PURE__ */ new Set();
+  for (let i = 0; i < selfOverflowRaw.length; i++) {
+    const outer = selfOverflowRaw[i];
+    for (let j = 0; j < selfOverflowRaw.length; j++) {
+      if (i === j) continue;
+      const inner = selfOverflowRaw[j];
+      if (inner.finding.axis !== outer.finding.axis) continue;
+      if (!ancestorsOf.get(inner.nodeIndex)?.has(outer.nodeIndex)) continue;
+      if (inner.finding.spillPx >= outer.finding.spillPx - selfOverflowPx) {
+        droppedSelfOverflow.add(i);
+        break;
+      }
+    }
+  }
+  for (let i = 0; i < selfOverflowRaw.length; i++) {
+    if (!droppedSelfOverflow.has(i)) findings.push(selfOverflowRaw[i].finding);
+  }
+  for (const node of nodes) {
+    if (!node.painted) continue;
+    if (node.parent === null) continue;
+    if (!isInFlow(node)) continue;
+    const parent = byIndex.get(node.parent);
+    if (!parent) continue;
+    if (parent.rect.width <= 0 || parent.rect.height <= 0) continue;
+    if (node.rect.width <= 0 || node.rect.height <= 0) continue;
+    const axes = [
+      [
+        "vertical",
+        node.rect.y,
+        node.rect.y + node.rect.height,
+        parent.rect.y,
+        parent.rect.y + parent.rect.height,
+        parent.overflowY
+      ],
+      [
+        "horizontal",
+        node.rect.x,
+        node.rect.x + node.rect.width,
+        parent.rect.x,
+        parent.rect.x + parent.rect.width,
+        parent.overflowX
+      ]
+    ];
+    for (const [axis, start, end, pStart, pEnd, parentOverflow] of axes) {
+      if (!isVisibleOverflow(parentOverflow)) continue;
+      if (overflowingBoxes.has(`${parent.index}:${axis}`)) continue;
+      const past = Math.max(end - pEnd, 0);
+      const before = Math.max(pStart - start, 0);
+      const spill = Math.max(past, before);
+      if (spill < containerEscapePx) continue;
+      const culprit = attributeCulprit(parent, axis);
+      const direction = axis === "vertical" ? past >= before ? "below" : "above" : past >= before ? "past the end of" : "before the start of";
+      findings.push({
+        kind: "container-escape",
+        severity: "warning",
+        axis,
+        selector: node.selector,
+        tagName: node.tagName,
+        text: node.ownText || void 0,
+        spillPx: round(spill),
+        otherSelector: parent.selector,
+        otherText: parent.ownText || void 0,
+        culprit,
+        detail: `layout-overflow: ${node.selector} extends ${Math.round(spill)}px ${direction} its parent ${parent.selector} (parent overflow: visible, so the excess paints over ` + `whatever follows). ${culprit?.note ?? ""}`.trim(),
+        fix: fixFor(culprit, axis)
+      });
+    }
+  }
+  const textNodes = nodes.filter(
+    (n) => n.ownText.length > 0 && n.painted && n.rect.width > 0 && n.rect.height > 0 && isInFlow(n) && !hasOutOfFlowAncestor(n, byIndex)
+  ).sort((a, b) => a.rect.y !== b.rect.y ? a.rect.y - b.rect.y : a.rect.x - b.rect.x);
+  for (let i = 0; i < textNodes.length; i++) {
+    const a = textNodes[i];
+    const aBottom = a.rect.y + a.rect.height;
+    for (let j = i + 1; j < textNodes.length; j++) {
+      const b = textNodes[j];
+      if (b.rect.y >= aBottom - overlapPx) break;
+      if (ancestorsOf.get(a.index)?.has(b.index) || ancestorsOf.get(b.index)?.has(a.index)) continue;
+      const overlapH = Math.min(aBottom, b.rect.y + b.rect.height) - Math.max(a.rect.y, b.rect.y);
+      const overlapW = Math.min(a.rect.x + a.rect.width, b.rect.x + b.rect.width) - Math.max(a.rect.x, b.rect.x);
+      if (overlapH < overlapPx || overlapW < overlapPx) continue;
+      const culprit = nearestOverflowingAncestor(a, byIndex, overflowingBoxes) ?? nearestOverflowingAncestor(b, byIndex, overflowingBoxes);
+      findings.push({
+        kind: "sibling-overlap",
+        severity: "error",
+        axis: "vertical",
+        selector: a.selector,
+        tagName: a.tagName,
+        text: short(a.ownText),
+        spillPx: round(overlapH),
+        otherSelector: b.selector,
+        otherText: short(b.ownText),
+        culprit,
+        detail: `layout-overflow: "${short(a.ownText)}" (${a.selector}) overlaps "${short(b.ownText)}" (${b.selector}) by ${Math.round(overlapH)}x${Math.round(overlapW)}px \u2014 ` + `text is rendering on top of text. ${culprit?.note ?? ""}`.trim(),
+        fix: culprit ? fixFor(culprit, "vertical") : "Two in-flow text elements occupy the same pixels. Check for a fixed height, a negative margin, or an absolute position on a shared ancestor."
+      });
+    }
+  }
+  for (const node of nodes) {
+    if (!node.painted) continue;
+    const tr = node.textRect;
+    if (!tr || tr.width <= 0 || tr.height <= 0) continue;
+    for (const axis of ["horizontal", "vertical"]) {
+      let cur = node;
+      let clipBox;
+      let sawEllipsisOrClamp = false;
+      let guard = 0;
+      while (cur && guard++ < 64) {
+        if (cur.textOverflow === "ellipsis") sawEllipsisOrClamp = true;
+        const clamp4 = (cur.lineClamp ?? "").trim();
+        if (clamp4 && clamp4 !== "none") sawEllipsisOrClamp = true;
+        const overflowValue = axis === "horizontal" ? cur.overflowX : cur.overflowY;
+        if (overflowValue === "scroll" || overflowValue === "auto") {
+          clipBox = void 0;
+          break;
+        }
+        if (overflowValue === "hidden" || overflowValue === "clip") {
+          clipBox = cur;
+          break;
+        }
+        cur = cur.parent === null ? void 0 : byIndex.get(cur.parent);
+      }
+      if (!clipBox) continue;
+      if (sawEllipsisOrClamp) continue;
+      if (clipBox.rect.width <= 2 || clipBox.rect.height <= 2) continue;
+      const textStart = axis === "horizontal" ? tr.x : tr.y;
+      const textEnd = axis === "horizontal" ? tr.x + tr.width : tr.y + tr.height;
+      const clipStart = axis === "horizontal" ? clipBox.rect.x : clipBox.rect.y;
+      const clipEnd = axis === "horizontal" ? clipBox.rect.x + clipBox.rect.width : clipBox.rect.y + clipBox.rect.height;
+      if (textEnd <= clipStart || textStart >= clipEnd) continue;
+      const spill = Math.max(textEnd - clipEnd, clipStart - textStart);
+      if (spill < clipPx) continue;
+      const axisProp = axis === "horizontal" ? "overflow-x" : "overflow-y";
+      const overflowAtClip = axis === "horizontal" ? clipBox.overflowX : clipBox.overflowY;
+      findings.push({
+        kind: "clip",
+        severity: "warning",
+        axis,
+        selector: node.selector,
+        tagName: node.tagName,
+        text: short(node.ownText) || void 0,
+        spillPx: round(spill),
+        otherSelector: clipBox.selector,
+        detail: `layout-overflow: "${short(node.ownText)}" (${node.selector}) is clipped ${Math.round(spill)}px past ${clipBox.selector} (${axisProp}: ${overflowAtClip}) \u2014 the text is cut off with no ellipsis.`,
+        fix: "Allow the text to wrap (`overflow-wrap: anywhere`; add `min-width: 0` if this sits in a grid/flex child), or declare the truncation explicitly (`text-overflow: ellipsis` alongside `white-space: nowrap` and `overflow: hidden`)."
+      });
+    }
+  }
+  const bySeverityThenSpill = (a, b) => {
+    if (a.severity !== b.severity) return a.severity === "error" ? -1 : 1;
+    return b.spillPx - a.spillPx;
+  };
+  findings.sort(bySeverityThenSpill);
+  if (findings.length <= maxFindings) return findings;
+  const KIND_FLOOR = 5;
+  const seenPerKind = /* @__PURE__ */ new Map();
+  const floorSelected = [];
+  const remaining = [];
+  for (const f of findings) {
+    const seen = seenPerKind.get(f.kind) ?? 0;
+    if (seen < KIND_FLOOR) {
+      floorSelected.push(f);
+      seenPerKind.set(f.kind, seen + 1);
+    } else {
+      remaining.push(f);
+    }
+  }
+  const selected = floorSelected.slice(0, maxFindings);
+  if (selected.length < maxFindings) {
+    selected.push(...remaining.slice(0, maxFindings - selected.length));
+  }
+  selected.sort(bySeverityThenSpill);
+  return selected;
+}
+function round(n) {
+  return Math.round(n * 10) / 10;
+}
+function buildAncestorSets(nodes, byIndex) {
+  const out = /* @__PURE__ */ new Map();
+  for (const node of nodes) {
+    const set2 = /* @__PURE__ */ new Set();
+    let cur = node.parent;
+    let guard = 0;
+    while (cur !== null && guard++ < 64) {
+      set2.add(cur);
+      cur = byIndex.get(cur)?.parent ?? null;
+    }
+    out.set(node.index, set2);
+  }
+  return out;
+}
+function nearestOverflowingAncestor(node, byIndex, overflowingBoxes) {
+  let cur = node.parent;
+  let guard = 0;
+  while (cur !== null && guard++ < 64) {
+    const ancestor = byIndex.get(cur);
+    if (!ancestor) return void 0;
+    if (overflowingBoxes.has(`${ancestor.index}:vertical`)) {
+      return attributeCulprit(ancestor, "vertical");
+    }
+    cur = ancestor.parent;
+  }
+  return void 0;
+}
+var LAYOUT_OVERFLOW_DEFAULTS;
+var init_layout_overflow = __esm({
+  "src/layout-overflow.ts"() {
+    "use strict";
+    LAYOUT_OVERFLOW_DEFAULTS = {
+      selfOverflowPx: 8,
+      containerEscapePx: 8,
+      overlapPx: 8,
+      clipPx: 8,
+      maxFindings: 40
+    };
+  }
+});
+
 // src/design-system/config.ts
 async function loadDesignSystemConfig(projectDir) {
   let configPath = (0, import_path15.join)(projectDir, ".ibr", "design-system.json");
@@ -36386,6 +36970,33 @@ async function scan(url2, options = {}) {
       }
     }
     const contrastCoverage = activeRuleIds.has("wcag-aa-contrast") || activeRuleIds.has("wcag-aaa-contrast") ? summarizeContrastCoverage([...elements.all, ...contentAsElements], textCensus) : void 0;
+    let layoutOverflow;
+    if (options.layoutOverflow !== false) {
+      try {
+        const overflowNodes = await driver3.evaluate(
+          buildLayoutOverflowProbe({ rootSelector: "body" })
+        );
+        const overflowOptions = typeof options.layoutOverflow === "object" ? options.layoutOverflow : {};
+        layoutOverflow = analyzeLayoutOverflow(overflowNodes, overflowOptions);
+        for (const finding of layoutOverflow) {
+          issues.push({
+            category: "structure",
+            severity: finding.severity,
+            element: finding.selector,
+            description: finding.detail,
+            fix: finding.fix
+          });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        issues.push({
+          category: "structure",
+          severity: "warning",
+          description: `[layout-overflow-failed] Content overflow/clipping was NOT measured \u2014 self-overflow, container-escape, sibling-overlap, and clip findings are all absent from this scan: ${message}`,
+          fix: "Re-run the scan. If it persists, the page navigated or the browser detached mid-scan."
+        });
+      }
+    }
     const verdict = determineVerdict2(issues);
     const summary = generateSummary2(elements, interactivity, semantic, issues, consoleErrors);
     const summaries = summarizeScan(elements.all, url2);
@@ -36431,6 +37042,10 @@ async function scan(url2, options = {}) {
       },
       coverage,
       layoutCollisions,
+      // Absent (not present-and-undefined) when layoutOverflow===false OR the
+      // probe/analysis threw — same present/absent contract as `content`
+      // below, so a caller can tell "did not run" from "ran and found none".
+      ...layoutOverflow !== void 0 ? { layoutOverflow } : {},
       themeAnalysis,
       designSystem,
       hydration: hydrationReason !== "skipped" ? { timedOut: hydrationTimedOut, reason: hydrationReason } : void 0,
@@ -36801,6 +37416,20 @@ function formatScanResult(result) {
     }
     lines.push("");
   }
+  if (result.layoutOverflow && result.layoutOverflow.length > 0) {
+    lines.push("  LAYOUT OVERFLOW");
+    lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+    lines.push(`  Findings: ${result.layoutOverflow.length}`);
+    for (const f of result.layoutOverflow.slice(0, 10)) {
+      const icon = f.severity === "error" ? "\x1B[31m\u2717\x1B[0m" : "\x1B[33m!\x1B[0m";
+      lines.push(`    ${icon} [${f.kind}] ${f.spillPx}px \xB7 ${f.detail}`);
+      if (f.fix) lines.push(`      \u2192 ${f.fix}`);
+    }
+    if (result.layoutOverflow.length > 10) {
+      lines.push(`    ... and ${result.layoutOverflow.length - 10} more`);
+    }
+    lines.push("");
+  }
   if (result.issues.length > 0) {
     const rank = { error: 0, warning: 1, info: 2 };
     const ranked = [...result.issues].sort((a, b) => rank[a.severity] - rank[b.severity]);
@@ -36838,6 +37467,7 @@ var init_scan = __esm({
     init_interactivity();
     init_semantic();
     init_layout_collision();
+    init_layout_overflow();
     init_consistency();
     init_design_system();
     init_wait();
@@ -45332,396 +45962,10 @@ var init_app_css = __esm({
 });
 
 // src/obsidian/layout-overflow.ts
-function buildLayoutOverflowProbe(options = {}) {
-  const rootSelector = JSON.stringify(options.rootSelector ?? "#ibr-container");
-  const maxNodes = Math.max(1, Math.floor(options.maxNodes ?? 4e3));
-  return `(function () {
-  var MAX = ${maxNodes};
-  var root = document.querySelector(${rootSelector}) || document.body;
-  if (!root) return [];
-  var out = [];
-
-  function nth(el) {
-    var p = el.parentElement;
-    if (!p) return 1;
-    var n = 0;
-    for (var i = 0; i < p.children.length; i++) {
-      if (p.children[i].tagName === el.tagName) {
-        n++;
-        if (p.children[i] === el) return n;
-      }
-    }
-    return n;
-  }
-
-  function shortSel(el) {
-    var s = el.tagName.toLowerCase();
-    if (el.id) return s + '#' + el.id;
-    var cls = (typeof el.className === 'string' ? el.className : '').trim();
-    if (cls) {
-      var parts = cls.split(/\\s+/).slice(0, 2);
-      s += '.' + parts.join('.');
-    }
-    var i = nth(el);
-    if (i > 1) s += ':nth-of-type(' + i + ')';
-    return s;
-  }
-
-  function pathSel(el, rootEl) {
-    var chain = [];
-    var cur = el;
-    var guard = 0;
-    while (cur && guard++ < 12) {
-      chain.unshift(shortSel(cur));
-      if (cur === rootEl) break;
-      cur = cur.parentElement;
-    }
-    return chain.join(' > ');
-  }
-
-  function directText(el) {
-    var t = '';
-    for (var i = 0; i < el.childNodes.length; i++) {
-      var n = el.childNodes[i];
-      if (n.nodeType === 3) t += n.nodeValue;
-    }
-    t = t.replace(/\\s+/g, ' ').trim();
-    return t.length > 80 ? t.slice(0, 80) : t;
-  }
-
-  // A closed disclosure can retain child geometry while its zero-height
-  // overflow:hidden body paints none of that subtree. Rect intersections alone
-  // would report those hidden descendants as collisions with later content.
-  function isPainted(el, rect) {
-    var cur = el.parentElement;
-    while (cur) {
-      var cs;
-      try { cs = getComputedStyle(cur); } catch (e) { cur = cur.parentElement; continue; }
-      var clipsX = cs.overflowX === 'hidden' || cs.overflowX === 'clip';
-      var clipsY = cs.overflowY === 'hidden' || cs.overflowY === 'clip';
-      if (clipsX || clipsY) {
-        var parentRect = cur.getBoundingClientRect();
-        if (clipsX && (rect.right <= parentRect.left || rect.left >= parentRect.right)) return false;
-        if (clipsY && (rect.bottom <= parentRect.top || rect.top >= parentRect.bottom)) return false;
-      }
-      cur = cur.parentElement;
-    }
-    return true;
-  }
-
-  function walk(el, parentIndex, depth) {
-    if (out.length >= MAX) return;
-    var cs;
-    try { cs = getComputedStyle(el); } catch (e) { return; }
-    // display:none has no layout at all; its subtree is not rendered either.
-    if (cs.display === 'none') return;
-
-    var r = el.getBoundingClientRect();
-    var index = out.length;
-    out.push({
-      index: index,
-      parent: parentIndex,
-      depth: depth,
-      selector: pathSel(el, root),
-      tagName: el.tagName,
-      ownText: directText(el),
-      rect: { x: r.left, y: r.top, width: r.width, height: r.height },
-      clientWidth: el.clientWidth,
-      clientHeight: el.clientHeight,
-      scrollWidth: el.scrollWidth,
-      scrollHeight: el.scrollHeight,
-      overflowX: cs.overflowX,
-      overflowY: cs.overflowY,
-      display: cs.display,
-      position: cs.position,
-      height: cs.height,
-      minHeight: cs.minHeight,
-      maxHeight: cs.maxHeight,
-      width: cs.width,
-      minWidth: cs.minWidth,
-      maxWidth: cs.maxWidth,
-      boxSizing: cs.boxSizing,
-      hasTransform: cs.transform !== 'none' && cs.transform !== '',
-      painted: isPainted(el, r),
-      inputHeightVar: (cs.getPropertyValue('--input-height') || '').trim()
-    });
-
-    for (var i = 0; i < el.children.length; i++) {
-      walk(el.children[i], index, depth + 1);
-      if (out.length >= MAX) return;
-    }
-  }
-
-  walk(root, null, 0);
-  return out;
-})()`;
-}
-function px(value) {
-  const m = /^(-?\d+(?:\.\d+)?)px$/.exec(value.trim());
-  return m ? Number(m[1]) : null;
-}
-function isVisibleOverflow(value) {
-  return value === "visible";
-}
-function hasBoxMetrics(node) {
-  return node.display !== "inline" && node.display !== "contents" && node.clientHeight > 0;
-}
-function isInFlow(node) {
-  return (node.position === "static" || node.position === "relative") && !node.hasTransform;
-}
-function hasOutOfFlowAncestor(node, byIndex) {
-  let parent = node.parent === null ? void 0 : byIndex.get(node.parent);
-  while (parent) {
-    if (parent.position === "fixed" || parent.position === "sticky" || parent.hasTransform) return true;
-    parent = parent.parent === null ? void 0 : byIndex.get(parent.parent);
-  }
-  return false;
-}
-function short(text, max = 40) {
-  return text.length > max ? `${text.slice(0, max)}\u2026` : text;
-}
-function attributeCulprit(node, axis) {
-  const isVertical = axis === "vertical";
-  const sizeProp = isVertical ? "height" : "width";
-  const maxProp = isVertical ? "max-height" : "max-width";
-  const size = px(isVertical ? node.height : node.width);
-  const maxSize = px(isVertical ? node.maxHeight : node.maxWidth);
-  const content = isVertical ? node.scrollHeight : node.scrollWidth;
-  const FORM_CONTROLS = /* @__PURE__ */ new Set(["BUTTON", "INPUT", "SELECT", "TEXTAREA"]);
-  const inputHeight = px(node.inputHeightVar);
-  if (isVertical && FORM_CONTROLS.has(node.tagName) && size !== null && inputHeight !== null && Math.abs(size - inputHeight) < 0.5) {
-    return {
-      selector: node.selector,
-      property: "height",
-      value: node.height,
-      origin: "obsidian-base",
-      note: `Obsidian's app.css pins every <${node.tagName.toLowerCase()}> to height: var(--input-height) (${node.inputHeightVar}). This element's content is ${Math.round(content)}px tall, so it renders outside the box. A <${node.tagName.toLowerCase()}> used as a multi-line layout container must reset that rule.`
-    };
-  }
-  if (size !== null && content > size + 0.5) {
-    return {
-      selector: node.selector,
-      property: sizeProp,
-      value: isVertical ? node.height : node.width,
-      origin: "author",
-      note: `${sizeProp}: ${isVertical ? node.height : node.width} holds this box to a fixed size while its content measures ${Math.round(content)}px.`
-    };
-  }
-  if (maxSize !== null && content > maxSize + 0.5) {
-    return {
-      selector: node.selector,
-      property: maxProp,
-      value: isVertical ? node.maxHeight : node.maxWidth,
-      origin: "author",
-      note: `${maxProp}: ${isVertical ? node.maxHeight : node.maxWidth} caps this box below its ${Math.round(content)}px content.`
-    };
-  }
-  return {
-    selector: node.selector,
-    property: sizeProp,
-    value: isVertical ? node.height : node.width,
-    origin: "unknown",
-    note: `No fixed ${sizeProp} on this element \u2014 the constraint is on an ancestor, or the content genuinely exceeds the space available.`
-  };
-}
-function fixFor(culprit, axis) {
-  if (culprit?.origin === "obsidian-base") {
-    return `Reset the base rule on this element: \`height: auto; min-height: 0;\` (and \`display: block\`/\`grid\` if it must wrap). Or use a non-<button> element with a click handler and \`role="button"\`.`;
-  }
-  if (culprit?.origin === "author") {
-    return `Replace \`${culprit.property}: ${culprit.value}\` with \`min-${culprit.property}\`, or allow the box to grow (\`${culprit.property}: auto\`).`;
-  }
-  return axis === "vertical" ? "Let the box grow (`height: auto`), or give it `overflow: hidden` if clipping is intended." : "Let the box grow (`width: auto`), allow wrapping, or clip deliberately.";
-}
-function analyzeLayoutOverflow(nodes, options = {}) {
-  const selfOverflowPx = options.selfOverflowPx ?? LAYOUT_OVERFLOW_DEFAULTS.selfOverflowPx;
-  const containerEscapePx = options.containerEscapePx ?? LAYOUT_OVERFLOW_DEFAULTS.containerEscapePx;
-  const overlapPx = options.overlapPx ?? LAYOUT_OVERFLOW_DEFAULTS.overlapPx;
-  const maxFindings = options.maxFindings ?? LAYOUT_OVERFLOW_DEFAULTS.maxFindings;
-  if (nodes.length === 0) return [];
-  const byIndex = /* @__PURE__ */ new Map();
-  for (const n of nodes) byIndex.set(n.index, n);
-  const findings = [];
-  const overflowingBoxes = /* @__PURE__ */ new Set();
-  const EPSILON_PX = 0.5;
-  for (const node of nodes) {
-    if (!node.painted) continue;
-    if (!hasBoxMetrics(node)) continue;
-    if (isVisibleOverflow(node.overflowY) && node.scrollHeight - node.clientHeight > EPSILON_PX) {
-      overflowingBoxes.add(`${node.index}:vertical`);
-    }
-    if (isVisibleOverflow(node.overflowX) && node.clientWidth > 0 && node.scrollWidth - node.clientWidth > EPSILON_PX) {
-      overflowingBoxes.add(`${node.index}:horizontal`);
-    }
-  }
-  for (const node of nodes) {
-    if (!node.painted) continue;
-    if (!hasBoxMetrics(node)) continue;
-    if (isVisibleOverflow(node.overflowY)) {
-      const spill = node.scrollHeight - node.clientHeight;
-      if (spill >= selfOverflowPx) {
-        const culprit = attributeCulprit(node, "vertical");
-        findings.push({
-          kind: "self-overflow",
-          severity: "warning",
-          axis: "vertical",
-          selector: node.selector,
-          tagName: node.tagName,
-          text: node.ownText || void 0,
-          spillPx: round(spill),
-          culprit,
-          detail: `layout-overflow: <${node.tagName.toLowerCase()}> ${node.selector} renders ${Math.round(node.scrollHeight)}px of content in a ${Math.round(node.clientHeight)}px box ` + `(overflow: visible) \u2014 ${Math.round(spill)}px paints outside the element. ${culprit?.note ?? ""}`.trim(),
-          fix: fixFor(culprit, "vertical")
-        });
-      }
-    }
-    if (isVisibleOverflow(node.overflowX) && node.clientWidth > 0) {
-      const spill = node.scrollWidth - node.clientWidth;
-      if (spill >= selfOverflowPx) {
-        const culprit = attributeCulprit(node, "horizontal");
-        findings.push({
-          kind: "self-overflow",
-          severity: "warning",
-          axis: "horizontal",
-          selector: node.selector,
-          tagName: node.tagName,
-          text: node.ownText || void 0,
-          spillPx: round(spill),
-          culprit,
-          detail: `layout-overflow: <${node.tagName.toLowerCase()}> ${node.selector} renders ${Math.round(node.scrollWidth)}px of content in a ${Math.round(node.clientWidth)}px box ` + `(overflow: visible) \u2014 ${Math.round(spill)}px paints outside the element. ${culprit?.note ?? ""}`.trim(),
-          fix: fixFor(culprit, "horizontal")
-        });
-      }
-    }
-  }
-  for (const node of nodes) {
-    if (!node.painted) continue;
-    if (node.parent === null) continue;
-    if (!isInFlow(node)) continue;
-    const parent = byIndex.get(node.parent);
-    if (!parent) continue;
-    if (parent.rect.width <= 0 || parent.rect.height <= 0) continue;
-    if (node.rect.width <= 0 || node.rect.height <= 0) continue;
-    const axes = [
-      [
-        "vertical",
-        node.rect.y,
-        node.rect.y + node.rect.height,
-        parent.rect.y,
-        parent.rect.y + parent.rect.height,
-        parent.overflowY
-      ],
-      [
-        "horizontal",
-        node.rect.x,
-        node.rect.x + node.rect.width,
-        parent.rect.x,
-        parent.rect.x + parent.rect.width,
-        parent.overflowX
-      ]
-    ];
-    for (const [axis, start, end, pStart, pEnd, parentOverflow] of axes) {
-      if (!isVisibleOverflow(parentOverflow)) continue;
-      if (overflowingBoxes.has(`${parent.index}:${axis}`)) continue;
-      const past = Math.max(end - pEnd, 0);
-      const before = Math.max(pStart - start, 0);
-      const spill = Math.max(past, before);
-      if (spill < containerEscapePx) continue;
-      const culprit = attributeCulprit(parent, axis);
-      const direction = axis === "vertical" ? past >= before ? "below" : "above" : past >= before ? "past the end of" : "before the start of";
-      findings.push({
-        kind: "container-escape",
-        severity: "warning",
-        axis,
-        selector: node.selector,
-        tagName: node.tagName,
-        text: node.ownText || void 0,
-        spillPx: round(spill),
-        otherSelector: parent.selector,
-        otherText: parent.ownText || void 0,
-        culprit,
-        detail: `layout-overflow: ${node.selector} extends ${Math.round(spill)}px ${direction} its parent ${parent.selector} (parent overflow: visible, so the excess paints over ` + `whatever follows). ${culprit?.note ?? ""}`.trim(),
-        fix: fixFor(culprit, axis)
-      });
-    }
-  }
-  const textNodes = nodes.filter(
-    (n) => n.ownText.length > 0 && n.painted && n.rect.width > 0 && n.rect.height > 0 && isInFlow(n) && !hasOutOfFlowAncestor(n, byIndex)
-  ).sort((a, b) => a.rect.y !== b.rect.y ? a.rect.y - b.rect.y : a.rect.x - b.rect.x);
-  const ancestorsOf = buildAncestorSets(nodes, byIndex);
-  for (let i = 0; i < textNodes.length; i++) {
-    const a = textNodes[i];
-    const aBottom = a.rect.y + a.rect.height;
-    for (let j = i + 1; j < textNodes.length; j++) {
-      const b = textNodes[j];
-      if (b.rect.y >= aBottom - overlapPx) break;
-      if (ancestorsOf.get(a.index)?.has(b.index) || ancestorsOf.get(b.index)?.has(a.index)) continue;
-      const overlapH = Math.min(aBottom, b.rect.y + b.rect.height) - Math.max(a.rect.y, b.rect.y);
-      const overlapW = Math.min(a.rect.x + a.rect.width, b.rect.x + b.rect.width) - Math.max(a.rect.x, b.rect.x);
-      if (overlapH < overlapPx || overlapW < overlapPx) continue;
-      const culprit = nearestOverflowingAncestor(a, byIndex, overflowingBoxes) ?? nearestOverflowingAncestor(b, byIndex, overflowingBoxes);
-      findings.push({
-        kind: "sibling-overlap",
-        severity: "error",
-        axis: "vertical",
-        selector: a.selector,
-        tagName: a.tagName,
-        text: short(a.ownText),
-        spillPx: round(overlapH),
-        otherSelector: b.selector,
-        otherText: short(b.ownText),
-        culprit,
-        detail: `layout-overflow: "${short(a.ownText)}" (${a.selector}) overlaps "${short(b.ownText)}" (${b.selector}) by ${Math.round(overlapH)}x${Math.round(overlapW)}px \u2014 ` + `text is rendering on top of text. ${culprit?.note ?? ""}`.trim(),
-        fix: culprit ? fixFor(culprit, "vertical") : "Two in-flow text elements occupy the same pixels. Check for a fixed height, a negative margin, or an absolute position on a shared ancestor."
-      });
-    }
-  }
-  findings.sort((a, b) => {
-    if (a.severity !== b.severity) return a.severity === "error" ? -1 : 1;
-    return b.spillPx - a.spillPx;
-  });
-  return findings.slice(0, maxFindings);
-}
-function round(n) {
-  return Math.round(n * 10) / 10;
-}
-function buildAncestorSets(nodes, byIndex) {
-  const out = /* @__PURE__ */ new Map();
-  for (const node of nodes) {
-    const set2 = /* @__PURE__ */ new Set();
-    let cur = node.parent;
-    let guard = 0;
-    while (cur !== null && guard++ < 64) {
-      set2.add(cur);
-      cur = byIndex.get(cur)?.parent ?? null;
-    }
-    out.set(node.index, set2);
-  }
-  return out;
-}
-function nearestOverflowingAncestor(node, byIndex, overflowingBoxes) {
-  let cur = node.parent;
-  let guard = 0;
-  while (cur !== null && guard++ < 64) {
-    const ancestor = byIndex.get(cur);
-    if (!ancestor) return void 0;
-    if (overflowingBoxes.has(`${ancestor.index}:vertical`)) {
-      return attributeCulprit(ancestor, "vertical");
-    }
-    cur = ancestor.parent;
-  }
-  return void 0;
-}
-var LAYOUT_OVERFLOW_DEFAULTS;
-var init_layout_overflow = __esm({
+var init_layout_overflow2 = __esm({
   "src/obsidian/layout-overflow.ts"() {
     "use strict";
-    LAYOUT_OVERFLOW_DEFAULTS = {
-      selfOverflowPx: 8,
-      containerEscapePx: 8,
-      overlapPx: 8,
-      maxFindings: 40
-    };
+    init_layout_overflow();
   }
 });
 
@@ -45830,7 +46074,14 @@ async function scanObsidian(options) {
       patience: mountTimeout,
       timeout: options.timeout ?? 3e4,
       screenshot: options.screenshot ? { path: options.screenshot } : void 0,
-      probes: options.layoutOverflow === false ? void 0 : { [LAYOUT_OVERFLOW_PROBE]: buildLayoutOverflowProbe({ rootSelector: "#ibr-container" }) }
+      probes: options.layoutOverflow === false ? void 0 : { [LAYOUT_OVERFLOW_PROBE]: buildLayoutOverflowProbe({ rootSelector: "#ibr-container" }) },
+      // scan()'s own layout-overflow detector defaults to ON, rooted at
+      // `body`. This module runs its own copy above, rooted at
+      // `#ibr-container` (the harness mount point, not the whole synthetic
+      // page) and reads it back via `result.probes[LAYOUT_OVERFLOW_PROBE]`
+      // below — so the inner scan()'s pass must be OFF, or every finding is
+      // measured and reported twice.
+      layoutOverflow: false
     };
     const result = await scan(server.url, scanOptions);
     const harnessIssues = deriveHarnessIssues(result.console.errors);
@@ -45939,7 +46190,7 @@ var init_scan3 = __esm({
     init_harness();
     init_server();
     init_app_css();
-    init_layout_overflow();
+    init_layout_overflow2();
     MOBILE_WIDTH_CEILING = 480;
     HARNESS_ERROR_PREFIXES = ["IBR obsidian-harness:", "IBR obsidian-stub:"];
     MOUNT_SELECTOR = "[data-ibr-mount]";
@@ -45985,7 +46236,7 @@ var init_obsidian = __esm({
     init_server();
     init_scan3();
     init_app_css();
-    init_layout_overflow();
+    init_layout_overflow2();
   }
 });
 
@@ -53156,6 +53407,7 @@ async function handleScan(args) {
     patience: args.patience,
     networkIdleTimeout: args.networkIdleTimeout,
     ...scanCookies ? { cookies: scanCookies } : {},
+    layoutOverflow: args.layout_overflow === false ? false : void 0,
     pool: pool2
   });
   const intent = result.semantic.pageIntent.intent;
@@ -54339,6 +54591,10 @@ var init_tools = __esm({
             sessionId: {
               type: "string",
               description: "R3: Optional session ID from session_start. When supplied, the scan reuses the session's auth cookies so gated routes (dashboards, settings) are scanned authenticated instead of bouncing to login."
+            },
+            layout_overflow: {
+              type: "boolean",
+              description: "Detect content that has escaped or been clipped by its box: self-overflow (scrollHeight > clientHeight on an overflow:visible box), container escape, text-over-text sibling collisions, and clipped/truncated text with no ellipsis. Each finding names the computed declaration responsible. DEFAULT TRUE \u2014 pass false to skip."
             }
           },
           required: ["url"]
@@ -55292,7 +55548,7 @@ var init_tools = __esm({
   }
 });
 
-// ../interface-built-right/node_modules/commander/lib/error.js
+// ../../../node_modules/commander/lib/error.js
 var CommanderError = class extends Error {
   /**
    * Constructs the CommanderError class
@@ -55321,7 +55577,7 @@ var InvalidArgumentError = class extends CommanderError {
   }
 };
 
-// ../interface-built-right/node_modules/commander/lib/argument.js
+// ../../../node_modules/commander/lib/argument.js
 var Argument = class {
   /**
    * Initialize a new command argument with the given name and description.
@@ -55442,7 +55698,7 @@ function humanReadableArgName(arg) {
   return arg.required ? "<" + nameOutput + ">" : "[" + nameOutput + "]";
 }
 
-// ../interface-built-right/node_modules/commander/lib/command.js
+// ../../../node_modules/commander/lib/command.js
 var import_node_events = require("events");
 var import_node_child_process = __toESM(require("child_process"), 1);
 var import_node_path = __toESM(require("path"), 1);
@@ -55450,7 +55706,7 @@ var import_node_fs = __toESM(require("fs"), 1);
 var import_node_process = __toESM(require("process"), 1);
 var import_node_util2 = require("util");
 
-// ../interface-built-right/node_modules/commander/lib/help.js
+// ../../../node_modules/commander/lib/help.js
 var import_node_util = require("util");
 var Help = class {
   constructor() {
@@ -56042,7 +56298,7 @@ ${itemIndentStr}`);
   }
 };
 
-// ../interface-built-right/node_modules/commander/lib/option.js
+// ../../../node_modules/commander/lib/option.js
 var Option = class {
   /**
    * Initialize a new `Option` with the given `flags` and `description`.
@@ -56348,7 +56604,7 @@ function splitOptionFlags(flags) {
   return { shortFlag, longFlag };
 }
 
-// ../interface-built-right/node_modules/commander/lib/suggestSimilar.js
+// ../../../node_modules/commander/lib/suggestSimilar.js
 var maxDistance = 3;
 function editDistance(a, b) {
   if (Math.abs(a.length - b.length) > maxDistance)
@@ -56423,7 +56679,7 @@ function suggestSimilar(word, candidates) {
   return "";
 }
 
-// ../interface-built-right/node_modules/commander/lib/command.js
+// ../../../node_modules/commander/lib/command.js
 var Command = class _Command extends import_node_events.EventEmitter {
   /**
    * Initialize a new `Command`.
@@ -58657,7 +58913,7 @@ function useColor() {
   return void 0;
 }
 
-// ../interface-built-right/node_modules/commander/index.js
+// ../../../node_modules/commander/index.js
 var program = new Command();
 
 // src/bin/ibr.ts
@@ -60506,7 +60762,7 @@ function applyOutputMode(result, mode) {
 program2.command("scan <url>").description("Full UI scan: elements + interactivity + semantic + console errors").option("-v, --viewport <preset>", "Viewport preset (desktop, mobile, tablet)", "desktop").option(
   "-d, --device <name>",
   `Canonical device profile (overrides --viewport). One of: ${DEVICE_NAMES.join(", ")}`
-).option("--wait-for <selector>", "Wait for selector before scanning").option("--screenshot <path>", "Save screenshot to path").option("--json", "Output as JSON").option("--timeout <ms>", "Page load timeout in ms", "30000").option("--patience <ms>", "Wait longer for slow async content (AI search, LLM results)").option("--network-idle-timeout <ms>", "Network idle timeout in ms (default: 10000)").option("--rules <presets>", 'Rule presets to run. Defaults to touch-targets,wcag-contrast,calm-precision. Use "none" (or --no-rules) to run no preset rules.').option("--no-rules", "Run no preset rules \u2014 restores the pre-default silent behavior").option("--output <mode>", "Output mode: full (default), summary (sensor summaries + verdict only, ~60% fewer tokens), raw (no sensors)", "full").option("--content", "Also extract content elements (headings/paragraphs/images/captions/quotes) and page metadata \u2014 adds scan.content.elements and scan.metadata").option("--full-text", "Capture uncapped element text and complete rendered body text for design-spec checks").action(async (url2, options) => {
+).option("--wait-for <selector>", "Wait for selector before scanning").option("--screenshot <path>", "Save screenshot to path").option("--json", "Output as JSON").option("--timeout <ms>", "Page load timeout in ms", "30000").option("--patience <ms>", "Wait longer for slow async content (AI search, LLM results)").option("--network-idle-timeout <ms>", "Network idle timeout in ms (default: 10000)").option("--rules <presets>", 'Rule presets to run. Defaults to touch-targets,wcag-contrast,calm-precision. Use "none" (or --no-rules) to run no preset rules.').option("--no-rules", "Run no preset rules \u2014 restores the pre-default silent behavior").option("--output <mode>", "Output mode: full (default), summary (sensor summaries + verdict only, ~60% fewer tokens), raw (no sensors)", "full").option("--content", "Also extract content elements (headings/paragraphs/images/captions/quotes) and page metadata \u2014 adds scan.content.elements and scan.metadata").option("--full-text", "Capture uncapped element text and complete rendered body text for design-spec checks").option("--no-layout-overflow", "Skip the layout-overflow / clipped-content check").action(async (url2, options) => {
   try {
     const { scan: scan2, formatScanResult: formatScanResult2 } = await Promise.resolve().then(() => (init_scan(), scan_exports));
     const resolvedUrl = await resolveBaseUrl(url2);
@@ -60534,6 +60790,10 @@ program2.command("scan <url>").description("Full UI scan: elements + interactivi
       rules: rulePresets,
       content: options.content || options.fullText,
       fullText: options.fullText,
+      // Commander sets layoutOverflow=false only for --no-layout-overflow;
+      // undefined means "no preference", which scan() treats as its own
+      // default (on).
+      layoutOverflow: options.layoutOverflow === false ? false : void 0,
       ...getBrowserConnectionOptions()
     });
     if (options.json) {
