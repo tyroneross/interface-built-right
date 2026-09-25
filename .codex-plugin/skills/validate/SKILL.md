@@ -31,6 +31,13 @@ Resolve `IBR_BIN` from this installed `SKILL.md`: move up three directories to t
 6. Fix high-severity issues before treating a design as complete.
 7. Re-scan or re-run the selected interaction to prove the issue moved.
 
+For text, typography, spacing, or navigation changes, read
+`references/container-fit.md` from the bundle root. Include a constrained
+render of the actual parent container with realistic long content, not only
+the default viewport. Inspect the screenshot and AX/DOM bounds for wrapping,
+clipping, overlap, and scroll reachability. Report the measured size and
+artifact path, or say the case is unverified if capture fails.
+
 ## Evidence Standard
 
 Report the actual issue and the file or UI area it affects. Do not treat an `ISSUES` verdict as acceptable without reading the issue list. If the tool cannot run, state the exact blocker and the fallback evidence used.

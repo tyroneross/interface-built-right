@@ -9,6 +9,8 @@ user-invocable: false
 
 Use IBR as a planning partner during the build — scan live pages to confirm implementation matches user intent, catch mismatches early, and track changes incrementally. Ground truth is what is actually rendered, not what the code is supposed to do.
 
+Before editing text or layout, use `references/container-fit.md` to name the real parent, its usable bounds, a constrained content/size case, and the intended wrapping. Reopen that case in the running UI and inspect its screenshot after editing.
+
 ## IBR as Planning Partner
 
 IBR does not replace judgment during implementation — it informs it. Scan early and often to close the gap between intent and output. When the user describes what they want, map those descriptions to measurable properties in the scan output. Address gaps immediately rather than accumulating them.

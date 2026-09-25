@@ -22,6 +22,13 @@ A full validation pass covers:
 
 Run a complete pass over the change's impact surface, not a spot check and not an indiscriminate all-route sweep. Start from the specified behavior and changed files, map affected components/routes/states/shared dependencies, then select the smallest route, viewport, and flow set that proves those impacts. Expand only when a shared dependency changed, the impact map is uncertain, or a targeted check exposes broader breakage. Issue categories compound — an inaccessible button that also lacks a handler is two separate failures, not one.
 
+When copy, typography, spacing, or navigation changed, follow
+`references/container-fit.md`: capture the real parent at a limiting supported
+size with representative long content. Inspect pixels and AX/DOM bounds for
+clipping, unexpected wrapping, overlap, and scroll reachability. Record the
+measured container and evidence path; a generic `PASS` from a wider scan is
+insufficient for a container-fit claim.
+
 ## Primary Tool: `ibr scan`
 
 Call `ibr scan` to read the full state of a live page.

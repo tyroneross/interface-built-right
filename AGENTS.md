@@ -12,6 +12,12 @@ Universal AI agent guidance for Claude Code, Codex, Cursor, Copilot, Gemini CLI,
 
 IBR is an end-to-end design tool for AI coding agents, with first-class Claude Code and Codex packaging. It guides UI builds with Design Director planning, archetype-based design routing, Calm Precision rules, and platform-specific best practices, then validates implementations with visual scanning and interaction testing.
 
+For text, typography, spacing, or navigation changes, apply
+[`references/container-fit.md`](references/container-fit.md) across hosts:
+measure the real parent container, render a limiting size with representative
+long content, and inspect the screenshot/AX bounds before claiming fit. A
+successful build or wide viewport scan is not container-fit evidence.
+
 - **Package:** `@tyroneross/interface-built-right` v1.5.0 (unreleased)
 - **Runtime:** Node.js >= 22, TypeScript
 - **Dual distribution:** npm package + Claude Code plugin (`.claude-plugin/plugin.json`) + Codex plugin (`.codex-plugin/plugin.json`)

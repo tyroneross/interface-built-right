@@ -67,7 +67,7 @@ For component-only work, an inline design intent section in `plan.md` is enough 
 
 ## Design Intent Schema
 
-`design-intent.json` is the implementation contract:
+`design-intent.json` is the implementation contract. Use `references/container-fit.md` to ground the container and constrained content before choosing typography or spacing:
 
 ```json
 {
@@ -78,6 +78,7 @@ For component-only work, an inline design intent section in `plan.md` is enough 
   "archetype": "...",
   "primaryUserGoal": "...",
   "primaryAction": "...",
+  "containerFit": {"parent": "...", "usableBounds": "...", "constrainedCase": "...", "textBehavior": "...", "renderedCheck": "..."},
   "contentPriority": ["..."],
   "navigationModel": "...",
   "layoutTarget": "wireframe-target|none",

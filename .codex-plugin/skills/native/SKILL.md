@@ -27,6 +27,14 @@ Check for:
 - watchOS screens with restrained interaction density.
 - Primary flow success, not just static layout.
 
+For changed text, typography, spacing, or navigation, follow
+`references/container-fit.md` from the bundle root. Resize or select the
+smallest relevant supported container, seed a realistic long title/body and
+large text when relevant, then capture the running screen. Inspect glyphs and
+AX bounds together for clipping, unexpected wrapping, overlap, and the last
+control's scroll reachability. Record size, content state, and evidence path;
+an AX tree without pixels does not prove text fit.
+
 ## macOS
 
 Use `node "$IBR_BIN" scan:macos --pid <pid> --json` for a running app and validate the accessibility tree, window structure, menu/action affordances, and keyboard-reachable controls.

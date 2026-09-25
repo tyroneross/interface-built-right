@@ -14,7 +14,7 @@ Use IBR as the design planner before editing non-trivial UI. The output should b
 3. Classify the surface: web, mobile web, iOS, macOS, or cross-platform; then choose the product archetype.
 4. Decide design mode: scratch, wireframe, hi-fi target, or implementation against an existing design.
 5. If visual exploration would help and no approved target exists, use imagegen only for concepts. User approval is required before a generated image becomes a `visual-target`.
-6. Write a compact plan before code. For page, flow, app, or dashboard work, create `.ibr/builds/<topic>/design-intent.json`.
+6. Read `references/container-fit.md`. Before code, record the actual parent container, usable bounds after insets, constrained size and content, text behavior, and rendered check. For page, flow, app, or dashboard work, include this in `.ibr/builds/<topic>/design-intent.json`.
 7. Implement only after the design intent is concrete enough to test.
 8. Validate with IBR's CLI-first workflow before calling the work done. Use MCP equivalents only when this Codex session actually exposes them.
 
@@ -32,6 +32,7 @@ For substantial UI work, record:
   "archetype": "...",
   "primaryUserGoal": "...",
   "primaryAction": "...",
+  "containerFit": {"parent": "...", "usableBounds": "...", "constrainedCase": "...", "textBehavior": "...", "renderedCheck": "..."},
   "layoutTarget": "wireframe-target|none",
   "visualTarget": "visual-target|none",
   "imagegenConcepts": [{"path": "...", "role": "inspiration|visual-target", "approved": false}],

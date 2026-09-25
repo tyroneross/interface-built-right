@@ -111,6 +111,13 @@ IBR runs these checks on every native scan automatically:
 - **watchOS screen limits** — max 7 interactive elements per screen (Apple HIG)
 - **watchOS horizontal overflow** — detects content wider than the watch screen
 
+These automated findings do not establish that a long heading fits inside a
+sheet or that the last row clears a fixed footer. For text, typography,
+spacing, or navigation changes, follow `references/container-fit.md`: render
+the actual parent at a limiting supported size with realistic long content,
+then inspect the screenshot and AX bounds. Record the measured size and
+evidence path; mark the case unverified if the running app cannot be captured.
+
 ## Fix Guide (v0.5.0+)
 
 `ibr native:scan --fix-guide` generates actionable fix instructions that Claude Code can act on directly:

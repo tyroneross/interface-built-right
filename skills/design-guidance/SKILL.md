@@ -8,6 +8,8 @@ user-invocable: false
 
 Activate before building UI. This skill turns intent into design constraints so implementation starts aligned instead of relying on visual cleanup afterward.
 
+For a text or layout change in even one component, read `references/container-fit.md` and define the actual parent, usable bounds, constrained content, text behavior, and rendered check before selecting type or spacing.
+
 ## When This Activates
 
 Use for:
