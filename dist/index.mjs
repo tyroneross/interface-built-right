@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { execFile, exec, spawn, execFileSync } from 'child_process';
-import { existsSync, readFileSync, statSync, writeFileSync, unlinkSync, createReadStream, createWriteStream, constants, lstatSync, mkdtempSync, rmSync, readlinkSync, readdirSync, openSync, writeSync, closeSync } from 'fs';
+import { existsSync, readFileSync, statSync, writeFileSync, createReadStream, createWriteStream, unlinkSync, constants, lstatSync, mkdtempSync, rmSync, readlinkSync, readdirSync, openSync, writeSync, closeSync } from 'fs';
 import * as fs from 'fs/promises';
 import { mkdir, readFile, writeFile, unlink, readdir, copyFile, chmod, rm, access, realpath, lstat, appendFile, stat, open, link } from 'fs/promises';
 import { createServer } from 'net';
@@ -1064,11 +1064,48 @@ function acquireProfileLock(profileDir) {
     stale = ageMs >= PROFILE_REAP_GRACE_MS;
   }
   if (!stale) return { acquired: false, lockPath, holder: contents };
+  return reclaimStaleLock(lockPath, holderId, contents);
+}
+function reclaimStaleLock(lockPath, holderId, staleContents) {
+  const mutexPath = `${lockPath}.reclaim`;
   try {
-    unlinkSync(lockPath);
+    createLockFile(mutexPath, holderId);
+  } catch {
+    try {
+      if (Date.now() - statSync(mutexPath).mtimeMs >= RECLAIM_MUTEX_STALE_MS) unlinkSync(mutexPath);
+    } catch {
+    }
+    return { acquired: false, lockPath, holder: staleContents };
+  }
+  try {
+    let current;
+    try {
+      current = readFileSync(lockPath, "utf8").trim();
+    } catch {
+      current = null;
+    }
+    if (current !== null && current !== staleContents) {
+      return { acquired: false, lockPath, holder: current };
+    }
+    if (current !== null) {
+      try {
+        unlinkSync(lockPath);
+      } catch {
+      }
+    }
+    return retryAcquire(lockPath, holderId);
+  } finally {
+    try {
+      unlinkSync(mutexPath);
+    } catch {
+    }
+  }
+}
+function unlinkIfOwned(lockPath) {
+  try {
+    if (readFileSync(lockPath, "utf8").trim() === `${hostname()}-${process.pid}`) unlinkSync(lockPath);
   } catch {
   }
-  return retryAcquire(lockPath, holderId);
 }
 function retryAcquire(lockPath, holderId) {
   try {
@@ -1081,10 +1118,7 @@ function retryAcquire(lockPath, holderId) {
 }
 function releaseProfileLock(lockPath) {
   if (!lockPath || !heldProfileLocks.has(lockPath)) return;
-  try {
-    unlinkSync(lockPath);
-  } catch {
-  }
+  unlinkIfOwned(lockPath);
   heldProfileLocks.delete(lockPath);
 }
 function looksLikeSingletonCollision(exit, stderrTail) {
@@ -1119,7 +1153,7 @@ function reapOrphanedProfiles() {
     }
   }
 }
-var CHROME_PATHS, PROFILE_REAP_GRACE_MS, heldProfileLocks, BrowserManager;
+var CHROME_PATHS, PROFILE_REAP_GRACE_MS, heldProfileLocks, RECLAIM_MUTEX_STALE_MS, BrowserManager;
 var init_browser = __esm({
   "src/engine/cdp/browser.ts"() {
     init_net_timeout();
@@ -1138,13 +1172,9 @@ var init_browser = __esm({
     ];
     PROFILE_REAP_GRACE_MS = 60 * 60 * 1e3;
     heldProfileLocks = /* @__PURE__ */ new Set();
+    RECLAIM_MUTEX_STALE_MS = 3e4;
     process.once("exit", () => {
-      for (const lockPath of heldProfileLocks) {
-        try {
-          unlinkSync(lockPath);
-        } catch {
-        }
-      }
+      for (const lockPath of heldProfileLocks) unlinkIfOwned(lockPath);
     });
     BrowserManager = class {
       process = null;
@@ -8657,6 +8687,11 @@ async function enrichWithEventListeners(page, elements) {
       const selectorMatches = (el, sel) => {
         try {
           if (document.documentElement.matches(sel) || (document.body && document.body.matches(sel))) return false;
+          // A pure type selector ('button', 'a, button', 'BUTTON') names no
+          // particular control: analytics trackers and outside-click closers
+          // use it (closest('a,button')). Only a literal carrying a class,
+          // id or attribute component is evidence of delegation to THIS one.
+          if (!/[[.#]/.test(sel)) return false;
           if (el.matches(sel)) return true;
           if (bareTagRe.test(sel)) return false;
           const hit = el.closest(sel);
@@ -10185,7 +10220,7 @@ var ITEM_CLASS_TOKEN, CONTROL_TAGS, CONTROL_ROLES, BOXED_MIN_SIDES, gestaltRules
 var init_gestalt = __esm({
   "src/design-system/principles/gestalt.ts"() {
     init_style_read();
-    ITEM_CLASS_TOKEN = /^(item|list-item|[a-z0-9_]+-item)$/i;
+    ITEM_CLASS_TOKEN = /^(item|list-item|[a-z0-9_-]+(-|__)item)$/i;
     CONTROL_TAGS = /* @__PURE__ */ new Set(["button", "input", "select", "textarea", "summary", "option"]);
     CONTROL_ROLES = /* @__PURE__ */ new Set(["button", "checkbox", "radio", "switch", "tab", "menuitem", "slider", "textbox", "combobox"]);
     BOXED_MIN_SIDES = 3;
@@ -10441,15 +10476,7 @@ function saturatedFill(bg) {
   if (s < MIN_FILL_SATURATION) return null;
   return { s, l, alpha: parsed.alpha };
 }
-function isPillShaped(element) {
-  const style = element.computedStyles ?? {};
-  const display = (style.display || "").trim().toLowerCase();
-  if (display.startsWith("inline")) return true;
-  if (!display && INLINE_BY_DEFAULT.has((element.tagName || "").toLowerCase())) return true;
-  const radius = parseFloat(style.borderRadius || "0");
-  return Number.isFinite(radius) && radius >= element.bounds.height / 4;
-}
-var STATUS_WORD, BADGE_MAX_HEIGHT, BADGE_MAX_WIDTH, BADGE_MAX_CHARS, BADGE_MAX_WORDS, MIN_FILL_ALPHA, MIN_FILL_SATURATION, INLINE_BY_DEFAULT, signalNoiseRules;
+var STATUS_WORD, BADGE_MAX_HEIGHT, BADGE_MAX_WIDTH, BADGE_MAX_CHARS, BADGE_MAX_WORDS, MIN_FILL_ALPHA, MIN_FILL_SATURATION, signalNoiseRules;
 var init_signal_noise = __esm({
   "src/design-system/principles/signal-noise.ts"() {
     init_color_parse();
@@ -10460,7 +10487,6 @@ var init_signal_noise = __esm({
     BADGE_MAX_WORDS = 3;
     MIN_FILL_ALPHA = 0.15;
     MIN_FILL_SATURATION = 0.25;
-    INLINE_BY_DEFAULT = /* @__PURE__ */ new Set(["span", "a", "b", "strong", "em", "small", "mark", "code", "label", "abbr"]);
     signalNoiseRules = [
       {
         id: "calm-precision/signal-noise-status",
@@ -10475,7 +10501,6 @@ var init_signal_noise = __esm({
           const { width, height } = element.bounds ?? { width: 0, height: 0 };
           if (width <= 0 || height <= 0) return null;
           if (height > BADGE_MAX_HEIGHT || width > BADGE_MAX_WIDTH) return null;
-          if (!isPillShaped(element)) return null;
           const bg = style.backgroundColor || style["background-color"];
           const fill = saturatedFill(bg);
           if (!fill) return null;
@@ -10483,7 +10508,7 @@ var init_signal_noise = __esm({
             ruleId: "calm-precision/signal-noise-status",
             ruleName: "Signal-to-Noise: Status Indication",
             severity: "error",
-            message: `Status badge "${(element.text || "").trim()}" (${width}x${height}px) is a filled pill (${bg}). Show status as coloured text, not a background badge.`,
+            message: `Status badge "${(element.text || "").trim()}" (${width}x${height}px) is a filled badge (${bg}). Show status as coloured text, not a background badge.`,
             element: element.selector,
             bounds: element.bounds,
             fix: "Remove background color. Use text color (green for success, red for error, amber for warning) with font-medium instead of a background badge."

@@ -697,11 +697,49 @@ function acquireProfileLock(profileDir) {
     stale = ageMs >= PROFILE_REAP_GRACE_MS;
   }
   if (!stale) return { acquired: false, lockPath, holder: contents };
+  return reclaimStaleLock(lockPath, holderId, contents);
+}
+var RECLAIM_MUTEX_STALE_MS = 3e4;
+function reclaimStaleLock(lockPath, holderId, staleContents) {
+  const mutexPath = `${lockPath}.reclaim`;
   try {
-    fs.unlinkSync(lockPath);
+    createLockFile(mutexPath, holderId);
+  } catch {
+    try {
+      if (Date.now() - fs.statSync(mutexPath).mtimeMs >= RECLAIM_MUTEX_STALE_MS) fs.unlinkSync(mutexPath);
+    } catch {
+    }
+    return { acquired: false, lockPath, holder: staleContents };
+  }
+  try {
+    let current;
+    try {
+      current = fs.readFileSync(lockPath, "utf8").trim();
+    } catch {
+      current = null;
+    }
+    if (current !== null && current !== staleContents) {
+      return { acquired: false, lockPath, holder: current };
+    }
+    if (current !== null) {
+      try {
+        fs.unlinkSync(lockPath);
+      } catch {
+      }
+    }
+    return retryAcquire(lockPath, holderId);
+  } finally {
+    try {
+      fs.unlinkSync(mutexPath);
+    } catch {
+    }
+  }
+}
+function unlinkIfOwned(lockPath) {
+  try {
+    if (fs.readFileSync(lockPath, "utf8").trim() === `${os.hostname()}-${process.pid}`) fs.unlinkSync(lockPath);
   } catch {
   }
-  return retryAcquire(lockPath, holderId);
 }
 function retryAcquire(lockPath, holderId) {
   try {
@@ -714,19 +752,11 @@ function retryAcquire(lockPath, holderId) {
 }
 function releaseProfileLock(lockPath) {
   if (!lockPath || !heldProfileLocks.has(lockPath)) return;
-  try {
-    fs.unlinkSync(lockPath);
-  } catch {
-  }
+  unlinkIfOwned(lockPath);
   heldProfileLocks.delete(lockPath);
 }
 process.once("exit", () => {
-  for (const lockPath of heldProfileLocks) {
-    try {
-      fs.unlinkSync(lockPath);
-    } catch {
-    }
-  }
+  for (const lockPath of heldProfileLocks) unlinkIfOwned(lockPath);
 });
 function looksLikeSingletonCollision(exit, stderrTail) {
   if (exit?.code === 21) return true;

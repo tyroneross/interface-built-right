@@ -1,8 +1,8 @@
 import { spawn, execFileSync } from 'child_process';
-import { unlinkSync, existsSync, lstatSync, mkdtempSync, rmSync, readFileSync, statSync, readlinkSync, readdirSync, openSync, writeSync, closeSync } from 'fs';
+import { readFileSync, unlinkSync, existsSync, lstatSync, mkdtempSync, rmSync, statSync, readlinkSync, readdirSync, openSync, writeSync, closeSync } from 'fs';
 import { mkdir, writeFile } from 'fs/promises';
 import { createServer } from 'net';
-import { homedir, tmpdir, hostname } from 'os';
+import { hostname, homedir, tmpdir } from 'os';
 import { join, dirname } from 'path';
 import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
@@ -691,11 +691,49 @@ function acquireProfileLock(profileDir) {
     stale = ageMs >= PROFILE_REAP_GRACE_MS;
   }
   if (!stale) return { acquired: false, lockPath, holder: contents };
+  return reclaimStaleLock(lockPath, holderId, contents);
+}
+var RECLAIM_MUTEX_STALE_MS = 3e4;
+function reclaimStaleLock(lockPath, holderId, staleContents) {
+  const mutexPath = `${lockPath}.reclaim`;
   try {
-    unlinkSync(lockPath);
+    createLockFile(mutexPath, holderId);
+  } catch {
+    try {
+      if (Date.now() - statSync(mutexPath).mtimeMs >= RECLAIM_MUTEX_STALE_MS) unlinkSync(mutexPath);
+    } catch {
+    }
+    return { acquired: false, lockPath, holder: staleContents };
+  }
+  try {
+    let current;
+    try {
+      current = readFileSync(lockPath, "utf8").trim();
+    } catch {
+      current = null;
+    }
+    if (current !== null && current !== staleContents) {
+      return { acquired: false, lockPath, holder: current };
+    }
+    if (current !== null) {
+      try {
+        unlinkSync(lockPath);
+      } catch {
+      }
+    }
+    return retryAcquire(lockPath, holderId);
+  } finally {
+    try {
+      unlinkSync(mutexPath);
+    } catch {
+    }
+  }
+}
+function unlinkIfOwned(lockPath) {
+  try {
+    if (readFileSync(lockPath, "utf8").trim() === `${hostname()}-${process.pid}`) unlinkSync(lockPath);
   } catch {
   }
-  return retryAcquire(lockPath, holderId);
 }
 function retryAcquire(lockPath, holderId) {
   try {
@@ -708,19 +746,11 @@ function retryAcquire(lockPath, holderId) {
 }
 function releaseProfileLock(lockPath) {
   if (!lockPath || !heldProfileLocks.has(lockPath)) return;
-  try {
-    unlinkSync(lockPath);
-  } catch {
-  }
+  unlinkIfOwned(lockPath);
   heldProfileLocks.delete(lockPath);
 }
 process.once("exit", () => {
-  for (const lockPath of heldProfileLocks) {
-    try {
-      unlinkSync(lockPath);
-    } catch {
-    }
-  }
+  for (const lockPath of heldProfileLocks) unlinkIfOwned(lockPath);
 });
 function looksLikeSingletonCollision(exit, stderrTail) {
   if (exit?.code === 21) return true;
