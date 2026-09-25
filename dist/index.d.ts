@@ -3035,6 +3035,23 @@ declare class AccessibilityDomain {
  * Forked from Spectra — extended with querySelector, querySelectorAll, getOuterHTML.
  */
 
+/**
+ * CDP's DOM domain has two separate id spaces for the same node:
+ * `nodeId` (only valid while the DOM tree stays "pushed" to the client via
+ * DOM.getDocument/querySelector — the ids used throughout this codebase's
+ * driver.ts querySelector()/querySelectorAll() path) and `backendNodeId`
+ * (stable across tree pushes — the ids AccessibilityDomain hands out).
+ * `DOM.getBoxModel` accepts either, but only one AT A TIME, and Chrome does
+ * NOT cross-validate — sending a `nodeId` value as `backendNodeId` (or vice
+ * versa) either resolves a DIFFERENT, unrelated node or returns
+ * `-32000: Could not compute box model` when that numeric id happens not to
+ * exist in the other space. Every caller must say which kind it has.
+ */
+type NodeRef = {
+    nodeId: number;
+} | {
+    backendNodeId: number;
+};
 declare class DomDomain {
     private conn;
     private sessionId?;
@@ -3045,12 +3062,12 @@ declare class DomDomain {
      * iframe target must be resolved against THAT target's session, not the
      * main page's.
      */
-    getElementCenter(backendNodeId: number, sessionId?: string): Promise<{
+    getElementCenter(ref: NodeRef, sessionId?: string): Promise<{
         x: number;
         y: number;
     }>;
     /** See getElementCenter() for the `sessionId` override rationale. */
-    getBoxModel(backendNodeId: number, sessionId?: string): Promise<{
+    getBoxModel(ref: NodeRef, sessionId?: string): Promise<{
         content: number[];
         padding: number[];
         border: number[];
@@ -3058,6 +3075,13 @@ declare class DomDomain {
         width: number;
         height: number;
     }>;
+    /**
+     * Scroll `ref` into the viewport before a caller reads its box model for
+     * a clip region — a below-the-fold element's box model is otherwise
+     * outside (or clipped by) the current viewport, producing a wrong or
+     * empty screenshot clip.
+     */
+    scrollIntoViewIfNeeded(ref: NodeRef, sessionId?: string): Promise<void>;
     getDocument(): Promise<{
         root: {
             nodeId: number;
@@ -6478,6 +6502,8 @@ interface ScanIssue {
     element?: string;
     description: string;
     fix?: string;
+    /** Rule-specific structured evidence (e.g. `chromeElements` for content-chrome-ratio). */
+    evidence?: Record<string, unknown>;
 }
 /**
  * Options for running a scan
@@ -6684,8 +6710,8 @@ declare const DesignElementSchema: z.ZodObject<{
     }, z.core.$strict>>;
     match: z.ZodOptional<z.ZodObject<{
         role: z.ZodEnum<{
-            button: "button";
             link: "link";
+            button: "button";
             heading: "heading";
             image: "image";
             region: "region";
@@ -7302,8 +7328,8 @@ declare const DesignSpecSchema: z.ZodObject<{
             }, z.core.$strict>>;
             match: z.ZodOptional<z.ZodObject<{
                 role: z.ZodEnum<{
-                    button: "button";
                     link: "link";
+                    button: "button";
                     heading: "heading";
                     image: "image";
                     region: "region";

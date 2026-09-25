@@ -286,9 +286,11 @@ var init_schemas = __esm({
       hasEventListener: zod.z.boolean().optional(),
       // A non-root ancestor (excluding document.body/documentElement/document/
       // window) carries an activation listener that would fire for this element
-      // — event delegation. Root-level listeners are deliberately excluded: a
-      // document-level click listener (e.g. menu-dismissal) would otherwise
-      // "rescue" every dead control on the page.
+      // — event delegation. A root-level (document/body/window) click listener is
+      // credited ONLY when its handler source names this control (a selector
+      // literal it matches, its id, or a data-* key it carries): a bare
+      // document-level listener (e.g. menu-dismissal) must not "rescue" every
+      // dead control on the page.
       hasDelegatedListener: zod.z.boolean().optional(),
       // True when the browser activates this control with no author JS at all
       // (a `<button type=submit>` whose form has an action/formaction, a
@@ -1035,6 +1037,85 @@ function reclaimStaleSingletonLock(lockPath, profileDir) {
     return false;
   }
 }
+function isPidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === "EPERM";
+  }
+}
+function createLockFile(lockPath, holderId) {
+  const fd = fs$1.openSync(lockPath, "wx");
+  try {
+    fs$1.writeSync(fd, holderId);
+  } finally {
+    fs$1.closeSync(fd);
+  }
+}
+function acquireProfileLock(profileDir) {
+  const lockPath = `${profileDir}.ibr-lock`;
+  const holderId = `${os.hostname()}-${process.pid}`;
+  try {
+    createLockFile(lockPath, holderId);
+    heldProfileLocks.add(lockPath);
+    return { acquired: true, lockPath };
+  } catch (err) {
+    if (err.code !== "EEXIST") {
+      return { acquired: true, lockPath };
+    }
+  }
+  let contents;
+  try {
+    contents = fs$1.readFileSync(lockPath, "utf8").trim();
+  } catch {
+    return retryAcquire(lockPath, holderId);
+  }
+  const sep2 = contents.lastIndexOf("-");
+  const holderHost = sep2 > 0 ? contents.slice(0, sep2) : "";
+  const holderPid = sep2 > 0 ? Number(contents.slice(sep2 + 1)) : NaN;
+  if (!holderHost || !Number.isInteger(holderPid) || holderPid <= 0) {
+    return { acquired: false, lockPath, holder: contents };
+  }
+  let stale;
+  if (holderHost === os.hostname()) {
+    stale = !isPidAlive(holderPid);
+  } else {
+    let ageMs = -1;
+    try {
+      ageMs = Date.now() - fs$1.statSync(lockPath).mtimeMs;
+    } catch {
+    }
+    stale = ageMs >= PROFILE_REAP_GRACE_MS;
+  }
+  if (!stale) return { acquired: false, lockPath, holder: contents };
+  try {
+    fs$1.unlinkSync(lockPath);
+  } catch {
+  }
+  return retryAcquire(lockPath, holderId);
+}
+function retryAcquire(lockPath, holderId) {
+  try {
+    createLockFile(lockPath, holderId);
+    heldProfileLocks.add(lockPath);
+    return { acquired: true, lockPath };
+  } catch {
+    return { acquired: false, lockPath };
+  }
+}
+function releaseProfileLock(lockPath) {
+  if (!lockPath || !heldProfileLocks.has(lockPath)) return;
+  try {
+    fs$1.unlinkSync(lockPath);
+  } catch {
+  }
+  heldProfileLocks.delete(lockPath);
+}
+function looksLikeSingletonCollision(exit, stderrTail) {
+  if (exit?.code === 21) return true;
+  return /ProcessSingleton/i.test(stderrTail);
+}
 function reapOrphanedProfiles() {
   let inUse;
   try {
@@ -1063,7 +1144,7 @@ function reapOrphanedProfiles() {
     }
   }
 }
-var CHROME_PATHS, PROFILE_REAP_GRACE_MS, BrowserManager;
+var CHROME_PATHS, PROFILE_REAP_GRACE_MS, heldProfileLocks, BrowserManager;
 var init_browser = __esm({
   "src/engine/cdp/browser.ts"() {
     init_net_timeout();
@@ -1081,6 +1162,15 @@ var init_browser = __esm({
       "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"
     ];
     PROFILE_REAP_GRACE_MS = 60 * 60 * 1e3;
+    heldProfileLocks = /* @__PURE__ */ new Set();
+    process.once("exit", () => {
+      for (const lockPath of heldProfileLocks) {
+        try {
+          fs$1.unlinkSync(lockPath);
+        } catch {
+        }
+      }
+    });
     BrowserManager = class {
       process = null;
       _port = 0;
@@ -1093,6 +1183,8 @@ var init_browser = __esm({
       _stderrTail = "";
       /** Set once the child exits, so waitForDebugger stops polling a dead process. */
       _exit = null;
+      /** Set only when this browser holds the IBR profile lock for `userDataDir`, so close() can release it. */
+      _profileLockPath = null;
       async launch(options = {}) {
         const connection = resolveBrowserConnectionOptions(options);
         this._mode = connection.mode;
@@ -1122,13 +1214,25 @@ var init_browser = __esm({
         progress("reaping orphaned browsers");
         reapOrphanedIbrChromeProcesses();
         let userDataDir = options.userDataDir ?? path.join(os.homedir(), ".ibr", "chromium-profile");
-        const lockPath = path.join(userDataDir, "SingletonLock");
-        const lockStat = fs$1.lstatSync(lockPath, { throwIfNoEntry: false });
-        if (lockStat) {
-          if (reclaimStaleSingletonLock(lockPath, userDataDir)) ; else {
-            userDataDir = fs$1.mkdtempSync(path.join(os.tmpdir(), "ibr-chrome-"));
-            this._ephemeralProfileDir = userDataDir;
+        await fs.mkdir(path.dirname(userDataDir), { recursive: true });
+        progress("acquiring profile lock");
+        const lock = acquireProfileLock(userDataDir);
+        if (lock.acquired) {
+          this._profileLockPath = lock.lockPath;
+          const lockPath = path.join(userDataDir, "SingletonLock");
+          const lockStat = fs$1.lstatSync(lockPath, { throwIfNoEntry: false });
+          if (lockStat) {
+            if (reclaimStaleSingletonLock(lockPath, userDataDir)) ; else {
+              userDataDir = fs$1.mkdtempSync(path.join(os.tmpdir(), "ibr-chrome-"));
+              this._ephemeralProfileDir = userDataDir;
+              releaseProfileLock(this._profileLockPath);
+              this._profileLockPath = null;
+            }
           }
+        } else {
+          progress(`profile lock held by ${lock.holder ?? "another IBR process"} \u2014 using an ephemeral profile`);
+          userDataDir = fs$1.mkdtempSync(path.join(os.tmpdir(), "ibr-chrome-"));
+          this._ephemeralProfileDir = userDataDir;
         }
         progress("reaping orphaned profiles");
         reapOrphanedProfiles();
@@ -1140,6 +1244,27 @@ var init_browser = __esm({
 Checked: ${CHROME_PATHS.join(", ")}`
           );
         }
+        const sharedProfileAttempt = this._ephemeralProfileDir === null;
+        try {
+          return await this.spawnChromeAndWaitForDebugger(chromePath, userDataDir, headless, options.normalize, progress);
+        } catch (error) {
+          if (sharedProfileAttempt && looksLikeSingletonCollision(this._exit, this._stderrTail)) {
+            progress("shared profile still collided after lock acquisition \u2014 retrying on an ephemeral profile");
+            await this.close();
+            const fallbackDir = fs$1.mkdtempSync(path.join(os.tmpdir(), "ibr-chrome-"));
+            this._ephemeralProfileDir = fallbackDir;
+            try {
+              return await this.spawnChromeAndWaitForDebugger(chromePath, fallbackDir, headless, options.normalize, progress);
+            } catch (retryError) {
+              await this.close();
+              throw retryError;
+            }
+          }
+          await this.close();
+          throw error;
+        }
+      }
+      async spawnChromeAndWaitForDebugger(chromePath, userDataDir, headless, normalize3, progress) {
         await fs.mkdir(userDataDir, { recursive: true });
         const args = [
           `--remote-debugging-port=${this._port}`,
@@ -1152,7 +1277,7 @@ Checked: ${CHROME_PATHS.join(", ")}`
         if (headless) {
           args.push("--headless=new");
         }
-        if (options.normalize) {
+        if (normalize3) {
           args.push("--disable-lcd-text");
           args.push("--force-device-scale-factor=1");
         }
@@ -1170,16 +1295,11 @@ Checked: ${CHROME_PATHS.join(", ")}`
           this._exit = { code, signal };
         });
         progress(`spawned chrome pid ${this.process.pid ?? "unknown"}`);
-        try {
-          const wsUrl = await this.waitForDebugger(progress);
-          progress("debugger answered");
-          this._cdpUrl = `http://127.0.0.1:${this._port}`;
-          this._wsEndpoint = wsUrl;
-          return wsUrl;
-        } catch (error) {
-          await this.close();
-          throw error;
-        }
+        const wsUrl = await this.waitForDebugger(progress);
+        progress("debugger answered");
+        this._cdpUrl = `http://127.0.0.1:${this._port}`;
+        this._wsEndpoint = wsUrl;
+        return wsUrl;
       }
       /**
        * Poll the freshly spawned Chrome until its debugger answers.
@@ -1239,24 +1359,25 @@ Chrome stderr (tail):
 ${tail}` : "";
       }
       async close() {
-        if (this._mode !== "local" || !this.process) return;
-        const proc = this.process;
-        this.process = null;
-        if (!this._exit) {
-          await new Promise((resolve4) => {
-            const killTimer = setTimeout(() => {
-              try {
-                proc.kill("SIGKILL");
-              } catch {
-              }
-              resolve4();
-            }, 3e3);
-            proc.once("close", () => {
-              clearTimeout(killTimer);
-              resolve4();
+        if (this._mode === "local" && this.process) {
+          const proc = this.process;
+          this.process = null;
+          if (!this._exit) {
+            await new Promise((resolve4) => {
+              const killTimer = setTimeout(() => {
+                try {
+                  proc.kill("SIGKILL");
+                } catch {
+                }
+                resolve4();
+              }, 3e3);
+              proc.once("close", () => {
+                clearTimeout(killTimer);
+                resolve4();
+              });
+              proc.kill("SIGTERM");
             });
-            proc.kill("SIGTERM");
-          });
+          }
         }
         if (this._ephemeralProfileDir) {
           try {
@@ -1264,6 +1385,10 @@ ${tail}` : "";
           } catch {
           }
           this._ephemeralProfileDir = null;
+        }
+        if (this._profileLockPath) {
+          releaseProfileLock(this._profileLockPath);
+          this._profileLockPath = null;
         }
       }
       get running() {
@@ -1782,17 +1907,26 @@ var init_dom = __esm({
        * iframe target must be resolved against THAT target's session, not the
        * main page's.
        */
-      async getElementCenter(backendNodeId, sessionId) {
-        const result = await this.conn.send("DOM.getBoxModel", { backendNodeId }, sessionId ?? this.sessionId);
+      async getElementCenter(ref, sessionId) {
+        const result = await this.conn.send("DOM.getBoxModel", ref, sessionId ?? this.sessionId);
         const q = result.model.content;
         const x = Math.round((q[0] + q[2] + q[4] + q[6]) / 4);
         const y = Math.round((q[1] + q[3] + q[5] + q[7]) / 4);
         return { x, y };
       }
       /** See getElementCenter() for the `sessionId` override rationale. */
-      async getBoxModel(backendNodeId, sessionId) {
-        const result = await this.conn.send("DOM.getBoxModel", { backendNodeId }, sessionId ?? this.sessionId);
+      async getBoxModel(ref, sessionId) {
+        const result = await this.conn.send("DOM.getBoxModel", ref, sessionId ?? this.sessionId);
         return result.model;
+      }
+      /**
+       * Scroll `ref` into the viewport before a caller reads its box model for
+       * a clip region — a below-the-fold element's box model is otherwise
+       * outside (or clipped by) the current viewport, producing a wrong or
+       * empty screenshot clip.
+       */
+      async scrollIntoViewIfNeeded(ref, sessionId) {
+        await this.conn.send("DOM.scrollIntoViewIfNeeded", ref, sessionId ?? this.sessionId);
       }
       async getDocument() {
         return this.conn.send("DOM.getDocument", {}, this.sessionId);
@@ -4517,19 +4651,19 @@ var init_driver = __esm({
         } catch {
         }
         if (!domClickWorked) {
-          const { x, y } = await this.dom.getElementCenter(ref.backendNodeId, sid);
+          const { x, y } = await this.dom.getElementCenter({ backendNodeId: ref.backendNodeId }, sid);
           await this.raceAgainstDialog(this.dispatchClickAt(x, y, sid));
         }
       }
       async type(elementId, text) {
         const ref = await this.awaitActionable(elementId);
-        const { x, y } = await this.dom.getElementCenter(ref.backendNodeId);
+        const { x, y } = await this.dom.getElementCenter({ backendNodeId: ref.backendNodeId });
         await this.input.click(x, y);
         await this.input.type(text);
       }
       async fill(elementId, value) {
         const ref = await this.awaitActionable(elementId);
-        const { x, y } = await this.dom.getElementCenter(ref.backendNodeId);
+        const { x, y } = await this.dom.getElementCenter({ backendNodeId: ref.backendNodeId });
         await this.input.click(x, y);
         await this.runtime.callFunctionOn(
           '() => { if (document.activeElement) { document.activeElement.value = ""; document.activeElement.dispatchEvent(new Event("input", { bubbles: true })); } }'
@@ -4539,7 +4673,7 @@ var init_driver = __esm({
       async hover(elementId) {
         const backendNodeId = this.ax.getBackendNodeId(elementId);
         if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        const { x, y } = await this.dom.getElementCenter({ backendNodeId });
         await this.input.hover(x, y);
       }
       async pressKey(key) {
@@ -4597,7 +4731,7 @@ var init_driver = __esm({
        */
       async select(elementId, value) {
         const ref = await this.awaitActionable(elementId);
-        const { x, y } = await this.dom.getElementCenter(ref.backendNodeId);
+        const { x, y } = await this.dom.getElementCenter({ backendNodeId: ref.backendNodeId });
         await this.input.click(x, y);
         await this.runtime.callFunctionOn(
           '(val) => { const el = document.activeElement; if (el && el.tagName === "SELECT") { el.value = val; el.dispatchEvent(new Event("change", { bubbles: true })); el.dispatchEvent(new Event("input", { bubbles: true })); } }',
@@ -4609,7 +4743,7 @@ var init_driver = __esm({
        */
       async check(elementId) {
         const ref = await this.awaitActionable(elementId);
-        const { x, y } = await this.dom.getElementCenter(ref.backendNodeId);
+        const { x, y } = await this.dom.getElementCenter({ backendNodeId: ref.backendNodeId });
         await this.input.click(x, y);
       }
       /**
@@ -4618,7 +4752,7 @@ var init_driver = __esm({
       async doubleClick(elementId) {
         const backendNodeId = this.ax.getBackendNodeId(elementId);
         if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        const { x, y } = await this.dom.getElementCenter({ backendNodeId });
         await this.input.click(x, y);
         await new Promise((r) => setTimeout(r, 50));
         await this.input.click(x, y);
@@ -4629,7 +4763,7 @@ var init_driver = __esm({
       async rightClick(elementId) {
         const backendNodeId = this.ax.getBackendNodeId(elementId);
         if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        const { x, y } = await this.dom.getElementCenter({ backendNodeId });
         const sid = this.sessionId ?? void 0;
         await this.conn.send("Input.dispatchMouseEvent", {
           type: "mousePressed",
@@ -4677,7 +4811,7 @@ var init_driver = __esm({
       async screenshotElement(elementId) {
         const backendNodeId = this.ax.getBackendNodeId(elementId);
         if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-        const model = await this.dom.getBoxModel(backendNodeId);
+        const model = await this.dom.getBoxModel({ backendNodeId });
         const q = model.content;
         const x = Math.min(q[0], q[2], q[4], q[6]);
         const y = Math.min(q[1], q[3], q[5], q[7]);
@@ -5076,7 +5210,9 @@ var init_compat = __esm({
       driver;
       nodeId;
       async screenshot(options) {
-        const model = await this.driver.domDomain.getBoxModel(this.nodeId);
+        const ref = { nodeId: this.nodeId };
+        await this.driver.domDomain.scrollIntoViewIfNeeded(ref);
+        const model = await this.driver.domDomain.getBoxModel(ref);
         const q = model.content;
         const x = Math.min(q[0], q[2], q[4], q[6]);
         const y = Math.min(q[1], q[3], q[5], q[7]);
@@ -5095,7 +5231,7 @@ var init_compat = __esm({
       }
       async boundingBox() {
         try {
-          const model = await this.driver.domDomain.getBoxModel(this.nodeId);
+          const model = await this.driver.domDomain.getBoxModel({ nodeId: this.nodeId });
           const q = model.content;
           return {
             x: Math.min(q[0], q[2], q[4], q[6]),
@@ -5411,7 +5547,7 @@ var init_compat = __esm({
       async hover(selector, _options) {
         const nodeId = await this.driver.querySelector(selector);
         if (!nodeId) throw new Error(`Element not found: ${selector}`);
-        const center = await this.driver.domDomain.getElementCenter(nodeId);
+        const center = await this.driver.domDomain.getElementCenter({ nodeId });
         await this.driver.runtimeDomain.callFunctionOn(
           '(x, y) => { const el = document.elementFromPoint(x, y); if (el) el.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true })); }',
           [center.x, center.y]
@@ -8468,6 +8604,106 @@ async function enrichWithEventListeners(page, elements) {
         return false;
       };
 
+      // ---- Root-level (window/document/html/body) click delegation ----
+      // Root listeners are NOT credited blindly (menu-dismissal listeners
+      // would silence every dead control). A root click listener is credited
+      // to a candidate only when its handler source names that candidate:
+      // a string literal that is a CSS selector the candidate matches
+      // (e.target.closest('[data-action]'), .matches('.js-copy')), a literal
+      // equal to the candidate's id alongside an .id read, or a dataset.<key>
+      // / getAttribute('data-<key>') read the candidate carries. jQuery
+      // delegated handlers ($(document).on('click', sel, fn)) store their
+      // selector in jQuery's private event data, read directly when present.
+      const rootNodes = [window, document, document.documentElement, document.body].filter(Boolean);
+      const literalRe = /'((?:[^'\\\\\\n]|\\\\.){1,200})'|"((?:[^"\\\\\\n]|\\\\.){1,200})"|\`([^\`$\\\\]{1,200})\`/g;
+      const bareTagRe = /^[a-zA-Z][a-zA-Z0-9-]*$/;
+      const rootInfo = { sources: [], opaque: false, jquerySelectors: [] };
+      for (const node of rootNodes) {
+        let listeners;
+        try {
+          listeners = getEventListeners(node);
+        } catch (e) {
+          continue;
+        }
+        const clicks = listeners && Array.isArray(listeners.click) ? listeners.click : [];
+        for (const entry of clicks) {
+          const fn = entry && entry.listener;
+          let src = '';
+          try {
+            src = typeof fn === 'function' ? Function.prototype.toString.call(fn) : '';
+          } catch (e) {
+            src = '';
+          }
+          if (!src || /\\{\\s*\\[native code\\]\\s*\\}/.test(src)) {
+            rootInfo.opaque = true;
+            continue;
+          }
+          rootInfo.sources.push(src.length > 100000 ? src.slice(0, 100000) : src);
+        }
+        try {
+          const jq = window.jQuery;
+          const data = jq && typeof jq._data === 'function' ? jq._data(node, 'events') : null;
+          const handlers = data && Array.isArray(data.click) ? data.click : [];
+          for (const h of handlers) {
+            if (h && typeof h.selector === 'string' && h.selector) rootInfo.jquerySelectors.push(h.selector);
+          }
+        } catch (e) { /* jQuery absent or private API changed */ }
+      }
+      const rootLiterals = [];
+      const rootDatasetAttrs = [];
+      let rootReadsId = false;
+      for (const src of rootInfo.sources) {
+        literalRe.lastIndex = 0;
+        let m;
+        let count = 0;
+        while ((m = literalRe.exec(src)) !== null && count < 500) {
+          count++;
+          const lit = (m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3]).trim();
+          if (lit) rootLiterals.push(lit);
+        }
+        const dsRe = /\\.dataset\\.([A-Za-z_$][\\w$]*)|\\.dataset\\[\\s*['"]([^'"]+)['"]\\s*\\]/g;
+        let d;
+        while ((d = dsRe.exec(src)) !== null) {
+          const key = d[1] || d[2];
+          rootDatasetAttrs.push('data-' + key.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase()));
+        }
+        if (/\\.id\\b/.test(src)) rootReadsId = true;
+      }
+      for (const lit of rootLiterals) {
+        if (/^data-[\\w-]+$/.test(lit)) rootDatasetAttrs.push(lit.toLowerCase());
+      }
+      const isRootEl = (n) => n === document.body || n === document.documentElement;
+      // A literal "matches" a candidate when the candidate itself matches it,
+      // or a non-root ancestor does (closest-style delegation). Bare tag
+      // names ('div', 'span') only count on the candidate itself: incidental
+      // createElement('div') literals would otherwise match nearly every
+      // candidate through some ancestor. Literals that match <html>/<body>
+      // ('*', 'body', ':root') are never selective and are skipped.
+      const selectorMatches = (el, sel) => {
+        try {
+          if (document.documentElement.matches(sel) || (document.body && document.body.matches(sel))) return false;
+          if (el.matches(sel)) return true;
+          if (bareTagRe.test(sel)) return false;
+          const hit = el.closest(sel);
+          return !!(hit && !isRootEl(hit));
+        } catch (e) {
+          return false; // not a valid selector
+        }
+      };
+      const rootDelegatesTo = (el) => {
+        for (const sel of rootInfo.jquerySelectors) {
+          if (selectorMatches(el, sel)) return true;
+        }
+        for (const lit of rootLiterals) {
+          if (selectorMatches(el, lit)) return true;
+          if (rootReadsId && el.id && lit === el.id) return true;
+        }
+        for (const attr of rootDatasetAttrs) {
+          if (el.hasAttribute(attr)) return true;
+        }
+        return false;
+      };
+
       const results = {};
       for (const selector of selectors) {
         let el;
@@ -8496,7 +8732,13 @@ async function enrichWithEventListeners(page, elements) {
           if (form && (hasSubmitListener(form) || hasReactPropsOnSubmit(form))) hasDelegatedListener = true;
         }
 
-        results[selector] = { hasEventListener, hasDelegatedListener };
+        let rootDelegationUnresolved = false;
+        if (!hasEventListener && !hasDelegatedListener) {
+          if (rootDelegatesTo(el)) hasDelegatedListener = true;
+          else if (rootInfo.opaque) rootDelegationUnresolved = true;
+        }
+
+        results[selector] = { hasEventListener, hasDelegatedListener, rootDelegationUnresolved };
       }
       return results;
     })()
@@ -8512,6 +8754,7 @@ async function enrichWithEventListeners(page, elements) {
   for (const el of candidates) {
     const result = results[el.selector];
     if (!result) continue;
+    if (result.rootDelegationUnresolved) ROOT_DELEGATION_UNRESOLVED.add(el);
     if (result.hasEventListener) el.interactive.hasEventListener = true;
     if (result.hasDelegatedListener) el.interactive.hasDelegatedListener = true;
     if (result.hasEventListener || result.hasDelegatedListener) el.interactive.hasOnClick = true;
@@ -8845,7 +9088,7 @@ function analyzeElements(elements, isMobile = false) {
       issues.push({
         type: "NO_HANDLER",
         severity: "error",
-        message: `Button "${el.text || el.selector}" has no click handler`
+        message: ROOT_DELEGATION_UNRESOLVED.has(el) ? `Button "${el.text || el.selector}" has no click handler found; a document-level click listener exists whose source could not be inspected and may delegate to it` : `Button "${el.text || el.selector}" has no click handler`
       });
     }
     if (isLink && !el.interactive.hasHref && !el.interactive.hasOnClick) {
@@ -9230,7 +9473,7 @@ async function extractTextCensus(page) {
     return census;
   });
 }
-var INTERACTIVE_SELECTORS, ACTIVATION_EVENT_TYPES, CONTENT_SELECTORS, INLINE_TEXT_SELECTORS, CONTENT_ELEMENT_TAGS, INLINE_TEXT_TAGS;
+var INTERACTIVE_SELECTORS, ACTIVATION_EVENT_TYPES, ROOT_DELEGATION_UNRESOLVED, CONTENT_SELECTORS, INLINE_TEXT_SELECTORS, CONTENT_ELEMENT_TAGS, INLINE_TEXT_TAGS;
 var init_extract2 = __esm({
   "src/extract.ts"() {
     init_driver();
@@ -9293,6 +9536,7 @@ var init_extract2 = __esm({
       "keydown",
       "keyup"
     ];
+    ROOT_DELEGATION_UNRESOLVED = /* @__PURE__ */ new WeakSet();
     CONTENT_SELECTORS = [
       "h1",
       "h2",
@@ -9354,6 +9598,7 @@ function detectLayoutCollisions(elements) {
     for (let j = i + 1; j < textElements.length; j++) {
       const b = textElements[j];
       if (b.bounds.y > aBottom + 2) break;
+      if (a.selector === b.selector) continue;
       if (b.selector.startsWith(a.selector) || a.selector.startsWith(b.selector)) continue;
       const ix = Math.max(a.bounds.x, b.bounds.x);
       const iy = Math.max(a.bounds.y, b.bounds.y);
@@ -9390,8 +9635,159 @@ function detectLayoutCollisions(elements) {
     hasCollisions: collisions.length > 0
   };
 }
+async function excludeDomRelatedCollisions(page, result) {
+  if (result.collisions.length === 0) return result;
+  const pairs = result.collisions.map((c) => [c.element1.selector, c.element2.selector]);
+  let related;
+  try {
+    related = await page.evaluate((input) => {
+      const resolve4 = (sel) => {
+        try {
+          const found = document.querySelectorAll(sel);
+          return found.length === 1 ? found[0] : null;
+        } catch {
+          return null;
+        }
+      };
+      return input.map(([s1, s2]) => {
+        const n1 = resolve4(s1);
+        const n2 = resolve4(s2);
+        if (!n1 || !n2) return false;
+        return n1 === n2 || n1.contains(n2) || n2.contains(n1);
+      });
+    }, pairs);
+  } catch {
+    return result;
+  }
+  if (!Array.isArray(related) || related.length !== result.collisions.length) return result;
+  const collisions = result.collisions.filter((_, i) => !related[i]);
+  return { collisions, hasCollisions: collisions.length > 0 };
+}
 var init_layout_collision = __esm({
   "src/layout-collision.ts"() {
+  }
+});
+
+// src/design-system/principles/visibility.ts
+function isVisibleInteractive(element) {
+  if (!element.interactive?.hasOnClick && !element.interactive?.hasHref) return false;
+  const bounds = element.bounds;
+  if (!bounds || bounds.width <= 0 || bounds.height <= 0) return false;
+  const display = element.computedStyles?.display?.trim().toLowerCase();
+  const visibility = element.computedStyles?.visibility?.trim().toLowerCase();
+  const opacity = Number.parseFloat(element.computedStyles?.opacity ?? "1");
+  if (display === "none") return false;
+  if (visibility === "hidden" || visibility === "collapse") return false;
+  if (Number.isFinite(opacity) && opacity <= 0) return false;
+  if (element.ancestorOpacity !== void 0 && element.ancestorOpacity <= 0) return false;
+  return true;
+}
+var init_visibility = __esm({
+  "src/design-system/principles/visibility.ts"() {
+  }
+});
+
+// src/design-system/principles/cognitive-load.ts
+function isGroupingElement(el) {
+  const role = (el.a11y?.role || "").toLowerCase();
+  if (role && GROUPING_ROLE_SET.has(role)) return true;
+  return GROUPING_TAG_SET.has((el.tagName || "").toLowerCase());
+}
+function within(inner, outer) {
+  return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width && inner.y + inner.height <= outer.y + outer.height;
+}
+function ownedByBounds(element, all) {
+  const box = element.bounds;
+  const nestedGroups = all.filter(
+    (g) => g !== element && g.selector !== element.selector && isGroupingElement(g) && g.bounds && g.bounds.width > 0 && g.bounds.height > 0 && // Inclusive: a group with the container's exact box is its only child
+    // region, and it claims its controls just the same.
+    within(g.bounds, box)
+  );
+  return all.filter((el) => {
+    if (el.selector === element.selector) return false;
+    if (!isVisibleInteractive(el)) return false;
+    if (!within(el.bounds, box)) return false;
+    return !nestedGroups.some((g) => g.selector !== el.selector && within(el.bounds, g.bounds));
+  }).map((el) => el.selector);
+}
+var GROUPING_TAGS, GROUPING_ROLES, GROUPING_TAG_SET, GROUPING_ROLE_SET, MAX_CONTROLS_PER_GROUP, cognitiveLoadRules;
+var init_cognitive_load = __esm({
+  "src/design-system/principles/cognitive-load.ts"() {
+    init_visibility();
+    GROUPING_TAGS = [
+      "section",
+      "article",
+      "aside",
+      "header",
+      "footer",
+      "nav",
+      "form",
+      "fieldset",
+      "ul",
+      "ol",
+      "menu",
+      "dialog",
+      "details",
+      "table",
+      "tr"
+    ];
+    GROUPING_ROLES = [
+      "group",
+      "radiogroup",
+      "toolbar",
+      "menu",
+      "menubar",
+      "listbox",
+      "tablist",
+      "list",
+      "grid",
+      "row",
+      "dialog",
+      "alertdialog",
+      "navigation",
+      "region",
+      "form",
+      "banner",
+      "contentinfo",
+      "complementary"
+    ];
+    GROUPING_TAG_SET = new Set(GROUPING_TAGS);
+    GROUPING_ROLE_SET = new Set(GROUPING_ROLES);
+    MAX_CONTROLS_PER_GROUP = 10;
+    cognitiveLoadRules = [
+      {
+        id: "calm-precision/cognitive-load-elements",
+        name: "Cognitive Load: Element Count",
+        description: "Visual groups should have 5-7 items max to stay within working memory limits",
+        defaultSeverity: "warn",
+        appliesTo: "any",
+        check: (element, context) => {
+          if (element.interactive?.hasOnClick || element.interactive?.hasHref) return null;
+          if (!element.bounds) return null;
+          const { width, height } = element.bounds;
+          if (width <= 0 || height <= 0) return null;
+          const facts = element.controlGroup;
+          const owned = facts ? { count: facts.ownedControls, selectors: facts.controlSelectors } : (() => {
+            const sel = ownedByBounds(element, context.allElements);
+            return { count: sel.length, selectors: sel };
+          })();
+          if (owned.count > MAX_CONTROLS_PER_GROUP) {
+            const shown = owned.selectors.slice(0, 5);
+            const more = owned.count - shown.length;
+            return {
+              ruleId: "calm-precision/cognitive-load-elements",
+              ruleName: "Cognitive Load: Element Count",
+              severity: "warn",
+              message: `Group <${element.tagName}> holds ${owned.count} visible controls directly (controls inside nested sections, lists, fieldsets or groups not counted): ${shown.join(", ")}${more > 0 ? ` +${more} more` : ""}. Consider grouping or progressive disclosure (5-7 max per group).`,
+              element: element.selector,
+              bounds: element.bounds,
+              fix: 'Split these controls into labelled sub-groups (fieldset, list, role="group"), or move secondary ones behind "Show more".'
+            };
+          }
+          return null;
+        }
+      }
+    ];
   }
 });
 async function loadDesignSystemConfig(projectDir) {
@@ -9802,10 +10198,22 @@ var init_tokens2 = __esm({
 });
 
 // src/design-system/principles/gestalt.ts
-var gestaltRules;
+function isListItemElement(element) {
+  const tag = (element.tagName || "").toLowerCase();
+  const role = (element.a11y?.role || "").toLowerCase();
+  if (CONTROL_TAGS.has(tag) || CONTROL_ROLES.has(role)) return false;
+  if (tag === "li" || role === "listitem") return true;
+  const tokens = (element.className || "").split(/\s+/).filter(Boolean);
+  return tokens.some((t) => ITEM_CLASS_TOKEN.test(t));
+}
+var ITEM_CLASS_TOKEN, CONTROL_TAGS, CONTROL_ROLES, BOXED_MIN_SIDES, gestaltRules;
 var init_gestalt = __esm({
   "src/design-system/principles/gestalt.ts"() {
     init_style_read();
+    ITEM_CLASS_TOKEN = /^(item|list-item|[a-z0-9_]+-item)$/i;
+    CONTROL_TAGS = /* @__PURE__ */ new Set(["button", "input", "select", "textarea", "summary", "option"]);
+    CONTROL_ROLES = /* @__PURE__ */ new Set(["button", "checkbox", "radio", "switch", "tab", "menuitem", "slider", "textbox", "combobox"]);
+    BOXED_MIN_SIDES = 3;
     gestaltRules = [
       {
         id: "calm-precision/gestalt-grouping",
@@ -9817,8 +10225,7 @@ var init_gestalt = __esm({
         // `<li>` never reached it even once the styles existed.
         appliesTo: "any",
         check: (element, _context) => {
-          const isListItem = element.tagName === "li" || element.selector?.includes("item") && !element.selector?.includes("item-");
-          if (!isListItem) return null;
+          if (!isListItemElement(element)) return null;
           const border = resolveBorderPresence(element);
           if (border.status === "unmeasured") {
             return unmeasuredStyleViolation(
@@ -9829,14 +10236,16 @@ var init_gestalt = __esm({
             );
           }
           if (!border.hasBorder) return null;
+          const paintedSides = border.widths.filter((w) => w > 0).length;
+          if (paintedSides < BOXED_MIN_SIDES) return null;
           return {
             ruleId: "calm-precision/gestalt-grouping",
             ruleName: "Gestalt: Border Grouping",
             severity: "error",
-            message: `List item "${(element.text || "").slice(0, 40)}" has individual border (${border.widths.map((w) => `${w}px`).join(" ")}). Group related items with a single container border.`,
+            message: `List item "${(element.text || "").slice(0, 40)}" is individually boxed (${paintedSides}-sided border: ${border.widths.map((w) => `${w}px`).join(" ")}). Group related items with a single container border.`,
             element: element.selector,
             bounds: element.bounds,
-            fix: "Use single border around the group container with dividers between items, not individual item borders."
+            fix: "Put one border around the group container and separate items with one-sided dividers (e.g. border-top), not a box per item."
           };
         }
       }
@@ -9844,10 +10253,239 @@ var init_gestalt = __esm({
   }
 });
 
+// src/rules/color-parse.ts
+function linearToSrgb(c) {
+  const v = c <= 31308e-7 ? 12.92 * c : 1.055 * Math.pow(Math.max(0, c), 1 / 2.4) - 0.055;
+  return clamp255(v * 255);
+}
+function oklabToLinearSrgb(L, a, b) {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.291485548 * b;
+  const l = l_ ** 3, m = m_ ** 3, s = s_ ** 3;
+  return [
+    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s
+  ];
+}
+function labToLinearSrgb(L, a, bb) {
+  const fy = (L + 16) / 116, fx = fy + a / 500, fz = fy - bb / 200;
+  const f = (t) => t ** 3 > 8856e-6 ? t ** 3 : (116 * t - 16) / 903.3;
+  const X = 0.96422 * f(fx), Y = 1 * f(fy), Z = 0.82521 * f(fz);
+  return [
+    3.1338561 * X - 1.6168667 * Y - 0.4906146 * Z,
+    -0.9787684 * X + 1.9161415 * Y + 0.033454 * Z,
+    0.0719453 * X - 0.2289914 * Y + 1.4052427 * Z
+  ];
+}
+function num(tok, pctBasis = 1) {
+  const t = tok.trim();
+  if (t.endsWith("%")) return parseFloat(t) / 100 * pctBasis;
+  return parseFloat(t);
+}
+function splitArgs(body) {
+  const [main, alphaPart] = body.split("/");
+  const parts = main.trim().split(/[\s,]+/).filter(Boolean);
+  const alpha = alphaPart !== void 0 ? num(alphaPart, 1) : 1;
+  return { parts, alpha };
+}
+function hslToRgb(h, s, l) {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const hp = (h % 360 + 360) % 360 / 60;
+  const x = c * (1 - Math.abs(hp % 2 - 1));
+  const [r1, g1, b1] = hp < 1 ? [c, x, 0] : hp < 2 ? [x, c, 0] : hp < 3 ? [0, c, x] : hp < 4 ? [0, x, c] : hp < 5 ? [x, 0, c] : [c, 0, x];
+  const m = l - c / 2;
+  return [clamp255((r1 + m) * 255), clamp255((g1 + m) * 255), clamp255((b1 + m) * 255)];
+}
+function parseColor2(color) {
+  const raw = (color ?? "").trim();
+  if (!raw) return { kind: "none", reason: "empty" };
+  const lower = raw.toLowerCase();
+  if (lower === "transparent") return { kind: "none", reason: "transparent" };
+  if (["initial", "inherit", "unset", "revert", "currentcolor", "none", "auto"].includes(lower)) {
+    return { kind: "none", reason: lower };
+  }
+  if (NAMED[lower]) return { kind: "rgb", rgb: NAMED[lower], alpha: 1 };
+  const hex = lower.match(/^#([0-9a-f]{3,8})$/);
+  if (hex) {
+    const h = hex[1];
+    const exp = (i) => parseInt(h[i] + h[i], 16);
+    const pair = (i) => parseInt(h.slice(i, i + 2), 16);
+    if (h.length === 3) return { kind: "rgb", rgb: [exp(0), exp(1), exp(2)], alpha: 1 };
+    if (h.length === 4) return { kind: "rgb", rgb: [exp(0), exp(1), exp(2)], alpha: exp(3) / 255 };
+    if (h.length === 6) return { kind: "rgb", rgb: [pair(0), pair(2), pair(4)], alpha: 1 };
+    if (h.length === 8) return { kind: "rgb", rgb: [pair(0), pair(2), pair(4)], alpha: pair(6) / 255 };
+    return { kind: "unsupported", raw };
+  }
+  const fn = lower.match(/^([a-z]+)\(([^)]*)\)$/);
+  if (!fn) return { kind: "unsupported", raw };
+  const [, name, body] = fn;
+  const { parts, alpha } = splitArgs(body);
+  if (alpha === 0) return { kind: "none", reason: "alpha-0" };
+  const finite2 = (r) => r.kind === "rgb" && (!r.rgb.every(Number.isFinite) || !Number.isFinite(r.alpha)) ? { kind: "unsupported", raw } : r;
+  try {
+    return finite2(parseColorBody(name, parts, alpha, raw));
+  } catch {
+    return { kind: "unsupported", raw };
+  }
+}
+function parseColorBody(name, parts, alpha, raw) {
+  {
+    switch (name) {
+      case "rgb":
+      case "rgba": {
+        const rgb = [
+          clamp255(num(parts[0], 255)),
+          clamp255(num(parts[1], 255)),
+          clamp255(num(parts[2], 255))
+        ];
+        const a = parts[3] !== void 0 ? num(parts[3]) : alpha;
+        return a === 0 ? { kind: "none", reason: "alpha-0" } : { kind: "rgb", rgb, alpha: a };
+      }
+      case "hsl":
+      case "hsla": {
+        const a = parts[3] !== void 0 ? num(parts[3]) : alpha;
+        if (a === 0) return { kind: "none", reason: "alpha-0" };
+        return { kind: "rgb", rgb: hslToRgb(parseFloat(parts[0]), num(parts[1], 1), num(parts[2], 1)), alpha: a };
+      }
+      case "oklch":
+      case "lch": {
+        const L = num(parts[0], name === "oklch" ? 1 : 100);
+        const C = num(parts[1], name === "oklch" ? 0.4 : 150);
+        const H = (parseFloat(parts[2]) || 0) * (Math.PI / 180);
+        const a = C * Math.cos(H), b = C * Math.sin(H);
+        const lin = name === "oklch" ? oklabToLinearSrgb(L, a, b) : labToLinearSrgb(L, a, b);
+        return { kind: "rgb", rgb: lin.map(linearToSrgb), alpha };
+      }
+      case "oklab":
+      case "lab": {
+        const L = num(parts[0], name === "oklab" ? 1 : 100);
+        const a = num(parts[1], name === "oklab" ? 0.4 : 125);
+        const b = num(parts[2], name === "oklab" ? 0.4 : 125);
+        const lin = name === "oklab" ? oklabToLinearSrgb(L, a, b) : labToLinearSrgb(L, a, b);
+        return { kind: "rgb", rgb: lin.map(linearToSrgb), alpha };
+      }
+      case "color": {
+        const space = parts[0];
+        if (space !== "srgb" && space !== "srgb-linear" && space !== "display-p3") {
+          return { kind: "unsupported", raw };
+        }
+        const ch = parts.slice(1, 4).map((p) => num(p, 1));
+        const rgb = space === "srgb-linear" ? ch.map(linearToSrgb) : ch.map((v) => clamp255(v * 255));
+        return { kind: "rgb", rgb, alpha };
+      }
+      default:
+        return { kind: "unsupported", raw };
+    }
+  }
+}
+function flatten(fg, bg) {
+  if (fg.kind !== "rgb") return null;
+  if (fg.alpha >= 1) return fg.rgb;
+  return fg.rgb.map((c, i) => clamp255(c * fg.alpha + bg[i] * (1 - fg.alpha)));
+}
+function resolveEffectiveBackground(chain) {
+  const layers = [];
+  for (const raw of chain) {
+    const parsed = parseColor2(raw);
+    if (parsed.kind === "unsupported") {
+      return { rgb: CANVAS_BASE, resolved: false, unsupported: parsed.raw };
+    }
+    if (parsed.kind === "none") continue;
+    layers.push({ rgb: parsed.rgb, alpha: parsed.alpha });
+    if (parsed.alpha >= 1) break;
+  }
+  const bottom = layers[layers.length - 1];
+  const resolved = bottom !== void 0 && bottom.alpha >= 1;
+  let acc = resolved ? bottom.rgb : CANVAS_BASE;
+  for (let i = resolved ? layers.length - 2 : layers.length - 1; i >= 0; i--) {
+    const layer = layers[i];
+    acc = layer.rgb.map(
+      (c, ch) => clamp255(c * layer.alpha + acc[ch] * (1 - layer.alpha))
+    );
+  }
+  return { rgb: acc, resolved };
+}
+var NAMED, clamp255, CANVAS_BASE;
+var init_color_parse = __esm({
+  "src/rules/color-parse.ts"() {
+    NAMED = {
+      black: [0, 0, 0],
+      white: [255, 255, 255],
+      red: [255, 0, 0],
+      green: [0, 128, 0],
+      blue: [0, 0, 255],
+      gray: [128, 128, 128],
+      grey: [128, 128, 128],
+      silver: [192, 192, 192],
+      maroon: [128, 0, 0],
+      olive: [128, 128, 0],
+      lime: [0, 255, 0],
+      aqua: [0, 255, 255],
+      cyan: [0, 255, 255],
+      teal: [0, 128, 128],
+      navy: [0, 0, 128],
+      fuchsia: [255, 0, 255],
+      magenta: [255, 0, 255],
+      purple: [128, 0, 128],
+      yellow: [255, 255, 0],
+      orange: [255, 165, 0]
+    };
+    clamp255 = (v) => Math.max(0, Math.min(255, Math.round(v)));
+    CANVAS_BASE = [255, 255, 255];
+  }
+});
+
 // src/design-system/principles/signal-noise.ts
-var signalNoiseRules;
+function hsl(rgb) {
+  const [r, g, b] = rgb.map((c) => c / 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return { s: 0, l };
+  const s = (max - min) / (1 - Math.abs(2 * l - 1));
+  return { s, l };
+}
+function statusLabel(text) {
+  const t = (text || "").trim();
+  if (!t || t.length > BADGE_MAX_CHARS) return null;
+  const tokens = t.split(/\s+/);
+  if (tokens.length > BADGE_MAX_WORDS) return null;
+  const words = tokens.map((w) => w.replace(/[^a-z]/gi, "")).filter(Boolean);
+  if (words.length === 0 || words.length > 2) return null;
+  return STATUS_WORD.test(words[0]) ? words[0].toLowerCase() : null;
+}
+function saturatedFill(bg) {
+  if (!bg) return null;
+  const parsed = parseColor2(bg);
+  if (parsed.kind !== "rgb") return null;
+  if (parsed.alpha < MIN_FILL_ALPHA) return null;
+  const { s, l } = hsl(parsed.rgb);
+  if (l <= 0.05 || l >= 0.98) return null;
+  if (s < MIN_FILL_SATURATION) return null;
+  return { s, l, alpha: parsed.alpha };
+}
+function isPillShaped(element) {
+  const style = element.computedStyles ?? {};
+  const display = (style.display || "").trim().toLowerCase();
+  if (display.startsWith("inline")) return true;
+  if (!display && INLINE_BY_DEFAULT.has((element.tagName || "").toLowerCase())) return true;
+  const radius = parseFloat(style.borderRadius || "0");
+  return Number.isFinite(radius) && radius >= element.bounds.height / 4;
+}
+var STATUS_WORD, BADGE_MAX_HEIGHT, BADGE_MAX_WIDTH, BADGE_MAX_CHARS, BADGE_MAX_WORDS, MIN_FILL_ALPHA, MIN_FILL_SATURATION, INLINE_BY_DEFAULT, signalNoiseRules;
 var init_signal_noise = __esm({
   "src/design-system/principles/signal-noise.ts"() {
+    init_color_parse();
+    STATUS_WORD = /^(success|successful|error|warning|pending|active|inactive|status|failed|completed|approved|rejected)$/i;
+    BADGE_MAX_HEIGHT = 32;
+    BADGE_MAX_WIDTH = 200;
+    BADGE_MAX_CHARS = 24;
+    BADGE_MAX_WORDS = 3;
+    MIN_FILL_ALPHA = 0.15;
+    MIN_FILL_SATURATION = 0.25;
+    INLINE_BY_DEFAULT = /* @__PURE__ */ new Set(["span", "a", "b", "strong", "em", "small", "mark", "code", "label", "abbr"]);
     signalNoiseRules = [
       {
         id: "calm-precision/signal-noise-status",
@@ -9857,21 +10495,23 @@ var init_signal_noise = __esm({
         check: (element, _context) => {
           const style = element.computedStyles;
           if (!style) return null;
-          const text = (element.text || "").toLowerCase();
-          const isStatus = /\b(success|error|warning|pending|active|inactive|status|failed|completed|approved|rejected)\b/i.test(text);
-          if (!isStatus) return null;
+          const status = statusLabel(element.text);
+          if (!status) return null;
+          const { width, height } = element.bounds ?? { width: 0, height: 0 };
+          if (width <= 0 || height <= 0) return null;
+          if (height > BADGE_MAX_HEIGHT || width > BADGE_MAX_WIDTH) return null;
+          if (!isPillShaped(element)) return null;
           const bg = style.backgroundColor || style["background-color"];
-          if (!bg || bg === "transparent" || bg === "rgba(0, 0, 0, 0)") return null;
-          const subtleMatch = bg.match(/rgba?\([^)]*,\s*(0\.(?:0[0-9]|1[0-4]))\)/);
-          if (subtleMatch) return null;
+          const fill = saturatedFill(bg);
+          if (!fill) return null;
           return {
             ruleId: "calm-precision/signal-noise-status",
             ruleName: "Signal-to-Noise: Status Indication",
             severity: "error",
-            message: `Status element "${text.slice(0, 30)}" has heavy background (${bg}). Use text color only for status.`,
+            message: `Status badge "${(element.text || "").trim()}" (${width}x${height}px) is a filled pill (${bg}). Show status as coloured text, not a background badge.`,
             element: element.selector,
             bounds: element.bounds,
-            fix: "Remove background color. Use text color (green for success, red for error, yellow for warning) instead of background badges."
+            fix: "Remove background color. Use text color (green for success, red for error, amber for warning) with font-medium instead of a background badge."
           };
         }
       }
@@ -9913,25 +10553,6 @@ var init_fitts = __esm({
   }
 });
 
-// src/design-system/principles/visibility.ts
-function isVisibleInteractive(element) {
-  if (!element.interactive?.hasOnClick && !element.interactive?.hasHref) return false;
-  const bounds = element.bounds;
-  if (!bounds || bounds.width <= 0 || bounds.height <= 0) return false;
-  const display = element.computedStyles?.display?.trim().toLowerCase();
-  const visibility = element.computedStyles?.visibility?.trim().toLowerCase();
-  const opacity = Number.parseFloat(element.computedStyles?.opacity ?? "1");
-  if (display === "none") return false;
-  if (visibility === "hidden" || visibility === "collapse") return false;
-  if (Number.isFinite(opacity) && opacity <= 0) return false;
-  if (element.ancestorOpacity !== void 0 && element.ancestorOpacity <= 0) return false;
-  return true;
-}
-var init_visibility = __esm({
-  "src/design-system/principles/visibility.ts"() {
-  }
-});
-
 // src/design-system/principles/hick.ts
 var hickRules;
 var init_hick = __esm({
@@ -9970,8 +10591,71 @@ var init_hick = __esm({
 });
 
 // src/design-system/principles/content-chrome.ts
-function isChrome(el) {
-  return CHROME_SELECTORS.test(el.tagName) || CHROME_SELECTORS.test(el.selector || "") || CHROME_SELECTORS.test(el.a11y?.role || "");
+function parsePath(selector) {
+  return selector.split(">").map((raw) => {
+    const seg = raw.trim();
+    if (seg.startsWith("#")) return { tag: "", cls: null, isId: true };
+    const tag = (seg.match(/^[a-z][a-z0-9-]*/i)?.[0] ?? "").toLowerCase();
+    const cls = seg.match(/\.([^.:#\s[]+)/)?.[1] ?? null;
+    return { tag, cls, isId: false };
+  });
+}
+function classTokens(el) {
+  return (el.className || "").split(/\s+/).filter(Boolean);
+}
+function isAnswerControl(el, ancestors) {
+  const tag = (el.tagName || "").toLowerCase();
+  const role = (el.a11y?.role || "").toLowerCase();
+  if (ANSWER_ROLES.has(role)) return true;
+  const isControl = CONTROL_TAGS2.has(tag) || role === "button";
+  return isControl && ancestors.some((a) => FORM_SCOPES.has(a.tag));
+}
+function isScoped(el, ancestors, rootedAtId, population) {
+  if (ancestors.some((a) => SECTIONING_SCOPES.has(a.tag))) return true;
+  if (!rootedAtId || !el.bounds) return false;
+  const b = el.bounds;
+  return population.some((p) => {
+    if (p === el || p.selector === el.selector) return false;
+    if (!SECTIONING_SCOPES.has((p.tagName || "").toLowerCase()) || !p.bounds) return false;
+    const q = p.bounds;
+    if (q.width <= 0 || q.height <= 0) return false;
+    return b.x >= q.x && b.y >= q.y && b.x + b.width <= q.x + q.width && b.y + b.height <= q.y + q.height;
+  });
+}
+function isChrome(el, population = []) {
+  const tag = (el.tagName || "").toLowerCase();
+  const role = (el.a11y?.role || "").toLowerCase();
+  const path2 = parsePath(el.selector || "");
+  const ancestors = path2.slice(0, -1);
+  const rootedAtId = path2[0]?.isId ?? false;
+  const scoped = isScoped(el, ancestors, rootedAtId, population);
+  if (isAnswerControl(el, ancestors)) return false;
+  if (CHROME_ROLES.has(role)) return true;
+  if (CHROME_TAGS.has(tag)) return true;
+  if (SCOPED_CHROME_TAGS.has(tag) && !scoped) return true;
+  for (const t of classTokens(el)) {
+    if (!CHROME_CLASS_TOKEN.test(t)) continue;
+    if (SCOPED_CLASS_TOKEN.test(t) && scoped) continue;
+    return true;
+  }
+  return ancestors.some((a, i) => {
+    if (!a.cls || !CHROME_CLASS_TOKEN.test(a.cls)) return false;
+    if (!SCOPED_CLASS_TOKEN.test(a.cls)) return true;
+    return !ancestors.slice(0, i).some((b) => SECTIONING_SCOPES.has(b.tag));
+  });
+}
+function outermostChrome(chrome) {
+  const sorted = [...chrome].sort((a, b) => b.bounds.width * b.bounds.height - a.bounds.width * a.bounds.height);
+  const kept = [];
+  for (const el of sorted) {
+    const b = el.bounds;
+    const inside = kept.some((k) => b.x >= k.bounds.x && b.y >= k.bounds.y && b.x + b.width <= k.bounds.x + k.bounds.width && b.y + b.height <= k.bounds.y + k.bounds.height);
+    if (!inside) kept.push(el);
+  }
+  return kept;
+}
+function fmtBox(b) {
+  return `(${Math.round(b.x)},${Math.round(b.y)} ${Math.round(b.width)}x${Math.round(b.height)})`;
 }
 function unionAreaPx(rects, viewportWidth, viewportHeight) {
   const CELL = 8;
@@ -9992,11 +10676,32 @@ function unionAreaPx(rects, viewportWidth, viewportHeight) {
   for (let i = 0; i < covered.length; i++) cells += covered[i];
   return cells * CELL * CELL;
 }
-var CHROME_SELECTORS, CONTROL_TAGS, contentChromeRules;
+var CHROME_TAGS, SCOPED_CHROME_TAGS, SECTIONING_SCOPES, CHROME_ROLES, CHROME_CLASS_TOKEN, SCOPED_CLASS_TOKEN, ANSWER_ROLES, FORM_SCOPES, CONTROL_TAGS2, MAX_NAMED_CHROME, contentChromeRules;
 var init_content_chrome = __esm({
   "src/design-system/principles/content-chrome.ts"() {
-    CHROME_SELECTORS = /\b(nav|header|footer|sidebar|toolbar|menu|breadcrumb|tabs)\b/i;
-    CONTROL_TAGS = /* @__PURE__ */ new Set([
+    CHROME_TAGS = /* @__PURE__ */ new Set(["nav"]);
+    SCOPED_CHROME_TAGS = /* @__PURE__ */ new Set(["header", "footer"]);
+    SECTIONING_SCOPES = /* @__PURE__ */ new Set(["main", "article", "aside", "nav", "section"]);
+    CHROME_ROLES = /* @__PURE__ */ new Set([
+      "navigation",
+      "banner",
+      "contentinfo",
+      "toolbar",
+      "menu",
+      "menubar"
+    ]);
+    CHROME_CLASS_TOKEN = /^((site|app|page|global|main|top|primary)-)?(nav|navbar|navigation|header|footer|sidebar|toolbar|menu|menubar|breadcrumb|breadcrumbs|tabs|topbar|appbar)$/i;
+    SCOPED_CLASS_TOKEN = /^((site|app|page|global|main|top|primary)-)?(header|footer)$/i;
+    ANSWER_ROLES = /* @__PURE__ */ new Set([
+      "radio",
+      "option",
+      "checkbox",
+      "menuitemradio",
+      "menuitemcheckbox",
+      "switch"
+    ]);
+    FORM_SCOPES = /* @__PURE__ */ new Set(["form", "fieldset"]);
+    CONTROL_TAGS2 = /* @__PURE__ */ new Set([
       "button",
       "a",
       "input",
@@ -10005,6 +10710,7 @@ var init_content_chrome = __esm({
       "summary",
       "details"
     ]);
+    MAX_NAMED_CHROME = 10;
     contentChromeRules = [
       {
         id: "calm-precision/content-chrome-ratio",
@@ -10016,9 +10722,9 @@ var init_content_chrome = __esm({
           if (context.allElements[0]?.selector !== element.selector) return null;
           const viewportArea = context.viewportWidth * context.viewportHeight;
           if (viewportArea === 0) return null;
-          const chromeElements = context.allElements.filter((el) => isChrome(el) && el.bounds);
+          const chromeElements = context.allElements.filter((el) => el.bounds && isChrome(el, context.allElements));
           const sawNonControlElements = context.allElements.some(
-            (el) => !CONTROL_TAGS.has(el.tagName)
+            (el) => !CONTROL_TAGS2.has(el.tagName)
           );
           if (chromeElements.length === 0 && !sawNonControlElements) {
             return {
@@ -10030,60 +10736,36 @@ var init_content_chrome = __esm({
             };
           }
           if (chromeElements.length === 0) return null;
+          const vw = context.viewportWidth;
+          const vh = context.viewportHeight;
+          const painted = chromeElements.filter((el) => {
+            const b = el.bounds;
+            return b.width > 0 && b.height > 0 && b.x < vw && b.y < vh && b.x + b.width > 0 && b.y + b.height > 0;
+          });
           const chromeArea = unionAreaPx(
-            chromeElements.map((el) => el.bounds),
+            painted.map((el) => el.bounds),
             context.viewportWidth,
             context.viewportHeight
           );
           const chromePercent = chromeArea / viewportArea * 100;
           if (chromePercent > 30) {
-            return {
+            const named = outermostChrome(painted);
+            const chromeReport = named.map((el) => ({
+              selector: el.selector,
+              tagName: el.tagName,
+              bounds: { x: el.bounds.x, y: el.bounds.y, width: el.bounds.width, height: el.bounds.height }
+            }));
+            const listed = chromeReport.slice(0, MAX_NAMED_CHROME).map((c) => `${c.selector} ${fmtBox(c.bounds)}`);
+            const more = chromeReport.length - listed.length;
+            const violation = {
               ruleId: "calm-precision/content-chrome-ratio",
               ruleName: "Content >= Chrome",
               severity: "warn",
-              message: `Chrome elements occupy ~${Math.round(chromePercent)}% of viewport (${chromeElements.length} chrome element(s) measured). Content should be >= 70%.`,
-              fix: "Reduce navigation/toolbar/sidebar chrome. Consider collapsible panels or minimized navigation."
+              message: `Chrome elements occupy ~${Math.round(chromePercent)}% of viewport (${painted.length} chrome element(s) measured). Counted as chrome: ${listed.join("; ")}${more > 0 ? `; +${more} more` : ""}. Content should be >= 70%.`,
+              fix: "Reduce navigation/toolbar/sidebar chrome. Consider collapsible panels or minimized navigation.",
+              chromeElements: chromeReport
             };
-          }
-          return null;
-        }
-      }
-    ];
-  }
-});
-
-// src/design-system/principles/cognitive-load.ts
-var cognitiveLoadRules;
-var init_cognitive_load = __esm({
-  "src/design-system/principles/cognitive-load.ts"() {
-    init_visibility();
-    cognitiveLoadRules = [
-      {
-        id: "calm-precision/cognitive-load-elements",
-        name: "Cognitive Load: Element Count",
-        description: "Visual groups should have 5-7 items max to stay within working memory limits",
-        defaultSeverity: "warn",
-        appliesTo: "any",
-        check: (element, context) => {
-          if (element.interactive?.hasOnClick || element.interactive?.hasHref) return null;
-          if (!element.bounds) return null;
-          const { x, y, width, height } = element.bounds;
-          if (width <= 0 || height <= 0) return null;
-          const children = context.allElements.filter((el) => {
-            if (el.selector === element.selector) return false;
-            if (!isVisibleInteractive(el)) return false;
-            return el.bounds.x >= x && el.bounds.y >= y && el.bounds.x + el.bounds.width <= x + width && el.bounds.y + el.bounds.height <= y + height;
-          });
-          if (children.length > 10) {
-            return {
-              ruleId: "calm-precision/cognitive-load-elements",
-              ruleName: "Cognitive Load: Element Count",
-              severity: "warn",
-              message: `Container has ${children.length} interactive elements. Consider grouping or progressive disclosure (5-7 max per group).`,
-              element: element.selector,
-              bounds: element.bounds,
-              fix: 'Group related actions. Use sections, tabs, or "Show more" to reduce visible elements per group.'
-            };
+            return violation;
           }
           return null;
         }
@@ -10452,190 +11134,6 @@ function collectInteractionMap(ctx) {
 }
 var init_interaction_map = __esm({
   "src/sensors/interaction-map.ts"() {
-  }
-});
-
-// src/rules/color-parse.ts
-function linearToSrgb(c) {
-  const v = c <= 31308e-7 ? 12.92 * c : 1.055 * Math.pow(Math.max(0, c), 1 / 2.4) - 0.055;
-  return clamp255(v * 255);
-}
-function oklabToLinearSrgb(L, a, b) {
-  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
-  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
-  const s_ = L - 0.0894841775 * a - 1.291485548 * b;
-  const l = l_ ** 3, m = m_ ** 3, s = s_ ** 3;
-  return [
-    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
-    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
-    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s
-  ];
-}
-function labToLinearSrgb(L, a, bb) {
-  const fy = (L + 16) / 116, fx = fy + a / 500, fz = fy - bb / 200;
-  const f = (t) => t ** 3 > 8856e-6 ? t ** 3 : (116 * t - 16) / 903.3;
-  const X = 0.96422 * f(fx), Y = 1 * f(fy), Z = 0.82521 * f(fz);
-  return [
-    3.1338561 * X - 1.6168667 * Y - 0.4906146 * Z,
-    -0.9787684 * X + 1.9161415 * Y + 0.033454 * Z,
-    0.0719453 * X - 0.2289914 * Y + 1.4052427 * Z
-  ];
-}
-function num(tok, pctBasis = 1) {
-  const t = tok.trim();
-  if (t.endsWith("%")) return parseFloat(t) / 100 * pctBasis;
-  return parseFloat(t);
-}
-function splitArgs(body) {
-  const [main, alphaPart] = body.split("/");
-  const parts = main.trim().split(/[\s,]+/).filter(Boolean);
-  const alpha = alphaPart !== void 0 ? num(alphaPart, 1) : 1;
-  return { parts, alpha };
-}
-function hslToRgb(h, s, l) {
-  const c = (1 - Math.abs(2 * l - 1)) * s;
-  const hp = (h % 360 + 360) % 360 / 60;
-  const x = c * (1 - Math.abs(hp % 2 - 1));
-  const [r1, g1, b1] = hp < 1 ? [c, x, 0] : hp < 2 ? [x, c, 0] : hp < 3 ? [0, c, x] : hp < 4 ? [0, x, c] : hp < 5 ? [x, 0, c] : [c, 0, x];
-  const m = l - c / 2;
-  return [clamp255((r1 + m) * 255), clamp255((g1 + m) * 255), clamp255((b1 + m) * 255)];
-}
-function parseColor2(color) {
-  const raw = (color ?? "").trim();
-  if (!raw) return { kind: "none", reason: "empty" };
-  const lower = raw.toLowerCase();
-  if (lower === "transparent") return { kind: "none", reason: "transparent" };
-  if (["initial", "inherit", "unset", "revert", "currentcolor", "none", "auto"].includes(lower)) {
-    return { kind: "none", reason: lower };
-  }
-  if (NAMED[lower]) return { kind: "rgb", rgb: NAMED[lower], alpha: 1 };
-  const hex = lower.match(/^#([0-9a-f]{3,8})$/);
-  if (hex) {
-    const h = hex[1];
-    const exp = (i) => parseInt(h[i] + h[i], 16);
-    const pair = (i) => parseInt(h.slice(i, i + 2), 16);
-    if (h.length === 3) return { kind: "rgb", rgb: [exp(0), exp(1), exp(2)], alpha: 1 };
-    if (h.length === 4) return { kind: "rgb", rgb: [exp(0), exp(1), exp(2)], alpha: exp(3) / 255 };
-    if (h.length === 6) return { kind: "rgb", rgb: [pair(0), pair(2), pair(4)], alpha: 1 };
-    if (h.length === 8) return { kind: "rgb", rgb: [pair(0), pair(2), pair(4)], alpha: pair(6) / 255 };
-    return { kind: "unsupported", raw };
-  }
-  const fn = lower.match(/^([a-z]+)\(([^)]*)\)$/);
-  if (!fn) return { kind: "unsupported", raw };
-  const [, name, body] = fn;
-  const { parts, alpha } = splitArgs(body);
-  if (alpha === 0) return { kind: "none", reason: "alpha-0" };
-  const finite2 = (r) => r.kind === "rgb" && (!r.rgb.every(Number.isFinite) || !Number.isFinite(r.alpha)) ? { kind: "unsupported", raw } : r;
-  try {
-    return finite2(parseColorBody(name, parts, alpha, raw));
-  } catch {
-    return { kind: "unsupported", raw };
-  }
-}
-function parseColorBody(name, parts, alpha, raw) {
-  {
-    switch (name) {
-      case "rgb":
-      case "rgba": {
-        const rgb = [
-          clamp255(num(parts[0], 255)),
-          clamp255(num(parts[1], 255)),
-          clamp255(num(parts[2], 255))
-        ];
-        const a = parts[3] !== void 0 ? num(parts[3]) : alpha;
-        return a === 0 ? { kind: "none", reason: "alpha-0" } : { kind: "rgb", rgb, alpha: a };
-      }
-      case "hsl":
-      case "hsla": {
-        const a = parts[3] !== void 0 ? num(parts[3]) : alpha;
-        if (a === 0) return { kind: "none", reason: "alpha-0" };
-        return { kind: "rgb", rgb: hslToRgb(parseFloat(parts[0]), num(parts[1], 1), num(parts[2], 1)), alpha: a };
-      }
-      case "oklch":
-      case "lch": {
-        const L = num(parts[0], name === "oklch" ? 1 : 100);
-        const C = num(parts[1], name === "oklch" ? 0.4 : 150);
-        const H = (parseFloat(parts[2]) || 0) * (Math.PI / 180);
-        const a = C * Math.cos(H), b = C * Math.sin(H);
-        const lin = name === "oklch" ? oklabToLinearSrgb(L, a, b) : labToLinearSrgb(L, a, b);
-        return { kind: "rgb", rgb: lin.map(linearToSrgb), alpha };
-      }
-      case "oklab":
-      case "lab": {
-        const L = num(parts[0], name === "oklab" ? 1 : 100);
-        const a = num(parts[1], name === "oklab" ? 0.4 : 125);
-        const b = num(parts[2], name === "oklab" ? 0.4 : 125);
-        const lin = name === "oklab" ? oklabToLinearSrgb(L, a, b) : labToLinearSrgb(L, a, b);
-        return { kind: "rgb", rgb: lin.map(linearToSrgb), alpha };
-      }
-      case "color": {
-        const space = parts[0];
-        if (space !== "srgb" && space !== "srgb-linear" && space !== "display-p3") {
-          return { kind: "unsupported", raw };
-        }
-        const ch = parts.slice(1, 4).map((p) => num(p, 1));
-        const rgb = space === "srgb-linear" ? ch.map(linearToSrgb) : ch.map((v) => clamp255(v * 255));
-        return { kind: "rgb", rgb, alpha };
-      }
-      default:
-        return { kind: "unsupported", raw };
-    }
-  }
-}
-function flatten(fg, bg) {
-  if (fg.kind !== "rgb") return null;
-  if (fg.alpha >= 1) return fg.rgb;
-  return fg.rgb.map((c, i) => clamp255(c * fg.alpha + bg[i] * (1 - fg.alpha)));
-}
-function resolveEffectiveBackground(chain) {
-  const layers = [];
-  for (const raw of chain) {
-    const parsed = parseColor2(raw);
-    if (parsed.kind === "unsupported") {
-      return { rgb: CANVAS_BASE, resolved: false, unsupported: parsed.raw };
-    }
-    if (parsed.kind === "none") continue;
-    layers.push({ rgb: parsed.rgb, alpha: parsed.alpha });
-    if (parsed.alpha >= 1) break;
-  }
-  const bottom = layers[layers.length - 1];
-  const resolved = bottom !== void 0 && bottom.alpha >= 1;
-  let acc = resolved ? bottom.rgb : CANVAS_BASE;
-  for (let i = resolved ? layers.length - 2 : layers.length - 1; i >= 0; i--) {
-    const layer = layers[i];
-    acc = layer.rgb.map(
-      (c, ch) => clamp255(c * layer.alpha + acc[ch] * (1 - layer.alpha))
-    );
-  }
-  return { rgb: acc, resolved };
-}
-var NAMED, clamp255, CANVAS_BASE;
-var init_color_parse = __esm({
-  "src/rules/color-parse.ts"() {
-    NAMED = {
-      black: [0, 0, 0],
-      white: [255, 255, 255],
-      red: [255, 0, 0],
-      green: [0, 128, 0],
-      blue: [0, 0, 255],
-      gray: [128, 128, 128],
-      grey: [128, 128, 128],
-      silver: [192, 192, 192],
-      maroon: [128, 0, 0],
-      olive: [128, 128, 0],
-      lime: [0, 255, 0],
-      aqua: [0, 255, 255],
-      cyan: [0, 255, 255],
-      teal: [0, 128, 128],
-      navy: [0, 0, 128],
-      fuchsia: [255, 0, 255],
-      magenta: [255, 0, 255],
-      purple: [128, 0, 128],
-      yellow: [255, 255, 0],
-      orange: [255, 165, 0]
-    };
-    clamp255 = (v) => Math.max(0, Math.min(255, Math.round(v)));
-    CANVAS_BASE = [255, 255, 255];
   }
 });
 
@@ -13524,6 +14022,100 @@ var init_content_adapter = __esm({
 });
 
 // src/scan.ts
+async function extractControlGroups(page, visibleControlSelectors) {
+  const raw = await page.evaluate((input) => {
+    const groupTags = new Set(input.groupTags);
+    const groupRoles = new Set(input.groupRoles);
+    const NATIVE = 'a[href], button, input:not([type="hidden"]), select, textarea, summary, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="switch"], [role="tab"], [role="menuitem"], [role="option"]';
+    const selectorOf = (el) => {
+      const path2 = [];
+      let cur = el;
+      while (cur && cur !== document.body) {
+        let seg = cur.tagName.toLowerCase();
+        if (cur.id) {
+          path2.unshift("#" + cur.id);
+          break;
+        }
+        const cn = cur.className;
+        if (typeof cn === "string" && cn.trim()) {
+          const c = cn.split(" ").filter((x) => x.trim() && !x.includes(":"))[0];
+          if (c) seg += "." + c;
+        }
+        const parent = cur.parentElement;
+        if (parent) {
+          const tag = cur.tagName;
+          const sibs = Array.from(parent.children).filter((c) => c.tagName === tag);
+          if (sibs.length > 1) seg += ":nth-of-type(" + (sibs.indexOf(cur) + 1) + ")";
+        }
+        path2.unshift(seg);
+        cur = cur.parentElement;
+      }
+      return path2.join(" > ").slice(0, 200);
+    };
+    const visible = (el) => {
+      const r = el.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) return false;
+      const cv = el.checkVisibility;
+      if (typeof cv === "function") {
+        return cv.call(el, { opacityProperty: true, visibilityProperty: true });
+      }
+      const cs = window.getComputedStyle(el);
+      return cs.visibility !== "hidden" && cs.visibility !== "collapse" && cs.opacity !== "0";
+    };
+    const controls = /* @__PURE__ */ new Set();
+    for (const sel of input.selectors) {
+      try {
+        const found = document.querySelectorAll(sel);
+        if (found.length === 1) controls.add(found[0]);
+      } catch {
+      }
+    }
+    document.querySelectorAll(NATIVE).forEach((el) => {
+      if (visible(el)) controls.add(el);
+    });
+    const isGrouping = (el) => {
+      const role = (el.getAttribute("role") || "").toLowerCase();
+      if (role && groupRoles.has(role)) return true;
+      return groupTags.has(el.tagName.toLowerCase());
+    };
+    const isWrapper = (el) => el.tagName.toLowerCase() === "main" || (el.getAttribute("role") || "").toLowerCase() === "main";
+    const owned = /* @__PURE__ */ new Map();
+    controls.forEach((c) => {
+      for (let a = c.parentElement; a; a = a.parentElement) if (controls.has(a)) return;
+      for (let a = c.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+        const grouping = isGrouping(a);
+        if (grouping || isWrapper(a)) {
+          const list = owned.get(a) ?? [];
+          list.push(c);
+          owned.set(a, list);
+        }
+        if (grouping) break;
+      }
+    });
+    const out = [];
+    owned.forEach((list, g) => {
+      const r = g.getBoundingClientRect();
+      out.push({
+        selector: selectorOf(g),
+        tagName: g.tagName.toLowerCase(),
+        role: g.getAttribute("role"),
+        bounds: { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) },
+        ownedControls: list.length,
+        controlSelectors: list.slice(0, 10).map(selectorOf)
+      });
+    });
+    return out;
+  }, { selectors: visibleControlSelectors, groupTags: [...GROUPING_TAGS], groupRoles: [...GROUPING_ROLES] });
+  return raw.map((g) => ({
+    selector: g.selector,
+    tagName: g.tagName,
+    text: "",
+    bounds: g.bounds,
+    interactive: { hasOnClick: false, hasHref: false, isDisabled: false, tabIndex: -1, cursor: "default" },
+    a11y: { role: g.role, ariaLabel: null, ariaDescribedBy: null },
+    controlGroup: { ownedControls: g.ownedControls, controlSelectors: g.controlSelectors }
+  }));
+}
 async function initScanCookies(driver2, ownDriver, cookies) {
   if (!ownDriver) {
     try {
@@ -13606,6 +14198,10 @@ async function scan(url, options = {}) {
       waitUntil: "domcontentloaded",
       timeout
     });
+    const landedUrl = await page.evaluate(() => document.URL).catch(() => "");
+    if (typeof landedUrl === "string" && landedUrl.startsWith("chrome-error://")) {
+      throw new Error(`Navigation failed: ${url} could not be loaded (Chrome showed its error page)`);
+    }
     let networkIdleTimedOut = false;
     await page.waitForLoadState?.("networkidle", { timeout: patience ?? networkIdleTimeout ?? 1e4 }).catch(() => {
       networkIdleTimedOut = true;
@@ -13662,7 +14258,7 @@ async function scan(url, options = {}) {
     } catch {
       route = url;
     }
-    const layoutCollisions = detectLayoutCollisions(elements.all);
+    const layoutCollisions = await excludeDomRelatedCollisions(page, detectLayoutCollisions(elements.all));
     const issues = aggregateIssues(elements.audit, interactivity, semantic, consoleErrors, themeAnalysis);
     let cssExtract;
     let cssExtractionFailed;
@@ -13758,6 +14354,19 @@ async function scan(url, options = {}) {
       options.outputDir || process.cwd()
     );
     if (resolvedRules.presets.length > 0 || Object.keys(resolvedRules.config.rules ?? {}).length > 0) {
+      let controlGroups;
+      if (activeRuleIds.has(COGNITIVE_LOAD_RULE_ID)) {
+        try {
+          controlGroups = await extractControlGroups(
+            page,
+            elements.all.filter(isVisibleInteractive).map((el) => el.selector)
+          );
+        } catch {
+          controlGroups = void 0;
+        }
+      }
+      const containerViolations = runRules(containerElements, ruleContext, resolvedRules.config, { surface: "content" }).filter((v) => !controlGroups || v.ruleId !== COGNITIVE_LOAD_RULE_ID);
+      const groupViolations = controlGroups ? runRules(controlGroups, ruleContext, resolvedRules.config, { surface: "content" }).filter((v) => v.ruleId === COGNITIVE_LOAD_RULE_ID) : [];
       const presetViolations = [
         ...runRules(elements.all, ruleContext, resolvedRules.config, { surface: "interactive" }),
         ...runRules(contentAsElements, ruleContext, resolvedRules.config, { surface: "content" }),
@@ -13767,15 +14376,18 @@ async function scan(url, options = {}) {
         // rules could not fire even once the styles existed. Filtered to the
         // tags the content pass does not already carry, so nothing is graded
         // twice.
-        ...runRules(containerElements, ruleContext, resolvedRules.config, { surface: "content" })
+        ...containerViolations,
+        ...groupViolations
       ];
       for (const v of presetViolations) {
+        const chromeElements = v.chromeElements;
         issues.push({
           category: "interactivity",
           severity: v.severity === "error" ? "error" : "warning",
           element: v.element,
           description: `[${v.ruleId}] ${v.message}`,
-          fix: v.fix
+          fix: v.fix,
+          ...chromeElements ? { evidence: { chromeElements } } : {}
         });
       }
     }
@@ -14200,6 +14812,7 @@ function formatScanResult(result) {
       const t1 = c.element1.text.slice(0, 30);
       const t2 = c.element2.text.slice(0, 30);
       lines.push(`    \x1B[31m\u2717\x1B[0m "${t1}" overlaps "${t2}" by ${pct}% (${overlapPx}px overlap)`);
+      lines.push(`      ${c.element1.selector}  \xD7  ${c.element2.selector}`);
     }
     lines.push("");
   }
@@ -14229,7 +14842,7 @@ function formatScanResult(result) {
   lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   return lines.join("\n");
 }
-var CONTAINER_TAGS, IssueCollector;
+var CONTAINER_TAGS, COGNITIVE_LOAD_RULE_ID, IssueCollector;
 var init_scan = __esm({
   "src/scan.ts"() {
     init_driver();
@@ -14239,6 +14852,8 @@ var init_scan = __esm({
     init_interactivity();
     init_semantic();
     init_layout_collision();
+    init_cognitive_load();
+    init_visibility();
     init_consistency();
     init_design_system();
     init_wait();
@@ -14259,6 +14874,7 @@ var init_scan = __esm({
       "section",
       "form"
     ]);
+    COGNITIVE_LOAD_RULE_ID = "calm-precision/cognitive-load-elements";
     IssueCollector = class {
       issues = [];
       add(issue) {
@@ -20530,8 +21146,8 @@ async function* askStream(url, question, options = {}) {
   } else {
     if (typeof options.screenshot === "string" || options.screenshot === true) {
       const { mkdir: mkdir18 } = await import('fs/promises');
-      const { dirname: dirname10 } = await import('path');
-      if (screenshotPath) await mkdir18(dirname10(screenshotPath), { recursive: true });
+      const { dirname: dirname11 } = await import('path');
+      if (screenshotPath) await mkdir18(dirname11(screenshotPath), { recursive: true });
     }
     const result = await scan(url, {
       viewport: options.viewport ?? "desktop",

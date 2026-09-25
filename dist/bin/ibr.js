@@ -421,6 +421,85 @@ function reclaimStaleSingletonLock(lockPath, profileDir) {
     return false;
   }
 }
+function isPidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === "EPERM";
+  }
+}
+function createLockFile(lockPath, holderId) {
+  const fd = (0, import_node_fs2.openSync)(lockPath, "wx");
+  try {
+    (0, import_node_fs2.writeSync)(fd, holderId);
+  } finally {
+    (0, import_node_fs2.closeSync)(fd);
+  }
+}
+function acquireProfileLock(profileDir) {
+  const lockPath = `${profileDir}.ibr-lock`;
+  const holderId = `${(0, import_node_os.hostname)()}-${process.pid}`;
+  try {
+    createLockFile(lockPath, holderId);
+    heldProfileLocks.add(lockPath);
+    return { acquired: true, lockPath };
+  } catch (err) {
+    if (err.code !== "EEXIST") {
+      return { acquired: true, lockPath };
+    }
+  }
+  let contents;
+  try {
+    contents = (0, import_node_fs2.readFileSync)(lockPath, "utf8").trim();
+  } catch {
+    return retryAcquire(lockPath, holderId);
+  }
+  const sep2 = contents.lastIndexOf("-");
+  const holderHost = sep2 > 0 ? contents.slice(0, sep2) : "";
+  const holderPid = sep2 > 0 ? Number(contents.slice(sep2 + 1)) : NaN;
+  if (!holderHost || !Number.isInteger(holderPid) || holderPid <= 0) {
+    return { acquired: false, lockPath, holder: contents };
+  }
+  let stale;
+  if (holderHost === (0, import_node_os.hostname)()) {
+    stale = !isPidAlive(holderPid);
+  } else {
+    let ageMs = -1;
+    try {
+      ageMs = Date.now() - (0, import_node_fs2.statSync)(lockPath).mtimeMs;
+    } catch {
+    }
+    stale = ageMs >= PROFILE_REAP_GRACE_MS;
+  }
+  if (!stale) return { acquired: false, lockPath, holder: contents };
+  try {
+    (0, import_node_fs2.unlinkSync)(lockPath);
+  } catch {
+  }
+  return retryAcquire(lockPath, holderId);
+}
+function retryAcquire(lockPath, holderId) {
+  try {
+    createLockFile(lockPath, holderId);
+    heldProfileLocks.add(lockPath);
+    return { acquired: true, lockPath };
+  } catch {
+    return { acquired: false, lockPath };
+  }
+}
+function releaseProfileLock(lockPath) {
+  if (!lockPath || !heldProfileLocks.has(lockPath)) return;
+  try {
+    (0, import_node_fs2.unlinkSync)(lockPath);
+  } catch {
+  }
+  heldProfileLocks.delete(lockPath);
+}
+function looksLikeSingletonCollision(exit, stderrTail) {
+  if (exit?.code === 21) return true;
+  return /ProcessSingleton/i.test(stderrTail);
+}
 function reapOrphanedProfiles() {
   let inUse;
   try {
@@ -449,7 +528,7 @@ function reapOrphanedProfiles() {
     }
   }
 }
-var import_node_child_process2, import_node_fs2, import_promises, import_node_net, import_node_os, import_node_path2, CHROME_PATHS, PROFILE_REAP_GRACE_MS, BrowserManager;
+var import_node_child_process2, import_node_fs2, import_promises, import_node_net, import_node_os, import_node_path2, CHROME_PATHS, PROFILE_REAP_GRACE_MS, heldProfileLocks, BrowserManager;
 var init_browser = __esm({
   "src/engine/cdp/browser.ts"() {
     "use strict";
@@ -474,6 +553,15 @@ var init_browser = __esm({
       "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"
     ];
     PROFILE_REAP_GRACE_MS = 60 * 60 * 1e3;
+    heldProfileLocks = /* @__PURE__ */ new Set();
+    process.once("exit", () => {
+      for (const lockPath of heldProfileLocks) {
+        try {
+          (0, import_node_fs2.unlinkSync)(lockPath);
+        } catch {
+        }
+      }
+    });
     BrowserManager = class {
       process = null;
       _port = 0;
@@ -486,6 +574,8 @@ var init_browser = __esm({
       _stderrTail = "";
       /** Set once the child exits, so waitForDebugger stops polling a dead process. */
       _exit = null;
+      /** Set only when this browser holds the IBR profile lock for `userDataDir`, so close() can release it. */
+      _profileLockPath = null;
       async launch(options = {}) {
         const connection = resolveBrowserConnectionOptions(options);
         this._mode = connection.mode;
@@ -515,14 +605,26 @@ var init_browser = __esm({
         progress("reaping orphaned browsers");
         reapOrphanedIbrChromeProcesses();
         let userDataDir = options.userDataDir ?? (0, import_node_path2.join)((0, import_node_os.homedir)(), ".ibr", "chromium-profile");
-        const lockPath = (0, import_node_path2.join)(userDataDir, "SingletonLock");
-        const lockStat = (0, import_node_fs2.lstatSync)(lockPath, { throwIfNoEntry: false });
-        if (lockStat) {
-          if (reclaimStaleSingletonLock(lockPath, userDataDir)) {
-          } else {
-            userDataDir = (0, import_node_fs2.mkdtempSync)((0, import_node_path2.join)((0, import_node_os.tmpdir)(), "ibr-chrome-"));
-            this._ephemeralProfileDir = userDataDir;
+        await (0, import_promises.mkdir)((0, import_node_path2.dirname)(userDataDir), { recursive: true });
+        progress("acquiring profile lock");
+        const lock = acquireProfileLock(userDataDir);
+        if (lock.acquired) {
+          this._profileLockPath = lock.lockPath;
+          const lockPath = (0, import_node_path2.join)(userDataDir, "SingletonLock");
+          const lockStat = (0, import_node_fs2.lstatSync)(lockPath, { throwIfNoEntry: false });
+          if (lockStat) {
+            if (reclaimStaleSingletonLock(lockPath, userDataDir)) {
+            } else {
+              userDataDir = (0, import_node_fs2.mkdtempSync)((0, import_node_path2.join)((0, import_node_os.tmpdir)(), "ibr-chrome-"));
+              this._ephemeralProfileDir = userDataDir;
+              releaseProfileLock(this._profileLockPath);
+              this._profileLockPath = null;
+            }
           }
+        } else {
+          progress(`profile lock held by ${lock.holder ?? "another IBR process"} \u2014 using an ephemeral profile`);
+          userDataDir = (0, import_node_fs2.mkdtempSync)((0, import_node_path2.join)((0, import_node_os.tmpdir)(), "ibr-chrome-"));
+          this._ephemeralProfileDir = userDataDir;
         }
         progress("reaping orphaned profiles");
         reapOrphanedProfiles();
@@ -534,6 +636,27 @@ var init_browser = __esm({
 Checked: ${CHROME_PATHS.join(", ")}`
           );
         }
+        const sharedProfileAttempt = this._ephemeralProfileDir === null;
+        try {
+          return await this.spawnChromeAndWaitForDebugger(chromePath, userDataDir, headless, options.normalize, progress);
+        } catch (error51) {
+          if (sharedProfileAttempt && looksLikeSingletonCollision(this._exit, this._stderrTail)) {
+            progress("shared profile still collided after lock acquisition \u2014 retrying on an ephemeral profile");
+            await this.close();
+            const fallbackDir = (0, import_node_fs2.mkdtempSync)((0, import_node_path2.join)((0, import_node_os.tmpdir)(), "ibr-chrome-"));
+            this._ephemeralProfileDir = fallbackDir;
+            try {
+              return await this.spawnChromeAndWaitForDebugger(chromePath, fallbackDir, headless, options.normalize, progress);
+            } catch (retryError) {
+              await this.close();
+              throw retryError;
+            }
+          }
+          await this.close();
+          throw error51;
+        }
+      }
+      async spawnChromeAndWaitForDebugger(chromePath, userDataDir, headless, normalize3, progress) {
         await (0, import_promises.mkdir)(userDataDir, { recursive: true });
         const args = [
           `--remote-debugging-port=${this._port}`,
@@ -546,7 +669,7 @@ Checked: ${CHROME_PATHS.join(", ")}`
         if (headless) {
           args.push("--headless=new");
         }
-        if (options.normalize) {
+        if (normalize3) {
           args.push("--disable-lcd-text");
           args.push("--force-device-scale-factor=1");
         }
@@ -564,16 +687,11 @@ Checked: ${CHROME_PATHS.join(", ")}`
           this._exit = { code, signal };
         });
         progress(`spawned chrome pid ${this.process.pid ?? "unknown"}`);
-        try {
-          const wsUrl = await this.waitForDebugger(progress);
-          progress("debugger answered");
-          this._cdpUrl = `http://127.0.0.1:${this._port}`;
-          this._wsEndpoint = wsUrl;
-          return wsUrl;
-        } catch (error51) {
-          await this.close();
-          throw error51;
-        }
+        const wsUrl = await this.waitForDebugger(progress);
+        progress("debugger answered");
+        this._cdpUrl = `http://127.0.0.1:${this._port}`;
+        this._wsEndpoint = wsUrl;
+        return wsUrl;
       }
       /**
        * Poll the freshly spawned Chrome until its debugger answers.
@@ -633,24 +751,25 @@ Chrome stderr (tail):
 ${tail}` : "";
       }
       async close() {
-        if (this._mode !== "local" || !this.process) return;
-        const proc = this.process;
-        this.process = null;
-        if (!this._exit) {
-          await new Promise((resolve7) => {
-            const killTimer = setTimeout(() => {
-              try {
-                proc.kill("SIGKILL");
-              } catch {
-              }
-              resolve7();
-            }, 3e3);
-            proc.once("close", () => {
-              clearTimeout(killTimer);
-              resolve7();
+        if (this._mode === "local" && this.process) {
+          const proc = this.process;
+          this.process = null;
+          if (!this._exit) {
+            await new Promise((resolve7) => {
+              const killTimer = setTimeout(() => {
+                try {
+                  proc.kill("SIGKILL");
+                } catch {
+                }
+                resolve7();
+              }, 3e3);
+              proc.once("close", () => {
+                clearTimeout(killTimer);
+                resolve7();
+              });
+              proc.kill("SIGTERM");
             });
-            proc.kill("SIGTERM");
-          });
+          }
         }
         if (this._ephemeralProfileDir) {
           try {
@@ -658,6 +777,10 @@ ${tail}` : "";
           } catch {
           }
           this._ephemeralProfileDir = null;
+        }
+        if (this._profileLockPath) {
+          releaseProfileLock(this._profileLockPath);
+          this._profileLockPath = null;
         }
       }
       get running() {
@@ -1219,17 +1342,26 @@ var init_dom = __esm({
        * iframe target must be resolved against THAT target's session, not the
        * main page's.
        */
-      async getElementCenter(backendNodeId, sessionId) {
-        const result = await this.conn.send("DOM.getBoxModel", { backendNodeId }, sessionId ?? this.sessionId);
+      async getElementCenter(ref, sessionId) {
+        const result = await this.conn.send("DOM.getBoxModel", ref, sessionId ?? this.sessionId);
         const q = result.model.content;
         const x = Math.round((q[0] + q[2] + q[4] + q[6]) / 4);
         const y = Math.round((q[1] + q[3] + q[5] + q[7]) / 4);
         return { x, y };
       }
       /** See getElementCenter() for the `sessionId` override rationale. */
-      async getBoxModel(backendNodeId, sessionId) {
-        const result = await this.conn.send("DOM.getBoxModel", { backendNodeId }, sessionId ?? this.sessionId);
+      async getBoxModel(ref, sessionId) {
+        const result = await this.conn.send("DOM.getBoxModel", ref, sessionId ?? this.sessionId);
         return result.model;
+      }
+      /**
+       * Scroll `ref` into the viewport before a caller reads its box model for
+       * a clip region — a below-the-fold element's box model is otherwise
+       * outside (or clipped by) the current viewport, producing a wrong or
+       * empty screenshot clip.
+       */
+      async scrollIntoViewIfNeeded(ref, sessionId) {
+        await this.conn.send("DOM.scrollIntoViewIfNeeded", ref, sessionId ?? this.sessionId);
       }
       async getDocument() {
         return this.conn.send("DOM.getDocument", {}, this.sessionId);
@@ -2373,7 +2505,7 @@ var init_actionability = __esm({
   }
 });
 
-// node_modules/pixelmatch/index.js
+// ../../interface-built-right/node_modules/pixelmatch/index.js
 var pixelmatch_exports = {};
 __export(pixelmatch_exports, {
   default: () => pixelmatch
@@ -2560,14 +2692,14 @@ function drawGrayPixel(img, i, alpha, output) {
   drawPixel(output, i, val, val, val);
 }
 var init_pixelmatch = __esm({
-  "node_modules/pixelmatch/index.js"() {
+  "../../interface-built-right/node_modules/pixelmatch/index.js"() {
     "use strict";
   }
 });
 
-// node_modules/pngjs/lib/chunkstream.js
+// ../../interface-built-right/node_modules/pngjs/lib/chunkstream.js
 var require_chunkstream = __commonJS({
-  "node_modules/pngjs/lib/chunkstream.js"(exports2, module2) {
+  "../../interface-built-right/node_modules/pngjs/lib/chunkstream.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var Stream = require("stream");
@@ -2703,9 +2835,9 @@ var require_chunkstream = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/interlace.js
+// ../../interface-built-right/node_modules/pngjs/lib/interlace.js
 var require_interlace = __commonJS({
-  "node_modules/pngjs/lib/interlace.js"(exports2) {
+  "../../interface-built-right/node_modules/pngjs/lib/interlace.js"(exports2) {
     "use strict";
     var imagePasses = [
       {
@@ -2786,9 +2918,9 @@ var require_interlace = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/paeth-predictor.js
+// ../../interface-built-right/node_modules/pngjs/lib/paeth-predictor.js
 var require_paeth_predictor = __commonJS({
-  "node_modules/pngjs/lib/paeth-predictor.js"(exports2, module2) {
+  "../../interface-built-right/node_modules/pngjs/lib/paeth-predictor.js"(exports2, module2) {
     "use strict";
     module2.exports = function paethPredictor(left, above, upLeft) {
       let paeth = left + above - upLeft;
@@ -2806,9 +2938,9 @@ var require_paeth_predictor = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/filter-parse.js
+// ../../interface-built-right/node_modules/pngjs/lib/filter-parse.js
 var require_filter_parse = __commonJS({
-  "node_modules/pngjs/lib/filter-parse.js"(exports2, module2) {
+  "../../interface-built-right/node_modules/pngjs/lib/filter-parse.js"(exports2, module2) {
     "use strict";
     var interlaceUtils = require_interlace();
     var paethPredictor = require_paeth_predictor();
@@ -2947,9 +3079,9 @@ var require_filter_parse = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/filter-parse-async.js
+// ../../interface-built-right/node_modules/pngjs/lib/filter-parse-async.js
 var require_filter_parse_async = __commonJS({
-  "node_modules/pngjs/lib/filter-parse-async.js"(exports2, module2) {
+  "../../interface-built-right/node_modules/pngjs/lib/filter-parse-async.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var ChunkStream = require_chunkstream();
@@ -2973,9 +3105,9 @@ var require_filter_parse_async = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/constants.js
+// ../../interface-built-right/node_modules/pngjs/lib/constants.js
 var require_constants = __commonJS({
-  "node_modules/pngjs/lib/constants.js"(exports2, module2) {
+  "../../interface-built-right/node_modules/pngjs/lib/constants.js"(exports2, module2) {
     "use strict";
     module2.exports = {
       PNG_SIGNATURE: [137, 80, 78, 71, 13, 10, 26, 10],
@@ -3008,9 +3140,9 @@ var require_constants = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/crc.js
+// ../../interface-built-right/node_modules/pngjs/lib/crc.js
 var require_crc = __commonJS({
-  "node_modules/pngjs/lib/crc.js"(exports2, module2) {
+  "../../interface-built-right/node_modules/pngjs/lib/crc.js"(exports2, module2) {
     "use strict";
     var crcTable = [];
     (function() {
@@ -3048,9 +3180,9 @@ var require_crc = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/parser.js
+// ../../interface-built-right/node_modules/pngjs/lib/parser.js
 var require_parser = __commonJS({
-  "node_modules/pngjs/lib/parser.js"(exports2, module2) {
+  "../../interface-built-right/node_modules/pngjs/lib/parser.js"(exports2, module2) {
     "use strict";
     var constants3 = require_constants();
     var CrcCalculator = require_crc();
@@ -3269,9 +3401,9 @@ var require_parser = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/bitmapper.js
+// ../../interface-built-right/node_modules/pngjs/lib/bitmapper.js
 var require_bitmapper = __commonJS({
-  "node_modules/pngjs/lib/bitmapper.js"(exports2) {
+  "../../interface-built-right/node_modules/pngjs/lib/bitmapper.js"(exports2) {
     "use strict";
     var interlaceUtils = require_interlace();
     var pixelBppMapper = [
@@ -3517,9 +3649,9 @@ var require_bitmapper = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/format-normaliser.js
+// ../../interface-built-right/node_modules/pngjs/lib/format-normaliser.js
 var require_format_normaliser = __commonJS({
-  "node_modules/pngjs/lib/format-normaliser.js"(exports2, module2) {
+  "../../interface-built-right/node_modules/pngjs/lib/format-normaliser.js"(exports2, module2) {
     "use strict";
     function dePalette(indata, outdata, width, height, palette) {
       let pxPos = 0;
@@ -3598,9 +3730,9 @@ var require_format_normaliser = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/parser-async.js
+// ../../interface-built-right/node_modules/pngjs/lib/parser-async.js
 var require_parser_async = __commonJS({
-  "node_modules/pngjs/lib/parser-async.js"(exports2, module2) {
+  "../../interface-built-right/node_modules/pngjs/lib/parser-async.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var zlib = require("zlib");
@@ -3728,9 +3860,9 @@ var require_parser_async = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/bitpacker.js
+// ../../interface-built-right/node_modules/pngjs/lib/bitpacker.js
 var require_bitpacker = __commonJS({
-  "node_modules/pngjs/lib/bitpacker.js"(exports2, module2) {
+  "../../interface-built-right/node_modules/pngjs/lib/bitpacker.js"(exports2, module2) {
     "use strict";
     var constants3 = require_constants();
     module2.exports = function(dataIn, width, height, options) {
@@ -3878,9 +4010,9 @@ var require_bitpacker = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/filter-pack.js
+// ../../interface-built-right/node_modules/pngjs/lib/filter-pack.js
 var require_filter_pack = __commonJS({
-  "node_modules/pngjs/lib/filter-pack.js"(exports2, module2) {
+  "../../interface-built-right/node_modules/pngjs/lib/filter-pack.js"(exports2, module2) {
     "use strict";
     var paethPredictor = require_paeth_predictor();
     function filterNone(pxData, pxPos, byteWidth, rawData, rawPos) {
@@ -4020,9 +4152,9 @@ var require_filter_pack = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/packer.js
+// ../../interface-built-right/node_modules/pngjs/lib/packer.js
 var require_packer = __commonJS({
-  "node_modules/pngjs/lib/packer.js"(exports2, module2) {
+  "../../interface-built-right/node_modules/pngjs/lib/packer.js"(exports2, module2) {
     "use strict";
     var constants3 = require_constants();
     var CrcStream = require_crc();
@@ -4120,9 +4252,9 @@ var require_packer = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/packer-async.js
+// ../../interface-built-right/node_modules/pngjs/lib/packer-async.js
 var require_packer_async = __commonJS({
-  "node_modules/pngjs/lib/packer-async.js"(exports2, module2) {
+  "../../interface-built-right/node_modules/pngjs/lib/packer-async.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var Stream = require("stream");
@@ -4162,9 +4294,9 @@ var require_packer_async = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/sync-inflate.js
+// ../../interface-built-right/node_modules/pngjs/lib/sync-inflate.js
 var require_sync_inflate = __commonJS({
-  "node_modules/pngjs/lib/sync-inflate.js"(exports2, module2) {
+  "../../interface-built-right/node_modules/pngjs/lib/sync-inflate.js"(exports2, module2) {
     "use strict";
     var assert2 = require("assert").ok;
     var zlib = require("zlib");
@@ -4299,9 +4431,9 @@ var require_sync_inflate = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/sync-reader.js
+// ../../interface-built-right/node_modules/pngjs/lib/sync-reader.js
 var require_sync_reader = __commonJS({
-  "node_modules/pngjs/lib/sync-reader.js"(exports2, module2) {
+  "../../interface-built-right/node_modules/pngjs/lib/sync-reader.js"(exports2, module2) {
     "use strict";
     var SyncReader = module2.exports = function(buffer) {
       this._buffer = buffer;
@@ -4337,9 +4469,9 @@ var require_sync_reader = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/filter-parse-sync.js
+// ../../interface-built-right/node_modules/pngjs/lib/filter-parse-sync.js
 var require_filter_parse_sync = __commonJS({
-  "node_modules/pngjs/lib/filter-parse-sync.js"(exports2) {
+  "../../interface-built-right/node_modules/pngjs/lib/filter-parse-sync.js"(exports2) {
     "use strict";
     var SyncReader = require_sync_reader();
     var Filter = require_filter_parse();
@@ -4361,9 +4493,9 @@ var require_filter_parse_sync = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/parser-sync.js
+// ../../interface-built-right/node_modules/pngjs/lib/parser-sync.js
 var require_parser_sync = __commonJS({
-  "node_modules/pngjs/lib/parser-sync.js"(exports2, module2) {
+  "../../interface-built-right/node_modules/pngjs/lib/parser-sync.js"(exports2, module2) {
     "use strict";
     var hasSyncZlib = true;
     var zlib = require("zlib");
@@ -4456,9 +4588,9 @@ var require_parser_sync = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/packer-sync.js
+// ../../interface-built-right/node_modules/pngjs/lib/packer-sync.js
 var require_packer_sync = __commonJS({
-  "node_modules/pngjs/lib/packer-sync.js"(exports2, module2) {
+  "../../interface-built-right/node_modules/pngjs/lib/packer-sync.js"(exports2, module2) {
     "use strict";
     var hasSyncZlib = true;
     var zlib = require("zlib");
@@ -4501,9 +4633,9 @@ var require_packer_sync = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/png-sync.js
+// ../../interface-built-right/node_modules/pngjs/lib/png-sync.js
 var require_png_sync = __commonJS({
-  "node_modules/pngjs/lib/png-sync.js"(exports2) {
+  "../../interface-built-right/node_modules/pngjs/lib/png-sync.js"(exports2) {
     "use strict";
     var parse3 = require_parser_sync();
     var pack = require_packer_sync();
@@ -4516,9 +4648,9 @@ var require_png_sync = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/png.js
+// ../../interface-built-right/node_modules/pngjs/lib/png.js
 var require_png = __commonJS({
-  "node_modules/pngjs/lib/png.js"(exports2) {
+  "../../interface-built-right/node_modules/pngjs/lib/png.js"(exports2) {
     "use strict";
     var util = require("util");
     var Stream = require("stream");
@@ -6267,19 +6399,19 @@ var init_driver = __esm({
         } catch {
         }
         if (!domClickWorked) {
-          const { x, y } = await this.dom.getElementCenter(ref.backendNodeId, sid);
+          const { x, y } = await this.dom.getElementCenter({ backendNodeId: ref.backendNodeId }, sid);
           await this.raceAgainstDialog(this.dispatchClickAt(x, y, sid));
         }
       }
       async type(elementId, text) {
         const ref = await this.awaitActionable(elementId);
-        const { x, y } = await this.dom.getElementCenter(ref.backendNodeId);
+        const { x, y } = await this.dom.getElementCenter({ backendNodeId: ref.backendNodeId });
         await this.input.click(x, y);
         await this.input.type(text);
       }
       async fill(elementId, value) {
         const ref = await this.awaitActionable(elementId);
-        const { x, y } = await this.dom.getElementCenter(ref.backendNodeId);
+        const { x, y } = await this.dom.getElementCenter({ backendNodeId: ref.backendNodeId });
         await this.input.click(x, y);
         await this.runtime.callFunctionOn(
           '() => { if (document.activeElement) { document.activeElement.value = ""; document.activeElement.dispatchEvent(new Event("input", { bubbles: true })); } }'
@@ -6289,7 +6421,7 @@ var init_driver = __esm({
       async hover(elementId) {
         const backendNodeId = this.ax.getBackendNodeId(elementId);
         if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        const { x, y } = await this.dom.getElementCenter({ backendNodeId });
         await this.input.hover(x, y);
       }
       async pressKey(key) {
@@ -6347,7 +6479,7 @@ var init_driver = __esm({
        */
       async select(elementId, value) {
         const ref = await this.awaitActionable(elementId);
-        const { x, y } = await this.dom.getElementCenter(ref.backendNodeId);
+        const { x, y } = await this.dom.getElementCenter({ backendNodeId: ref.backendNodeId });
         await this.input.click(x, y);
         await this.runtime.callFunctionOn(
           '(val) => { const el = document.activeElement; if (el && el.tagName === "SELECT") { el.value = val; el.dispatchEvent(new Event("change", { bubbles: true })); el.dispatchEvent(new Event("input", { bubbles: true })); } }',
@@ -6359,7 +6491,7 @@ var init_driver = __esm({
        */
       async check(elementId) {
         const ref = await this.awaitActionable(elementId);
-        const { x, y } = await this.dom.getElementCenter(ref.backendNodeId);
+        const { x, y } = await this.dom.getElementCenter({ backendNodeId: ref.backendNodeId });
         await this.input.click(x, y);
       }
       /**
@@ -6368,7 +6500,7 @@ var init_driver = __esm({
       async doubleClick(elementId) {
         const backendNodeId = this.ax.getBackendNodeId(elementId);
         if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        const { x, y } = await this.dom.getElementCenter({ backendNodeId });
         await this.input.click(x, y);
         await new Promise((r) => setTimeout(r, 50));
         await this.input.click(x, y);
@@ -6379,7 +6511,7 @@ var init_driver = __esm({
       async rightClick(elementId) {
         const backendNodeId = this.ax.getBackendNodeId(elementId);
         if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        const { x, y } = await this.dom.getElementCenter({ backendNodeId });
         const sid = this.sessionId ?? void 0;
         await this.conn.send("Input.dispatchMouseEvent", {
           type: "mousePressed",
@@ -6427,7 +6559,7 @@ var init_driver = __esm({
       async screenshotElement(elementId) {
         const backendNodeId = this.ax.getBackendNodeId(elementId);
         if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-        const model = await this.dom.getBoxModel(backendNodeId);
+        const model = await this.dom.getBoxModel({ backendNodeId });
         const q = model.content;
         const x = Math.min(q[0], q[2], q[4], q[6]);
         const y = Math.min(q[1], q[3], q[5], q[7]);
@@ -6840,7 +6972,9 @@ var init_compat = __esm({
       driver;
       nodeId;
       async screenshot(options) {
-        const model = await this.driver.domDomain.getBoxModel(this.nodeId);
+        const ref = { nodeId: this.nodeId };
+        await this.driver.domDomain.scrollIntoViewIfNeeded(ref);
+        const model = await this.driver.domDomain.getBoxModel(ref);
         const q = model.content;
         const x = Math.min(q[0], q[2], q[4], q[6]);
         const y = Math.min(q[1], q[3], q[5], q[7]);
@@ -6859,7 +6993,7 @@ var init_compat = __esm({
       }
       async boundingBox() {
         try {
-          const model = await this.driver.domDomain.getBoxModel(this.nodeId);
+          const model = await this.driver.domDomain.getBoxModel({ nodeId: this.nodeId });
           const q = model.content;
           return {
             x: Math.min(q[0], q[2], q[4], q[6]),
@@ -7175,7 +7309,7 @@ var init_compat = __esm({
       async hover(selector, _options) {
         const nodeId = await this.driver.querySelector(selector);
         if (!nodeId) throw new Error(`Element not found: ${selector}`);
-        const center = await this.driver.domDomain.getElementCenter(nodeId);
+        const center = await this.driver.domDomain.getElementCenter({ nodeId });
         await this.driver.runtimeDomain.callFunctionOn(
           '(x, y) => { const el = document.elementFromPoint(x, y); if (el) el.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true })); }',
           [center.x, center.y]
@@ -7211,7 +7345,7 @@ var init_compat = __esm({
   }
 });
 
-// node_modules/zod/v4/core/core.js
+// ../../interface-built-right/node_modules/zod/v4/core/core.js
 // @__NO_SIDE_EFFECTS__
 function $constructor(name, initializer3, params) {
   function init(inst, def) {
@@ -7271,7 +7405,7 @@ function config(newConfig) {
 }
 var _a, NEVER, $brand, $ZodAsyncError, $ZodEncodeError, globalConfig;
 var init_core = __esm({
-  "node_modules/zod/v4/core/core.js"() {
+  "../../interface-built-right/node_modules/zod/v4/core/core.js"() {
     "use strict";
     NEVER = /* @__PURE__ */ Object.freeze({
       status: "aborted"
@@ -7293,7 +7427,7 @@ var init_core = __esm({
   }
 });
 
-// node_modules/zod/v4/core/util.js
+// ../../interface-built-right/node_modules/zod/v4/core/util.js
 var util_exports = {};
 __export(util_exports, {
   BIGINT_FORMAT_RANGES: () => BIGINT_FORMAT_RANGES,
@@ -7904,7 +8038,7 @@ function uint8ArrayToHex(bytes) {
 }
 var EVALUATING, captureStackTrace, allowsEval, getParsedType, propertyKeyTypes, primitiveTypes, NUMBER_FORMAT_RANGES, BIGINT_FORMAT_RANGES, Class;
 var init_util = __esm({
-  "node_modules/zod/v4/core/util.js"() {
+  "../../interface-built-right/node_modules/zod/v4/core/util.js"() {
     "use strict";
     init_core();
     EVALUATING = /* @__PURE__ */ Symbol("evaluating");
@@ -7996,7 +8130,7 @@ var init_util = __esm({
   }
 });
 
-// node_modules/zod/v4/core/errors.js
+// ../../interface-built-right/node_modules/zod/v4/core/errors.js
 function flattenError(error51, mapper = (issue2) => issue2.message) {
   const fieldErrors = {};
   const formErrors = [];
@@ -8118,7 +8252,7 @@ function prettifyError(error51) {
 }
 var initializer, $ZodError, $ZodRealError;
 var init_errors = __esm({
-  "node_modules/zod/v4/core/errors.js"() {
+  "../../interface-built-right/node_modules/zod/v4/core/errors.js"() {
     "use strict";
     init_core();
     init_util();
@@ -8143,10 +8277,10 @@ var init_errors = __esm({
   }
 });
 
-// node_modules/zod/v4/core/parse.js
+// ../../interface-built-right/node_modules/zod/v4/core/parse.js
 var _parse, parse, _parseAsync, parseAsync, _safeParse, safeParse, _safeParseAsync, safeParseAsync, _encode, encode, _decode, decode, _encodeAsync, encodeAsync, _decodeAsync, decodeAsync, _safeEncode, safeEncode, _safeDecode, safeDecode, _safeEncodeAsync, safeEncodeAsync, _safeDecodeAsync, safeDecodeAsync;
 var init_parse = __esm({
-  "node_modules/zod/v4/core/parse.js"() {
+  "../../interface-built-right/node_modules/zod/v4/core/parse.js"() {
     "use strict";
     init_core();
     init_errors();
@@ -8240,7 +8374,7 @@ var init_parse = __esm({
   }
 });
 
-// node_modules/zod/v4/core/regexes.js
+// ../../interface-built-right/node_modules/zod/v4/core/regexes.js
 var regexes_exports = {};
 __export(regexes_exports, {
   base64: () => base64,
@@ -8332,7 +8466,7 @@ function fixedBase64url(length) {
 }
 var cuid, cuid2, ulid, xid, ksuid, nanoid, duration, extendedDuration, guid, uuid, uuid4, uuid6, uuid7, email, html5Email, rfc5322Email, unicodeEmail, idnEmail, browserEmail, _emoji, ipv4, ipv6, mac, cidrv4, cidrv6, base64, base64url, hostname2, domain, httpProtocol, e164, dateSource, date, string, bigint, integer, number, boolean, _null, _undefined, lowercase, uppercase, hex, md5_hex, md5_base64, md5_base64url, sha1_hex, sha1_base64, sha1_base64url, sha256_hex, sha256_base64, sha256_base64url, sha384_hex, sha384_base64, sha384_base64url, sha512_hex, sha512_base64, sha512_base64url;
 var init_regexes = __esm({
-  "node_modules/zod/v4/core/regexes.js"() {
+  "../../interface-built-right/node_modules/zod/v4/core/regexes.js"() {
     "use strict";
     init_util();
     cuid = /^[cC][0-9a-z]{6,}$/;
@@ -8406,7 +8540,7 @@ var init_regexes = __esm({
   }
 });
 
-// node_modules/zod/v4/core/checks.js
+// ../../interface-built-right/node_modules/zod/v4/core/checks.js
 function handleCheckPropertyResult(result, payload, property) {
   if (result.issues.length) {
     payload.issues.push(...prefixIssues(property, result.issues));
@@ -8414,7 +8548,7 @@ function handleCheckPropertyResult(result, payload, property) {
 }
 var $ZodCheck, numericOriginMap, $ZodCheckLessThan, $ZodCheckGreaterThan, $ZodCheckMultipleOf, $ZodCheckNumberFormat, $ZodCheckBigIntFormat, $ZodCheckMaxSize, $ZodCheckMinSize, $ZodCheckSizeEquals, $ZodCheckMaxLength, $ZodCheckMinLength, $ZodCheckLengthEquals, $ZodCheckStringFormat, $ZodCheckRegex, $ZodCheckLowerCase, $ZodCheckUpperCase, $ZodCheckIncludes, $ZodCheckStartsWith, $ZodCheckEndsWith, $ZodCheckProperty, $ZodCheckMimeType, $ZodCheckOverwrite;
 var init_checks = __esm({
-  "node_modules/zod/v4/core/checks.js"() {
+  "../../interface-built-right/node_modules/zod/v4/core/checks.js"() {
     "use strict";
     init_core();
     init_regexes();
@@ -8963,10 +9097,10 @@ var init_checks = __esm({
   }
 });
 
-// node_modules/zod/v4/core/doc.js
+// ../../interface-built-right/node_modules/zod/v4/core/doc.js
 var Doc;
 var init_doc = __esm({
-  "node_modules/zod/v4/core/doc.js"() {
+  "../../interface-built-right/node_modules/zod/v4/core/doc.js"() {
     "use strict";
     Doc = class {
       constructor(args = []) {
@@ -9005,10 +9139,10 @@ var init_doc = __esm({
   }
 });
 
-// node_modules/zod/v4/core/versions.js
+// ../../interface-built-right/node_modules/zod/v4/core/versions.js
 var version;
 var init_versions = __esm({
-  "node_modules/zod/v4/core/versions.js"() {
+  "../../interface-built-right/node_modules/zod/v4/core/versions.js"() {
     "use strict";
     version = {
       major: 4,
@@ -9018,7 +9152,7 @@ var init_versions = __esm({
   }
 });
 
-// node_modules/zod/v4/core/schemas.js
+// ../../interface-built-right/node_modules/zod/v4/core/schemas.js
 function isValidBase64(data) {
   if (data === "")
     return true;
@@ -9424,7 +9558,7 @@ function handleRefineResult(result, payload, input, inst) {
 }
 var $ZodType, $ZodString, $ZodStringFormat, $ZodGUID, $ZodUUID, $ZodEmail, $ZodURL, $ZodEmoji, $ZodNanoID, $ZodCUID, $ZodCUID2, $ZodULID, $ZodXID, $ZodKSUID, $ZodISODateTime, $ZodISODate, $ZodISOTime, $ZodISODuration, $ZodIPv4, $ZodIPv6, $ZodMAC, $ZodCIDRv4, $ZodCIDRv6, $ZodBase64, $ZodBase64URL, $ZodE164, $ZodJWT, $ZodCustomStringFormat, $ZodNumber, $ZodNumberFormat, $ZodBoolean, $ZodBigInt, $ZodBigIntFormat, $ZodSymbol, $ZodUndefined, $ZodNull, $ZodAny, $ZodUnknown, $ZodNever, $ZodVoid, $ZodDate, $ZodArray, $ZodObject, $ZodObjectJIT, $ZodUnion, $ZodXor, $ZodDiscriminatedUnion, $ZodIntersection, $ZodTuple, $ZodRecord, $ZodMap, $ZodSet, $ZodEnum, $ZodLiteral, $ZodFile, $ZodTransform, $ZodOptional, $ZodExactOptional, $ZodNullable, $ZodDefault, $ZodPrefault, $ZodNonOptional, $ZodSuccess, $ZodCatch, $ZodNaN, $ZodPipe, $ZodCodec, $ZodPreprocess, $ZodReadonly, $ZodTemplateLiteral, $ZodFunction, $ZodPromise, $ZodLazy, $ZodCustom;
 var init_schemas = __esm({
-  "node_modules/zod/v4/core/schemas.js"() {
+  "../../interface-built-right/node_modules/zod/v4/core/schemas.js"() {
     "use strict";
     init_checks();
     init_core();
@@ -11125,7 +11259,7 @@ var init_schemas = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/ar.js
+// ../../interface-built-right/node_modules/zod/v4/locales/ar.js
 function ar_default() {
   return {
     localeError: error()
@@ -11133,7 +11267,7 @@ function ar_default() {
 }
 var error;
 var init_ar = __esm({
-  "node_modules/zod/v4/locales/ar.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/ar.js"() {
     "use strict";
     init_util();
     error = () => {
@@ -11239,7 +11373,7 @@ var init_ar = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/az.js
+// ../../interface-built-right/node_modules/zod/v4/locales/az.js
 function az_default() {
   return {
     localeError: error2()
@@ -11247,7 +11381,7 @@ function az_default() {
 }
 var error2;
 var init_az = __esm({
-  "node_modules/zod/v4/locales/az.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/az.js"() {
     "use strict";
     init_util();
     error2 = () => {
@@ -11352,7 +11486,7 @@ var init_az = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/be.js
+// ../../interface-built-right/node_modules/zod/v4/locales/be.js
 function getBelarusianPlural(count, one, few, many) {
   const absCount = Math.abs(count);
   const lastDigit = absCount % 10;
@@ -11375,7 +11509,7 @@ function be_default() {
 }
 var error3;
 var init_be = __esm({
-  "node_modules/zod/v4/locales/be.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/be.js"() {
     "use strict";
     init_util();
     error3 = () => {
@@ -11516,7 +11650,7 @@ var init_be = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/bg.js
+// ../../interface-built-right/node_modules/zod/v4/locales/bg.js
 function bg_default() {
   return {
     localeError: error4()
@@ -11524,7 +11658,7 @@ function bg_default() {
 }
 var error4;
 var init_bg = __esm({
-  "node_modules/zod/v4/locales/bg.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/bg.js"() {
     "use strict";
     init_util();
     error4 = () => {
@@ -11644,7 +11778,7 @@ var init_bg = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/ca.js
+// ../../interface-built-right/node_modules/zod/v4/locales/ca.js
 function ca_default() {
   return {
     localeError: error5()
@@ -11652,7 +11786,7 @@ function ca_default() {
 }
 var error5;
 var init_ca = __esm({
-  "node_modules/zod/v4/locales/ca.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/ca.js"() {
     "use strict";
     init_util();
     error5 = () => {
@@ -11760,7 +11894,7 @@ var init_ca = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/cs.js
+// ../../interface-built-right/node_modules/zod/v4/locales/cs.js
 function cs_default() {
   return {
     localeError: error6()
@@ -11768,7 +11902,7 @@ function cs_default() {
 }
 var error6;
 var init_cs = __esm({
-  "node_modules/zod/v4/locales/cs.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/cs.js"() {
     "use strict";
     init_util();
     error6 = () => {
@@ -11879,7 +12013,7 @@ var init_cs = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/da.js
+// ../../interface-built-right/node_modules/zod/v4/locales/da.js
 function da_default() {
   return {
     localeError: error7()
@@ -11887,7 +12021,7 @@ function da_default() {
 }
 var error7;
 var init_da = __esm({
-  "node_modules/zod/v4/locales/da.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/da.js"() {
     "use strict";
     init_util();
     error7 = () => {
@@ -12002,7 +12136,7 @@ var init_da = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/de.js
+// ../../interface-built-right/node_modules/zod/v4/locales/de.js
 function de_default() {
   return {
     localeError: error8()
@@ -12010,7 +12144,7 @@ function de_default() {
 }
 var error8;
 var init_de = __esm({
-  "node_modules/zod/v4/locales/de.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/de.js"() {
     "use strict";
     init_util();
     error8 = () => {
@@ -12118,7 +12252,7 @@ var init_de = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/el.js
+// ../../interface-built-right/node_modules/zod/v4/locales/el.js
 function el_default() {
   return {
     localeError: error9()
@@ -12126,7 +12260,7 @@ function el_default() {
 }
 var error9;
 var init_el = __esm({
-  "node_modules/zod/v4/locales/el.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/el.js"() {
     "use strict";
     init_util();
     error9 = () => {
@@ -12235,7 +12369,7 @@ var init_el = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/en.js
+// ../../interface-built-right/node_modules/zod/v4/locales/en.js
 function en_default() {
   return {
     localeError: error10()
@@ -12243,7 +12377,7 @@ function en_default() {
 }
 var error10;
 var init_en = __esm({
-  "node_modules/zod/v4/locales/en.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/en.js"() {
     "use strict";
     init_util();
     error10 = () => {
@@ -12355,7 +12489,7 @@ var init_en = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/eo.js
+// ../../interface-built-right/node_modules/zod/v4/locales/eo.js
 function eo_default() {
   return {
     localeError: error11()
@@ -12363,7 +12497,7 @@ function eo_default() {
 }
 var error11;
 var init_eo = __esm({
-  "node_modules/zod/v4/locales/eo.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/eo.js"() {
     "use strict";
     init_util();
     error11 = () => {
@@ -12472,7 +12606,7 @@ var init_eo = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/es.js
+// ../../interface-built-right/node_modules/zod/v4/locales/es.js
 function es_default() {
   return {
     localeError: error12()
@@ -12480,7 +12614,7 @@ function es_default() {
 }
 var error12;
 var init_es = __esm({
-  "node_modules/zod/v4/locales/es.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/es.js"() {
     "use strict";
     init_util();
     error12 = () => {
@@ -12612,7 +12746,7 @@ var init_es = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/fa.js
+// ../../interface-built-right/node_modules/zod/v4/locales/fa.js
 function fa_default() {
   return {
     localeError: error13()
@@ -12620,7 +12754,7 @@ function fa_default() {
 }
 var error13;
 var init_fa = __esm({
-  "node_modules/zod/v4/locales/fa.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/fa.js"() {
     "use strict";
     init_util();
     error13 = () => {
@@ -12734,7 +12868,7 @@ var init_fa = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/fi.js
+// ../../interface-built-right/node_modules/zod/v4/locales/fi.js
 function fi_default() {
   return {
     localeError: error14()
@@ -12742,7 +12876,7 @@ function fi_default() {
 }
 var error14;
 var init_fi = __esm({
-  "node_modules/zod/v4/locales/fi.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/fi.js"() {
     "use strict";
     init_util();
     error14 = () => {
@@ -12854,7 +12988,7 @@ var init_fi = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/fr.js
+// ../../interface-built-right/node_modules/zod/v4/locales/fr.js
 function fr_default() {
   return {
     localeError: error15()
@@ -12862,7 +12996,7 @@ function fr_default() {
 }
 var error15;
 var init_fr = __esm({
-  "node_modules/zod/v4/locales/fr.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/fr.js"() {
     "use strict";
     init_util();
     error15 = () => {
@@ -12987,7 +13121,7 @@ var init_fr = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/fr-CA.js
+// ../../interface-built-right/node_modules/zod/v4/locales/fr-CA.js
 function fr_CA_default() {
   return {
     localeError: error16()
@@ -12995,7 +13129,7 @@ function fr_CA_default() {
 }
 var error16;
 var init_fr_CA = __esm({
-  "node_modules/zod/v4/locales/fr-CA.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/fr-CA.js"() {
     "use strict";
     init_util();
     error16 = () => {
@@ -13102,7 +13236,7 @@ var init_fr_CA = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/he.js
+// ../../interface-built-right/node_modules/zod/v4/locales/he.js
 function he_default() {
   return {
     localeError: error17()
@@ -13110,7 +13244,7 @@ function he_default() {
 }
 var error17;
 var init_he = __esm({
-  "node_modules/zod/v4/locales/he.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/he.js"() {
     "use strict";
     init_util();
     error17 = () => {
@@ -13304,7 +13438,7 @@ var init_he = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/hr.js
+// ../../interface-built-right/node_modules/zod/v4/locales/hr.js
 function hr_default() {
   return {
     localeError: error18()
@@ -13312,7 +13446,7 @@ function hr_default() {
 }
 var error18;
 var init_hr = __esm({
-  "node_modules/zod/v4/locales/hr.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/hr.js"() {
     "use strict";
     init_util();
     error18 = () => {
@@ -13434,7 +13568,7 @@ var init_hr = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/hu.js
+// ../../interface-built-right/node_modules/zod/v4/locales/hu.js
 function hu_default() {
   return {
     localeError: error19()
@@ -13442,7 +13576,7 @@ function hu_default() {
 }
 var error19;
 var init_hu = __esm({
-  "node_modules/zod/v4/locales/hu.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/hu.js"() {
     "use strict";
     init_util();
     error19 = () => {
@@ -13550,7 +13684,7 @@ var init_hu = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/hy.js
+// ../../interface-built-right/node_modules/zod/v4/locales/hy.js
 function getArmenianPlural(count, one, many) {
   return Math.abs(count) === 1 ? one : many;
 }
@@ -13568,7 +13702,7 @@ function hy_default() {
 }
 var error20;
 var init_hy = __esm({
-  "node_modules/zod/v4/locales/hy.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/hy.js"() {
     "use strict";
     init_util();
     error20 = () => {
@@ -13705,7 +13839,7 @@ var init_hy = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/id.js
+// ../../interface-built-right/node_modules/zod/v4/locales/id.js
 function id_default() {
   return {
     localeError: error21()
@@ -13713,7 +13847,7 @@ function id_default() {
 }
 var error21;
 var init_id = __esm({
-  "node_modules/zod/v4/locales/id.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/id.js"() {
     "use strict";
     init_util();
     error21 = () => {
@@ -13819,7 +13953,7 @@ var init_id = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/is.js
+// ../../interface-built-right/node_modules/zod/v4/locales/is.js
 function is_default() {
   return {
     localeError: error22()
@@ -13827,7 +13961,7 @@ function is_default() {
 }
 var error22;
 var init_is = __esm({
-  "node_modules/zod/v4/locales/is.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/is.js"() {
     "use strict";
     init_util();
     error22 = () => {
@@ -13936,7 +14070,7 @@ var init_is = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/it.js
+// ../../interface-built-right/node_modules/zod/v4/locales/it.js
 function it_default() {
   return {
     localeError: error23()
@@ -13944,7 +14078,7 @@ function it_default() {
 }
 var error23;
 var init_it = __esm({
-  "node_modules/zod/v4/locales/it.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/it.js"() {
     "use strict";
     init_util();
     error23 = () => {
@@ -14052,7 +14186,7 @@ var init_it = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/ja.js
+// ../../interface-built-right/node_modules/zod/v4/locales/ja.js
 function ja_default() {
   return {
     localeError: error24()
@@ -14060,7 +14194,7 @@ function ja_default() {
 }
 var error24;
 var init_ja = __esm({
-  "node_modules/zod/v4/locales/ja.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/ja.js"() {
     "use strict";
     init_util();
     error24 = () => {
@@ -14167,7 +14301,7 @@ var init_ja = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/ka.js
+// ../../interface-built-right/node_modules/zod/v4/locales/ka.js
 function ka_default() {
   return {
     localeError: error25()
@@ -14175,7 +14309,7 @@ function ka_default() {
 }
 var error25;
 var init_ka = __esm({
-  "node_modules/zod/v4/locales/ka.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/ka.js"() {
     "use strict";
     init_util();
     error25 = () => {
@@ -14287,7 +14421,7 @@ var init_ka = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/km.js
+// ../../interface-built-right/node_modules/zod/v4/locales/km.js
 function km_default() {
   return {
     localeError: error26()
@@ -14295,7 +14429,7 @@ function km_default() {
 }
 var error26;
 var init_km = __esm({
-  "node_modules/zod/v4/locales/km.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/km.js"() {
     "use strict";
     init_util();
     error26 = () => {
@@ -14405,18 +14539,18 @@ var init_km = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/kh.js
+// ../../interface-built-right/node_modules/zod/v4/locales/kh.js
 function kh_default() {
   return km_default();
 }
 var init_kh = __esm({
-  "node_modules/zod/v4/locales/kh.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/kh.js"() {
     "use strict";
     init_km();
   }
 });
 
-// node_modules/zod/v4/locales/ko.js
+// ../../interface-built-right/node_modules/zod/v4/locales/ko.js
 function ko_default() {
   return {
     localeError: error27()
@@ -14424,7 +14558,7 @@ function ko_default() {
 }
 var error27;
 var init_ko = __esm({
-  "node_modules/zod/v4/locales/ko.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/ko.js"() {
     "use strict";
     init_util();
     error27 = () => {
@@ -14535,7 +14669,7 @@ var init_ko = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/lt.js
+// ../../interface-built-right/node_modules/zod/v4/locales/lt.js
 function getUnitTypeFromNumber(number4) {
   const abs = Math.abs(number4);
   const last = abs % 10;
@@ -14553,7 +14687,7 @@ function lt_default() {
 }
 var capitalizeFirstCharacter, error28;
 var init_lt = __esm({
-  "node_modules/zod/v4/locales/lt.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/lt.js"() {
     "use strict";
     init_util();
     capitalizeFirstCharacter = (text) => {
@@ -14746,7 +14880,7 @@ var init_lt = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/mk.js
+// ../../interface-built-right/node_modules/zod/v4/locales/mk.js
 function mk_default() {
   return {
     localeError: error29()
@@ -14754,7 +14888,7 @@ function mk_default() {
 }
 var error29;
 var init_mk = __esm({
-  "node_modules/zod/v4/locales/mk.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/mk.js"() {
     "use strict";
     init_util();
     error29 = () => {
@@ -14863,7 +14997,7 @@ var init_mk = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/ms.js
+// ../../interface-built-right/node_modules/zod/v4/locales/ms.js
 function ms_default() {
   return {
     localeError: error30()
@@ -14871,7 +15005,7 @@ function ms_default() {
 }
 var error30;
 var init_ms = __esm({
-  "node_modules/zod/v4/locales/ms.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/ms.js"() {
     "use strict";
     init_util();
     error30 = () => {
@@ -14978,7 +15112,7 @@ var init_ms = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/nl.js
+// ../../interface-built-right/node_modules/zod/v4/locales/nl.js
 function nl_default() {
   return {
     localeError: error31()
@@ -14986,7 +15120,7 @@ function nl_default() {
 }
 var error31;
 var init_nl = __esm({
-  "node_modules/zod/v4/locales/nl.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/nl.js"() {
     "use strict";
     init_util();
     error31 = () => {
@@ -15096,7 +15230,7 @@ var init_nl = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/no.js
+// ../../interface-built-right/node_modules/zod/v4/locales/no.js
 function no_default() {
   return {
     localeError: error32()
@@ -15104,7 +15238,7 @@ function no_default() {
 }
 var error32;
 var init_no = __esm({
-  "node_modules/zod/v4/locales/no.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/no.js"() {
     "use strict";
     init_util();
     error32 = () => {
@@ -15212,7 +15346,7 @@ var init_no = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/ota.js
+// ../../interface-built-right/node_modules/zod/v4/locales/ota.js
 function ota_default() {
   return {
     localeError: error33()
@@ -15220,7 +15354,7 @@ function ota_default() {
 }
 var error33;
 var init_ota = __esm({
-  "node_modules/zod/v4/locales/ota.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/ota.js"() {
     "use strict";
     init_util();
     error33 = () => {
@@ -15329,7 +15463,7 @@ var init_ota = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/ps.js
+// ../../interface-built-right/node_modules/zod/v4/locales/ps.js
 function ps_default() {
   return {
     localeError: error34()
@@ -15337,7 +15471,7 @@ function ps_default() {
 }
 var error34;
 var init_ps = __esm({
-  "node_modules/zod/v4/locales/ps.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/ps.js"() {
     "use strict";
     init_util();
     error34 = () => {
@@ -15451,7 +15585,7 @@ var init_ps = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/pl.js
+// ../../interface-built-right/node_modules/zod/v4/locales/pl.js
 function pl_default() {
   return {
     localeError: error35()
@@ -15459,7 +15593,7 @@ function pl_default() {
 }
 var error35;
 var init_pl = __esm({
-  "node_modules/zod/v4/locales/pl.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/pl.js"() {
     "use strict";
     init_util();
     error35 = () => {
@@ -15568,7 +15702,7 @@ var init_pl = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/pt.js
+// ../../interface-built-right/node_modules/zod/v4/locales/pt.js
 function pt_default() {
   return {
     localeError: error36()
@@ -15576,7 +15710,7 @@ function pt_default() {
 }
 var error36;
 var init_pt = __esm({
-  "node_modules/zod/v4/locales/pt.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/pt.js"() {
     "use strict";
     init_util();
     error36 = () => {
@@ -15684,7 +15818,7 @@ var init_pt = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/ro.js
+// ../../interface-built-right/node_modules/zod/v4/locales/ro.js
 function ro_default() {
   return {
     localeError: error37()
@@ -15692,7 +15826,7 @@ function ro_default() {
 }
 var error37;
 var init_ro = __esm({
-  "node_modules/zod/v4/locales/ro.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/ro.js"() {
     "use strict";
     init_util();
     error37 = () => {
@@ -15811,7 +15945,7 @@ var init_ro = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/ru.js
+// ../../interface-built-right/node_modules/zod/v4/locales/ru.js
 function getRussianPlural(count, one, few, many) {
   const absCount = Math.abs(count);
   const lastDigit = absCount % 10;
@@ -15834,7 +15968,7 @@ function ru_default() {
 }
 var error38;
 var init_ru = __esm({
-  "node_modules/zod/v4/locales/ru.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/ru.js"() {
     "use strict";
     init_util();
     error38 = () => {
@@ -15975,7 +16109,7 @@ var init_ru = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/sl.js
+// ../../interface-built-right/node_modules/zod/v4/locales/sl.js
 function sl_default() {
   return {
     localeError: error39()
@@ -15983,7 +16117,7 @@ function sl_default() {
 }
 var error39;
 var init_sl = __esm({
-  "node_modules/zod/v4/locales/sl.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/sl.js"() {
     "use strict";
     init_util();
     error39 = () => {
@@ -16092,7 +16226,7 @@ var init_sl = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/sv.js
+// ../../interface-built-right/node_modules/zod/v4/locales/sv.js
 function sv_default() {
   return {
     localeError: error40()
@@ -16100,7 +16234,7 @@ function sv_default() {
 }
 var error40;
 var init_sv = __esm({
-  "node_modules/zod/v4/locales/sv.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/sv.js"() {
     "use strict";
     init_util();
     error40 = () => {
@@ -16210,7 +16344,7 @@ var init_sv = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/ta.js
+// ../../interface-built-right/node_modules/zod/v4/locales/ta.js
 function ta_default() {
   return {
     localeError: error41()
@@ -16218,7 +16352,7 @@ function ta_default() {
 }
 var error41;
 var init_ta = __esm({
-  "node_modules/zod/v4/locales/ta.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/ta.js"() {
     "use strict";
     init_util();
     error41 = () => {
@@ -16328,7 +16462,7 @@ var init_ta = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/th.js
+// ../../interface-built-right/node_modules/zod/v4/locales/th.js
 function th_default() {
   return {
     localeError: error42()
@@ -16336,7 +16470,7 @@ function th_default() {
 }
 var error42;
 var init_th = __esm({
-  "node_modules/zod/v4/locales/th.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/th.js"() {
     "use strict";
     init_util();
     error42 = () => {
@@ -16446,7 +16580,7 @@ var init_th = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/tr.js
+// ../../interface-built-right/node_modules/zod/v4/locales/tr.js
 function tr_default() {
   return {
     localeError: error43()
@@ -16454,7 +16588,7 @@ function tr_default() {
 }
 var error43;
 var init_tr = __esm({
-  "node_modules/zod/v4/locales/tr.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/tr.js"() {
     "use strict";
     init_util();
     error43 = () => {
@@ -16559,7 +16693,7 @@ var init_tr = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/uk.js
+// ../../interface-built-right/node_modules/zod/v4/locales/uk.js
 function uk_default() {
   return {
     localeError: error44()
@@ -16567,7 +16701,7 @@ function uk_default() {
 }
 var error44;
 var init_uk = __esm({
-  "node_modules/zod/v4/locales/uk.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/uk.js"() {
     "use strict";
     init_util();
     error44 = () => {
@@ -16675,18 +16809,18 @@ var init_uk = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/ua.js
+// ../../interface-built-right/node_modules/zod/v4/locales/ua.js
 function ua_default() {
   return uk_default();
 }
 var init_ua = __esm({
-  "node_modules/zod/v4/locales/ua.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/ua.js"() {
     "use strict";
     init_uk();
   }
 });
 
-// node_modules/zod/v4/locales/ur.js
+// ../../interface-built-right/node_modules/zod/v4/locales/ur.js
 function ur_default() {
   return {
     localeError: error45()
@@ -16694,7 +16828,7 @@ function ur_default() {
 }
 var error45;
 var init_ur = __esm({
-  "node_modules/zod/v4/locales/ur.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/ur.js"() {
     "use strict";
     init_util();
     error45 = () => {
@@ -16804,7 +16938,7 @@ var init_ur = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/uz.js
+// ../../interface-built-right/node_modules/zod/v4/locales/uz.js
 function uz_default() {
   return {
     localeError: error46()
@@ -16812,7 +16946,7 @@ function uz_default() {
 }
 var error46;
 var init_uz = __esm({
-  "node_modules/zod/v4/locales/uz.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/uz.js"() {
     "use strict";
     init_util();
     error46 = () => {
@@ -16922,7 +17056,7 @@ var init_uz = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/vi.js
+// ../../interface-built-right/node_modules/zod/v4/locales/vi.js
 function vi_default() {
   return {
     localeError: error47()
@@ -16930,7 +17064,7 @@ function vi_default() {
 }
 var error47;
 var init_vi = __esm({
-  "node_modules/zod/v4/locales/vi.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/vi.js"() {
     "use strict";
     init_util();
     error47 = () => {
@@ -17038,7 +17172,7 @@ var init_vi = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/zh-CN.js
+// ../../interface-built-right/node_modules/zod/v4/locales/zh-CN.js
 function zh_CN_default() {
   return {
     localeError: error48()
@@ -17046,7 +17180,7 @@ function zh_CN_default() {
 }
 var error48;
 var init_zh_CN = __esm({
-  "node_modules/zod/v4/locales/zh-CN.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/zh-CN.js"() {
     "use strict";
     init_util();
     error48 = () => {
@@ -17155,7 +17289,7 @@ var init_zh_CN = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/zh-TW.js
+// ../../interface-built-right/node_modules/zod/v4/locales/zh-TW.js
 function zh_TW_default() {
   return {
     localeError: error49()
@@ -17163,7 +17297,7 @@ function zh_TW_default() {
 }
 var error49;
 var init_zh_TW = __esm({
-  "node_modules/zod/v4/locales/zh-TW.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/zh-TW.js"() {
     "use strict";
     init_util();
     error49 = () => {
@@ -17270,7 +17404,7 @@ var init_zh_TW = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/yo.js
+// ../../interface-built-right/node_modules/zod/v4/locales/yo.js
 function yo_default() {
   return {
     localeError: error50()
@@ -17278,7 +17412,7 @@ function yo_default() {
 }
 var error50;
 var init_yo = __esm({
-  "node_modules/zod/v4/locales/yo.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/yo.js"() {
     "use strict";
     init_util();
     error50 = () => {
@@ -17385,7 +17519,7 @@ var init_yo = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/index.js
+// ../../interface-built-right/node_modules/zod/v4/locales/index.js
 var locales_exports = {};
 __export(locales_exports, {
   ar: () => ar_default,
@@ -17442,7 +17576,7 @@ __export(locales_exports, {
   zhTW: () => zh_TW_default
 });
 var init_locales = __esm({
-  "node_modules/zod/v4/locales/index.js"() {
+  "../../interface-built-right/node_modules/zod/v4/locales/index.js"() {
     "use strict";
     init_ar();
     init_az();
@@ -17499,13 +17633,13 @@ var init_locales = __esm({
   }
 });
 
-// node_modules/zod/v4/core/registries.js
+// ../../interface-built-right/node_modules/zod/v4/core/registries.js
 function registry() {
   return new $ZodRegistry();
 }
 var _a2, $output, $input, $ZodRegistry, globalRegistry;
 var init_registries = __esm({
-  "node_modules/zod/v4/core/registries.js"() {
+  "../../interface-built-right/node_modules/zod/v4/core/registries.js"() {
     "use strict";
     $output = /* @__PURE__ */ Symbol("ZodOutput");
     $input = /* @__PURE__ */ Symbol("ZodInput");
@@ -17554,7 +17688,7 @@ var init_registries = __esm({
   }
 });
 
-// node_modules/zod/v4/core/api.js
+// ../../interface-built-right/node_modules/zod/v4/core/api.js
 // @__NO_SIDE_EFFECTS__
 function _string(Class2, params) {
   return new Class2({
@@ -18587,7 +18721,7 @@ function _stringFormat(Class2, format, fnOrRegex, _params = {}) {
 }
 var TimePrecision;
 var init_api = __esm({
-  "node_modules/zod/v4/core/api.js"() {
+  "../../interface-built-right/node_modules/zod/v4/core/api.js"() {
     "use strict";
     init_checks();
     init_registries();
@@ -18603,7 +18737,7 @@ var init_api = __esm({
   }
 });
 
-// node_modules/zod/v4/core/to-json-schema.js
+// ../../interface-built-right/node_modules/zod/v4/core/to-json-schema.js
 function initializeContext(params) {
   let target = params?.target ?? "draft-2020-12";
   if (target === "draft-4")
@@ -18950,7 +19084,7 @@ function isTransforming(_schema, _ctx) {
 }
 var createToJSONSchemaMethod, createStandardJSONSchemaMethod;
 var init_to_json_schema = __esm({
-  "node_modules/zod/v4/core/to-json-schema.js"() {
+  "../../interface-built-right/node_modules/zod/v4/core/to-json-schema.js"() {
     "use strict";
     init_registries();
     createToJSONSchemaMethod = (schema, processors = {}) => (params) => {
@@ -18969,7 +19103,7 @@ var init_to_json_schema = __esm({
   }
 });
 
-// node_modules/zod/v4/core/json-schema-processors.js
+// ../../interface-built-right/node_modules/zod/v4/core/json-schema-processors.js
 function toJSONSchema(input, params) {
   if ("_idmap" in input) {
     const registry2 = input;
@@ -19006,7 +19140,7 @@ function toJSONSchema(input, params) {
 }
 var formatMap, stringProcessor, numberProcessor, booleanProcessor, bigintProcessor, symbolProcessor, nullProcessor, undefinedProcessor, voidProcessor, neverProcessor, anyProcessor, unknownProcessor, dateProcessor, enumProcessor, literalProcessor, nanProcessor, templateLiteralProcessor, fileProcessor, successProcessor, customProcessor, functionProcessor, transformProcessor, mapProcessor, setProcessor, arrayProcessor, objectProcessor, unionProcessor, intersectionProcessor, tupleProcessor, recordProcessor, nullableProcessor, nonoptionalProcessor, defaultProcessor, prefaultProcessor, catchProcessor, pipeProcessor, readonlyProcessor, promiseProcessor, optionalProcessor, lazyProcessor, allProcessors;
 var init_json_schema_processors = __esm({
-  "node_modules/zod/v4/core/json-schema-processors.js"() {
+  "../../interface-built-right/node_modules/zod/v4/core/json-schema-processors.js"() {
     "use strict";
     init_to_json_schema();
     init_util();
@@ -19521,10 +19655,10 @@ var init_json_schema_processors = __esm({
   }
 });
 
-// node_modules/zod/v4/core/json-schema-generator.js
+// ../../interface-built-right/node_modules/zod/v4/core/json-schema-generator.js
 var JSONSchemaGenerator;
 var init_json_schema_generator = __esm({
-  "node_modules/zod/v4/core/json-schema-generator.js"() {
+  "../../interface-built-right/node_modules/zod/v4/core/json-schema-generator.js"() {
     "use strict";
     init_json_schema_processors();
     init_to_json_schema();
@@ -19604,15 +19738,15 @@ var init_json_schema_generator = __esm({
   }
 });
 
-// node_modules/zod/v4/core/json-schema.js
+// ../../interface-built-right/node_modules/zod/v4/core/json-schema.js
 var json_schema_exports = {};
 var init_json_schema = __esm({
-  "node_modules/zod/v4/core/json-schema.js"() {
+  "../../interface-built-right/node_modules/zod/v4/core/json-schema.js"() {
     "use strict";
   }
 });
 
-// node_modules/zod/v4/core/index.js
+// ../../interface-built-right/node_modules/zod/v4/core/index.js
 var core_exports2 = {};
 __export(core_exports2, {
   $ZodAny: () => $ZodAny,
@@ -19891,7 +20025,7 @@ __export(core_exports2, {
   version: () => version
 });
 var init_core2 = __esm({
-  "node_modules/zod/v4/core/index.js"() {
+  "../../interface-built-right/node_modules/zod/v4/core/index.js"() {
     "use strict";
     init_core();
     init_parse();
@@ -19912,7 +20046,7 @@ var init_core2 = __esm({
   }
 });
 
-// node_modules/zod/v4/classic/checks.js
+// ../../interface-built-right/node_modules/zod/v4/classic/checks.js
 var checks_exports2 = {};
 __export(checks_exports2, {
   endsWith: () => _endsWith,
@@ -19946,13 +20080,13 @@ __export(checks_exports2, {
   uppercase: () => _uppercase
 });
 var init_checks2 = __esm({
-  "node_modules/zod/v4/classic/checks.js"() {
+  "../../interface-built-right/node_modules/zod/v4/classic/checks.js"() {
     "use strict";
     init_core2();
   }
 });
 
-// node_modules/zod/v4/classic/iso.js
+// ../../interface-built-right/node_modules/zod/v4/classic/iso.js
 var iso_exports = {};
 __export(iso_exports, {
   ZodISODate: () => ZodISODate,
@@ -19978,7 +20112,7 @@ function duration2(params) {
 }
 var ZodISODateTime, ZodISODate, ZodISOTime, ZodISODuration;
 var init_iso = __esm({
-  "node_modules/zod/v4/classic/iso.js"() {
+  "../../interface-built-right/node_modules/zod/v4/classic/iso.js"() {
     "use strict";
     init_core2();
     init_schemas2();
@@ -20001,10 +20135,10 @@ var init_iso = __esm({
   }
 });
 
-// node_modules/zod/v4/classic/errors.js
+// ../../interface-built-right/node_modules/zod/v4/classic/errors.js
 var initializer2, ZodError, ZodRealError;
 var init_errors2 = __esm({
-  "node_modules/zod/v4/classic/errors.js"() {
+  "../../interface-built-right/node_modules/zod/v4/classic/errors.js"() {
     "use strict";
     init_core2();
     init_core2();
@@ -20050,10 +20184,10 @@ var init_errors2 = __esm({
   }
 });
 
-// node_modules/zod/v4/classic/parse.js
+// ../../interface-built-right/node_modules/zod/v4/classic/parse.js
 var parse2, parseAsync2, safeParse2, safeParseAsync2, encode2, decode2, encodeAsync2, decodeAsync2, safeEncode2, safeDecode2, safeEncodeAsync2, safeDecodeAsync2;
 var init_parse2 = __esm({
-  "node_modules/zod/v4/classic/parse.js"() {
+  "../../interface-built-right/node_modules/zod/v4/classic/parse.js"() {
     "use strict";
     init_core2();
     init_errors2();
@@ -20072,7 +20206,7 @@ var init_parse2 = __esm({
   }
 });
 
-// node_modules/zod/v4/classic/schemas.js
+// ../../interface-built-right/node_modules/zod/v4/classic/schemas.js
 var schemas_exports2 = {};
 __export(schemas_exports2, {
   ZodAny: () => ZodAny,
@@ -20756,7 +20890,7 @@ function preprocess(fn, schema) {
 }
 var _installedGroups, ZodType, _ZodString, ZodString, ZodStringFormat, ZodEmail, ZodGUID, ZodUUID, ZodURL, ZodEmoji, ZodNanoID, ZodCUID, ZodCUID2, ZodULID, ZodXID, ZodKSUID, ZodIPv4, ZodMAC, ZodIPv6, ZodCIDRv4, ZodCIDRv6, ZodBase64, ZodBase64URL, ZodE164, ZodJWT, ZodCustomStringFormat, ZodNumber, ZodNumberFormat, ZodBoolean, ZodBigInt, ZodBigIntFormat, ZodSymbol, ZodUndefined, ZodNull, ZodAny, ZodUnknown, ZodNever, ZodVoid, ZodDate, ZodArray, ZodObject, ZodUnion, ZodXor, ZodDiscriminatedUnion, ZodIntersection, ZodTuple, ZodRecord, ZodMap, ZodSet, ZodEnum, ZodLiteral, ZodFile, ZodTransform, ZodOptional, ZodExactOptional, ZodNullable, ZodDefault, ZodPrefault, ZodNonOptional, ZodSuccess, ZodCatch, ZodNaN, ZodPipe, ZodCodec, ZodPreprocess, ZodReadonly, ZodTemplateLiteral, ZodLazy, ZodPromise, ZodFunction, ZodCustom, describe2, meta2, stringbool;
 var init_schemas2 = __esm({
-  "node_modules/zod/v4/classic/schemas.js"() {
+  "../../interface-built-right/node_modules/zod/v4/classic/schemas.js"() {
     "use strict";
     init_core2();
     init_core2();
@@ -21544,7 +21678,7 @@ var init_schemas2 = __esm({
   }
 });
 
-// node_modules/zod/v4/classic/compat.js
+// ../../interface-built-right/node_modules/zod/v4/classic/compat.js
 function setErrorMap(map2) {
   config({
     customError: map2
@@ -21555,7 +21689,7 @@ function getErrorMap() {
 }
 var ZodIssueCode, ZodFirstPartyTypeKind;
 var init_compat2 = __esm({
-  "node_modules/zod/v4/classic/compat.js"() {
+  "../../interface-built-right/node_modules/zod/v4/classic/compat.js"() {
     "use strict";
     init_core2();
     ZodIssueCode = {
@@ -21576,7 +21710,7 @@ var init_compat2 = __esm({
   }
 });
 
-// node_modules/zod/v4/classic/from-json-schema.js
+// ../../interface-built-right/node_modules/zod/v4/classic/from-json-schema.js
 function detectVersion(schema, defaultTarget) {
   const $schema = schema.$schema;
   if ($schema === "https://json-schema.org/draft/2020-12/schema") {
@@ -21981,7 +22115,7 @@ function fromJSONSchema(schema, params) {
 }
 var z, RECOGNIZED_KEYS;
 var init_from_json_schema = __esm({
-  "node_modules/zod/v4/classic/from-json-schema.js"() {
+  "../../interface-built-right/node_modules/zod/v4/classic/from-json-schema.js"() {
     "use strict";
     init_registries();
     init_checks2();
@@ -22066,7 +22200,7 @@ var init_from_json_schema = __esm({
   }
 });
 
-// node_modules/zod/v4/classic/coerce.js
+// ../../interface-built-right/node_modules/zod/v4/classic/coerce.js
 var coerce_exports = {};
 __export(coerce_exports, {
   bigint: () => bigint3,
@@ -22091,14 +22225,14 @@ function date4(params) {
   return _coercedDate(ZodDate, params);
 }
 var init_coerce = __esm({
-  "node_modules/zod/v4/classic/coerce.js"() {
+  "../../interface-built-right/node_modules/zod/v4/classic/coerce.js"() {
     "use strict";
     init_core2();
     init_schemas2();
   }
 });
 
-// node_modules/zod/v4/classic/external.js
+// ../../interface-built-right/node_modules/zod/v4/classic/external.js
 var external_exports = {};
 __export(external_exports, {
   $brand: () => $brand,
@@ -22341,7 +22475,7 @@ __export(external_exports, {
   xor: () => xor
 });
 var init_external = __esm({
-  "node_modules/zod/v4/classic/external.js"() {
+  "../../interface-built-right/node_modules/zod/v4/classic/external.js"() {
     "use strict";
     init_core2();
     init_schemas2();
@@ -22362,9 +22496,9 @@ var init_external = __esm({
   }
 });
 
-// node_modules/zod/index.js
+// ../../interface-built-right/node_modules/zod/index.js
 var init_zod = __esm({
-  "node_modules/zod/index.js"() {
+  "../../interface-built-right/node_modules/zod/index.js"() {
     "use strict";
     init_external();
     init_external();
@@ -22607,9 +22741,11 @@ var init_schemas3 = __esm({
       hasEventListener: external_exports.boolean().optional(),
       // A non-root ancestor (excluding document.body/documentElement/document/
       // window) carries an activation listener that would fire for this element
-      // — event delegation. Root-level listeners are deliberately excluded: a
-      // document-level click listener (e.g. menu-dismissal) would otherwise
-      // "rescue" every dead control on the page.
+      // — event delegation. A root-level (document/body/window) click listener is
+      // credited ONLY when its handler source names this control (a selector
+      // literal it matches, its id, or a data-* key it carries): a bare
+      // document-level listener (e.g. menu-dismissal) must not "rescue" every
+      // dead control on the page.
       hasDelegatedListener: external_exports.boolean().optional(),
       // True when the browser activates this control with no author JS at all
       // (a `<button type=submit>` whose form has an action/formaction, a
@@ -24420,16 +24556,16 @@ var init_compare = __esm({
   }
 });
 
-// node_modules/nanoid/url-alphabet/index.js
+// ../../interface-built-right/node_modules/nanoid/url-alphabet/index.js
 var urlAlphabet;
 var init_url_alphabet = __esm({
-  "node_modules/nanoid/url-alphabet/index.js"() {
+  "../../interface-built-right/node_modules/nanoid/url-alphabet/index.js"() {
     "use strict";
     urlAlphabet = "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict";
   }
 });
 
-// node_modules/nanoid/index.js
+// ../../interface-built-right/node_modules/nanoid/index.js
 function fillPool(bytes) {
   if (bytes < 0) throw new RangeError("Wrong ID size");
   try {
@@ -24457,7 +24593,7 @@ function nanoid3(size = 21) {
 }
 var import_node_crypto, POOL_SIZE_MULTIPLIER, pool, poolOffset;
 var init_nanoid = __esm({
-  "node_modules/nanoid/index.js"() {
+  "../../interface-built-right/node_modules/nanoid/index.js"() {
     "use strict";
     import_node_crypto = require("crypto");
     init_url_alphabet();
@@ -30713,6 +30849,106 @@ async function enrichWithEventListeners(page, elements) {
         return false;
       };
 
+      // ---- Root-level (window/document/html/body) click delegation ----
+      // Root listeners are NOT credited blindly (menu-dismissal listeners
+      // would silence every dead control). A root click listener is credited
+      // to a candidate only when its handler source names that candidate:
+      // a string literal that is a CSS selector the candidate matches
+      // (e.target.closest('[data-action]'), .matches('.js-copy')), a literal
+      // equal to the candidate's id alongside an .id read, or a dataset.<key>
+      // / getAttribute('data-<key>') read the candidate carries. jQuery
+      // delegated handlers ($(document).on('click', sel, fn)) store their
+      // selector in jQuery's private event data, read directly when present.
+      const rootNodes = [window, document, document.documentElement, document.body].filter(Boolean);
+      const literalRe = /'((?:[^'\\\\\\n]|\\\\.){1,200})'|"((?:[^"\\\\\\n]|\\\\.){1,200})"|\`([^\`$\\\\]{1,200})\`/g;
+      const bareTagRe = /^[a-zA-Z][a-zA-Z0-9-]*$/;
+      const rootInfo = { sources: [], opaque: false, jquerySelectors: [] };
+      for (const node of rootNodes) {
+        let listeners;
+        try {
+          listeners = getEventListeners(node);
+        } catch (e) {
+          continue;
+        }
+        const clicks = listeners && Array.isArray(listeners.click) ? listeners.click : [];
+        for (const entry of clicks) {
+          const fn = entry && entry.listener;
+          let src = '';
+          try {
+            src = typeof fn === 'function' ? Function.prototype.toString.call(fn) : '';
+          } catch (e) {
+            src = '';
+          }
+          if (!src || /\\{\\s*\\[native code\\]\\s*\\}/.test(src)) {
+            rootInfo.opaque = true;
+            continue;
+          }
+          rootInfo.sources.push(src.length > 100000 ? src.slice(0, 100000) : src);
+        }
+        try {
+          const jq = window.jQuery;
+          const data = jq && typeof jq._data === 'function' ? jq._data(node, 'events') : null;
+          const handlers = data && Array.isArray(data.click) ? data.click : [];
+          for (const h of handlers) {
+            if (h && typeof h.selector === 'string' && h.selector) rootInfo.jquerySelectors.push(h.selector);
+          }
+        } catch (e) { /* jQuery absent or private API changed */ }
+      }
+      const rootLiterals = [];
+      const rootDatasetAttrs = [];
+      let rootReadsId = false;
+      for (const src of rootInfo.sources) {
+        literalRe.lastIndex = 0;
+        let m;
+        let count = 0;
+        while ((m = literalRe.exec(src)) !== null && count < 500) {
+          count++;
+          const lit = (m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3]).trim();
+          if (lit) rootLiterals.push(lit);
+        }
+        const dsRe = /\\.dataset\\.([A-Za-z_$][\\w$]*)|\\.dataset\\[\\s*['"]([^'"]+)['"]\\s*\\]/g;
+        let d;
+        while ((d = dsRe.exec(src)) !== null) {
+          const key = d[1] || d[2];
+          rootDatasetAttrs.push('data-' + key.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase()));
+        }
+        if (/\\.id\\b/.test(src)) rootReadsId = true;
+      }
+      for (const lit of rootLiterals) {
+        if (/^data-[\\w-]+$/.test(lit)) rootDatasetAttrs.push(lit.toLowerCase());
+      }
+      const isRootEl = (n) => n === document.body || n === document.documentElement;
+      // A literal "matches" a candidate when the candidate itself matches it,
+      // or a non-root ancestor does (closest-style delegation). Bare tag
+      // names ('div', 'span') only count on the candidate itself: incidental
+      // createElement('div') literals would otherwise match nearly every
+      // candidate through some ancestor. Literals that match <html>/<body>
+      // ('*', 'body', ':root') are never selective and are skipped.
+      const selectorMatches = (el, sel) => {
+        try {
+          if (document.documentElement.matches(sel) || (document.body && document.body.matches(sel))) return false;
+          if (el.matches(sel)) return true;
+          if (bareTagRe.test(sel)) return false;
+          const hit = el.closest(sel);
+          return !!(hit && !isRootEl(hit));
+        } catch (e) {
+          return false; // not a valid selector
+        }
+      };
+      const rootDelegatesTo = (el) => {
+        for (const sel of rootInfo.jquerySelectors) {
+          if (selectorMatches(el, sel)) return true;
+        }
+        for (const lit of rootLiterals) {
+          if (selectorMatches(el, lit)) return true;
+          if (rootReadsId && el.id && lit === el.id) return true;
+        }
+        for (const attr of rootDatasetAttrs) {
+          if (el.hasAttribute(attr)) return true;
+        }
+        return false;
+      };
+
       const results = {};
       for (const selector of selectors) {
         let el;
@@ -30741,7 +30977,13 @@ async function enrichWithEventListeners(page, elements) {
           if (form && (hasSubmitListener(form) || hasReactPropsOnSubmit(form))) hasDelegatedListener = true;
         }
 
-        results[selector] = { hasEventListener, hasDelegatedListener };
+        let rootDelegationUnresolved = false;
+        if (!hasEventListener && !hasDelegatedListener) {
+          if (rootDelegatesTo(el)) hasDelegatedListener = true;
+          else if (rootInfo.opaque) rootDelegationUnresolved = true;
+        }
+
+        results[selector] = { hasEventListener, hasDelegatedListener, rootDelegationUnresolved };
       }
       return results;
     })()
@@ -30757,6 +30999,7 @@ async function enrichWithEventListeners(page, elements) {
   for (const el of candidates) {
     const result = results[el.selector];
     if (!result) continue;
+    if (result.rootDelegationUnresolved) ROOT_DELEGATION_UNRESOLVED.add(el);
     if (result.hasEventListener) el.interactive.hasEventListener = true;
     if (result.hasDelegatedListener) el.interactive.hasDelegatedListener = true;
     if (result.hasEventListener || result.hasDelegatedListener) el.interactive.hasOnClick = true;
@@ -31090,7 +31333,7 @@ function analyzeElements(elements, isMobile = false) {
       issues.push({
         type: "NO_HANDLER",
         severity: "error",
-        message: `Button "${el.text || el.selector}" has no click handler`
+        message: ROOT_DELEGATION_UNRESOLVED.has(el) ? `Button "${el.text || el.selector}" has no click handler found; a document-level click listener exists whose source could not be inspected and may delegate to it` : `Button "${el.text || el.selector}" has no click handler`
       });
     }
     if (isLink && !el.interactive.hasHref && !el.interactive.hasOnClick) {
@@ -31615,7 +31858,7 @@ async function extractTextCensus(page) {
     return census;
   });
 }
-var import_promises15, import_fs7, import_path14, LOCK_FILE, LOCK_TIMEOUT_MS, EXTRACTION_TIMEOUT_MS, DEFAULT_SELECTORS, CSS_PROPERTIES_TO_EXTRACT, driver2, INTERACTIVE_SELECTORS, ACTIVATION_EVENT_TYPES, CONTENT_SELECTORS, INLINE_TEXT_SELECTORS, CONTENT_ELEMENT_TAGS, INLINE_TEXT_TAGS;
+var import_promises15, import_fs7, import_path14, LOCK_FILE, LOCK_TIMEOUT_MS, EXTRACTION_TIMEOUT_MS, DEFAULT_SELECTORS, CSS_PROPERTIES_TO_EXTRACT, driver2, INTERACTIVE_SELECTORS, ACTIVATION_EVENT_TYPES, ROOT_DELEGATION_UNRESOLVED, CONTENT_SELECTORS, INLINE_TEXT_SELECTORS, CONTENT_ELEMENT_TAGS, INLINE_TEXT_TAGS;
 var init_extract2 = __esm({
   "src/extract.ts"() {
     "use strict";
@@ -31727,6 +31970,7 @@ var init_extract2 = __esm({
       "keydown",
       "keyup"
     ];
+    ROOT_DELEGATION_UNRESOLVED = /* @__PURE__ */ new WeakSet();
     CONTENT_SELECTORS = [
       "h1",
       "h2",
@@ -31788,6 +32032,7 @@ function detectLayoutCollisions(elements) {
     for (let j = i + 1; j < textElements.length; j++) {
       const b = textElements[j];
       if (b.bounds.y > aBottom + 2) break;
+      if (a.selector === b.selector) continue;
       if (b.selector.startsWith(a.selector) || a.selector.startsWith(b.selector)) continue;
       const ix = Math.max(a.bounds.x, b.bounds.x);
       const iy = Math.max(a.bounds.y, b.bounds.y);
@@ -31824,9 +32069,162 @@ function detectLayoutCollisions(elements) {
     hasCollisions: collisions.length > 0
   };
 }
+async function excludeDomRelatedCollisions(page, result) {
+  if (result.collisions.length === 0) return result;
+  const pairs = result.collisions.map((c) => [c.element1.selector, c.element2.selector]);
+  let related;
+  try {
+    related = await page.evaluate((input) => {
+      const resolve7 = (sel) => {
+        try {
+          const found = document.querySelectorAll(sel);
+          return found.length === 1 ? found[0] : null;
+        } catch {
+          return null;
+        }
+      };
+      return input.map(([s1, s2]) => {
+        const n1 = resolve7(s1);
+        const n2 = resolve7(s2);
+        if (!n1 || !n2) return false;
+        return n1 === n2 || n1.contains(n2) || n2.contains(n1);
+      });
+    }, pairs);
+  } catch {
+    return result;
+  }
+  if (!Array.isArray(related) || related.length !== result.collisions.length) return result;
+  const collisions = result.collisions.filter((_, i) => !related[i]);
+  return { collisions, hasCollisions: collisions.length > 0 };
+}
 var init_layout_collision = __esm({
   "src/layout-collision.ts"() {
     "use strict";
+  }
+});
+
+// src/design-system/principles/visibility.ts
+function isVisibleInteractive(element) {
+  if (!element.interactive?.hasOnClick && !element.interactive?.hasHref) return false;
+  const bounds = element.bounds;
+  if (!bounds || bounds.width <= 0 || bounds.height <= 0) return false;
+  const display = element.computedStyles?.display?.trim().toLowerCase();
+  const visibility = element.computedStyles?.visibility?.trim().toLowerCase();
+  const opacity = Number.parseFloat(element.computedStyles?.opacity ?? "1");
+  if (display === "none") return false;
+  if (visibility === "hidden" || visibility === "collapse") return false;
+  if (Number.isFinite(opacity) && opacity <= 0) return false;
+  if (element.ancestorOpacity !== void 0 && element.ancestorOpacity <= 0) return false;
+  return true;
+}
+var init_visibility = __esm({
+  "src/design-system/principles/visibility.ts"() {
+    "use strict";
+  }
+});
+
+// src/design-system/principles/cognitive-load.ts
+function isGroupingElement(el) {
+  const role = (el.a11y?.role || "").toLowerCase();
+  if (role && GROUPING_ROLE_SET.has(role)) return true;
+  return GROUPING_TAG_SET.has((el.tagName || "").toLowerCase());
+}
+function within(inner, outer) {
+  return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width && inner.y + inner.height <= outer.y + outer.height;
+}
+function ownedByBounds(element, all) {
+  const box = element.bounds;
+  const nestedGroups = all.filter(
+    (g) => g !== element && g.selector !== element.selector && isGroupingElement(g) && g.bounds && g.bounds.width > 0 && g.bounds.height > 0 && // Inclusive: a group with the container's exact box is its only child
+    // region, and it claims its controls just the same.
+    within(g.bounds, box)
+  );
+  return all.filter((el) => {
+    if (el.selector === element.selector) return false;
+    if (!isVisibleInteractive(el)) return false;
+    if (!within(el.bounds, box)) return false;
+    return !nestedGroups.some((g) => g.selector !== el.selector && within(el.bounds, g.bounds));
+  }).map((el) => el.selector);
+}
+var GROUPING_TAGS, GROUPING_ROLES, GROUPING_TAG_SET, GROUPING_ROLE_SET, MAX_CONTROLS_PER_GROUP, cognitiveLoadRules;
+var init_cognitive_load = __esm({
+  "src/design-system/principles/cognitive-load.ts"() {
+    "use strict";
+    init_visibility();
+    GROUPING_TAGS = [
+      "section",
+      "article",
+      "aside",
+      "header",
+      "footer",
+      "nav",
+      "form",
+      "fieldset",
+      "ul",
+      "ol",
+      "menu",
+      "dialog",
+      "details",
+      "table",
+      "tr"
+    ];
+    GROUPING_ROLES = [
+      "group",
+      "radiogroup",
+      "toolbar",
+      "menu",
+      "menubar",
+      "listbox",
+      "tablist",
+      "list",
+      "grid",
+      "row",
+      "dialog",
+      "alertdialog",
+      "navigation",
+      "region",
+      "form",
+      "banner",
+      "contentinfo",
+      "complementary"
+    ];
+    GROUPING_TAG_SET = new Set(GROUPING_TAGS);
+    GROUPING_ROLE_SET = new Set(GROUPING_ROLES);
+    MAX_CONTROLS_PER_GROUP = 10;
+    cognitiveLoadRules = [
+      {
+        id: "calm-precision/cognitive-load-elements",
+        name: "Cognitive Load: Element Count",
+        description: "Visual groups should have 5-7 items max to stay within working memory limits",
+        defaultSeverity: "warn",
+        appliesTo: "any",
+        check: (element, context) => {
+          if (element.interactive?.hasOnClick || element.interactive?.hasHref) return null;
+          if (!element.bounds) return null;
+          const { width, height } = element.bounds;
+          if (width <= 0 || height <= 0) return null;
+          const facts = element.controlGroup;
+          const owned = facts ? { count: facts.ownedControls, selectors: facts.controlSelectors } : (() => {
+            const sel = ownedByBounds(element, context.allElements);
+            return { count: sel.length, selectors: sel };
+          })();
+          if (owned.count > MAX_CONTROLS_PER_GROUP) {
+            const shown = owned.selectors.slice(0, 5);
+            const more = owned.count - shown.length;
+            return {
+              ruleId: "calm-precision/cognitive-load-elements",
+              ruleName: "Cognitive Load: Element Count",
+              severity: "warn",
+              message: `Group <${element.tagName}> holds ${owned.count} visible controls directly (controls inside nested sections, lists, fieldsets or groups not counted): ${shown.join(", ")}${more > 0 ? ` +${more} more` : ""}. Consider grouping or progressive disclosure (5-7 max per group).`,
+              element: element.selector,
+              bounds: element.bounds,
+              fix: 'Split these controls into labelled sub-groups (fieldset, list, role="group"), or move secondary ones behind "Show more".'
+            };
+          }
+          return null;
+        }
+      }
+    ];
   }
 });
 
@@ -32255,11 +32653,23 @@ var init_tokens2 = __esm({
 });
 
 // src/design-system/principles/gestalt.ts
-var gestaltRules;
+function isListItemElement(element) {
+  const tag = (element.tagName || "").toLowerCase();
+  const role = (element.a11y?.role || "").toLowerCase();
+  if (CONTROL_TAGS.has(tag) || CONTROL_ROLES.has(role)) return false;
+  if (tag === "li" || role === "listitem") return true;
+  const tokens = (element.className || "").split(/\s+/).filter(Boolean);
+  return tokens.some((t) => ITEM_CLASS_TOKEN.test(t));
+}
+var ITEM_CLASS_TOKEN, CONTROL_TAGS, CONTROL_ROLES, BOXED_MIN_SIDES, gestaltRules;
 var init_gestalt = __esm({
   "src/design-system/principles/gestalt.ts"() {
     "use strict";
     init_style_read();
+    ITEM_CLASS_TOKEN = /^(item|list-item|[a-z0-9_]+-item)$/i;
+    CONTROL_TAGS = /* @__PURE__ */ new Set(["button", "input", "select", "textarea", "summary", "option"]);
+    CONTROL_ROLES = /* @__PURE__ */ new Set(["button", "checkbox", "radio", "switch", "tab", "menuitem", "slider", "textbox", "combobox"]);
+    BOXED_MIN_SIDES = 3;
     gestaltRules = [
       {
         id: "calm-precision/gestalt-grouping",
@@ -32271,8 +32681,7 @@ var init_gestalt = __esm({
         // `<li>` never reached it even once the styles existed.
         appliesTo: "any",
         check: (element, _context) => {
-          const isListItem = element.tagName === "li" || element.selector?.includes("item") && !element.selector?.includes("item-");
-          if (!isListItem) return null;
+          if (!isListItemElement(element)) return null;
           const border = resolveBorderPresence(element);
           if (border.status === "unmeasured") {
             return unmeasuredStyleViolation(
@@ -32283,14 +32692,16 @@ var init_gestalt = __esm({
             );
           }
           if (!border.hasBorder) return null;
+          const paintedSides = border.widths.filter((w) => w > 0).length;
+          if (paintedSides < BOXED_MIN_SIDES) return null;
           return {
             ruleId: "calm-precision/gestalt-grouping",
             ruleName: "Gestalt: Border Grouping",
             severity: "error",
-            message: `List item "${(element.text || "").slice(0, 40)}" has individual border (${border.widths.map((w) => `${w}px`).join(" ")}). Group related items with a single container border.`,
+            message: `List item "${(element.text || "").slice(0, 40)}" is individually boxed (${paintedSides}-sided border: ${border.widths.map((w) => `${w}px`).join(" ")}). Group related items with a single container border.`,
             element: element.selector,
             bounds: element.bounds,
-            fix: "Use single border around the group container with dividers between items, not individual item borders."
+            fix: "Put one border around the group container and separate items with one-sided dividers (e.g. border-top), not a box per item."
           };
         }
       }
@@ -32298,11 +32709,241 @@ var init_gestalt = __esm({
   }
 });
 
+// src/rules/color-parse.ts
+function linearToSrgb(c) {
+  const v = c <= 31308e-7 ? 12.92 * c : 1.055 * Math.pow(Math.max(0, c), 1 / 2.4) - 0.055;
+  return clamp255(v * 255);
+}
+function oklabToLinearSrgb(L, a, b) {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.291485548 * b;
+  const l = l_ ** 3, m = m_ ** 3, s = s_ ** 3;
+  return [
+    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s
+  ];
+}
+function labToLinearSrgb(L, a, bb) {
+  const fy = (L + 16) / 116, fx = fy + a / 500, fz = fy - bb / 200;
+  const f = (t) => t ** 3 > 8856e-6 ? t ** 3 : (116 * t - 16) / 903.3;
+  const X = 0.96422 * f(fx), Y = 1 * f(fy), Z = 0.82521 * f(fz);
+  return [
+    3.1338561 * X - 1.6168667 * Y - 0.4906146 * Z,
+    -0.9787684 * X + 1.9161415 * Y + 0.033454 * Z,
+    0.0719453 * X - 0.2289914 * Y + 1.4052427 * Z
+  ];
+}
+function num(tok, pctBasis = 1) {
+  const t = tok.trim();
+  if (t.endsWith("%")) return parseFloat(t) / 100 * pctBasis;
+  return parseFloat(t);
+}
+function splitArgs(body) {
+  const [main, alphaPart] = body.split("/");
+  const parts = main.trim().split(/[\s,]+/).filter(Boolean);
+  const alpha = alphaPart !== void 0 ? num(alphaPart, 1) : 1;
+  return { parts, alpha };
+}
+function hslToRgb(h, s, l) {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const hp = (h % 360 + 360) % 360 / 60;
+  const x = c * (1 - Math.abs(hp % 2 - 1));
+  const [r1, g1, b1] = hp < 1 ? [c, x, 0] : hp < 2 ? [x, c, 0] : hp < 3 ? [0, c, x] : hp < 4 ? [0, x, c] : hp < 5 ? [x, 0, c] : [c, 0, x];
+  const m = l - c / 2;
+  return [clamp255((r1 + m) * 255), clamp255((g1 + m) * 255), clamp255((b1 + m) * 255)];
+}
+function parseColor2(color) {
+  const raw = (color ?? "").trim();
+  if (!raw) return { kind: "none", reason: "empty" };
+  const lower = raw.toLowerCase();
+  if (lower === "transparent") return { kind: "none", reason: "transparent" };
+  if (["initial", "inherit", "unset", "revert", "currentcolor", "none", "auto"].includes(lower)) {
+    return { kind: "none", reason: lower };
+  }
+  if (NAMED[lower]) return { kind: "rgb", rgb: NAMED[lower], alpha: 1 };
+  const hex3 = lower.match(/^#([0-9a-f]{3,8})$/);
+  if (hex3) {
+    const h = hex3[1];
+    const exp = (i) => parseInt(h[i] + h[i], 16);
+    const pair2 = (i) => parseInt(h.slice(i, i + 2), 16);
+    if (h.length === 3) return { kind: "rgb", rgb: [exp(0), exp(1), exp(2)], alpha: 1 };
+    if (h.length === 4) return { kind: "rgb", rgb: [exp(0), exp(1), exp(2)], alpha: exp(3) / 255 };
+    if (h.length === 6) return { kind: "rgb", rgb: [pair2(0), pair2(2), pair2(4)], alpha: 1 };
+    if (h.length === 8) return { kind: "rgb", rgb: [pair2(0), pair2(2), pair2(4)], alpha: pair2(6) / 255 };
+    return { kind: "unsupported", raw };
+  }
+  const fn = lower.match(/^([a-z]+)\(([^)]*)\)$/);
+  if (!fn) return { kind: "unsupported", raw };
+  const [, name, body] = fn;
+  const { parts, alpha } = splitArgs(body);
+  if (alpha === 0) return { kind: "none", reason: "alpha-0" };
+  const finite2 = (r) => r.kind === "rgb" && (!r.rgb.every(Number.isFinite) || !Number.isFinite(r.alpha)) ? { kind: "unsupported", raw } : r;
+  try {
+    return finite2(parseColorBody(name, parts, alpha, raw));
+  } catch {
+    return { kind: "unsupported", raw };
+  }
+}
+function parseColorBody(name, parts, alpha, raw) {
+  {
+    switch (name) {
+      case "rgb":
+      case "rgba": {
+        const rgb = [
+          clamp255(num(parts[0], 255)),
+          clamp255(num(parts[1], 255)),
+          clamp255(num(parts[2], 255))
+        ];
+        const a = parts[3] !== void 0 ? num(parts[3]) : alpha;
+        return a === 0 ? { kind: "none", reason: "alpha-0" } : { kind: "rgb", rgb, alpha: a };
+      }
+      case "hsl":
+      case "hsla": {
+        const a = parts[3] !== void 0 ? num(parts[3]) : alpha;
+        if (a === 0) return { kind: "none", reason: "alpha-0" };
+        return { kind: "rgb", rgb: hslToRgb(parseFloat(parts[0]), num(parts[1], 1), num(parts[2], 1)), alpha: a };
+      }
+      case "oklch":
+      case "lch": {
+        const L = num(parts[0], name === "oklch" ? 1 : 100);
+        const C = num(parts[1], name === "oklch" ? 0.4 : 150);
+        const H = (parseFloat(parts[2]) || 0) * (Math.PI / 180);
+        const a = C * Math.cos(H), b = C * Math.sin(H);
+        const lin = name === "oklch" ? oklabToLinearSrgb(L, a, b) : labToLinearSrgb(L, a, b);
+        return { kind: "rgb", rgb: lin.map(linearToSrgb), alpha };
+      }
+      case "oklab":
+      case "lab": {
+        const L = num(parts[0], name === "oklab" ? 1 : 100);
+        const a = num(parts[1], name === "oklab" ? 0.4 : 125);
+        const b = num(parts[2], name === "oklab" ? 0.4 : 125);
+        const lin = name === "oklab" ? oklabToLinearSrgb(L, a, b) : labToLinearSrgb(L, a, b);
+        return { kind: "rgb", rgb: lin.map(linearToSrgb), alpha };
+      }
+      case "color": {
+        const space = parts[0];
+        if (space !== "srgb" && space !== "srgb-linear" && space !== "display-p3") {
+          return { kind: "unsupported", raw };
+        }
+        const ch = parts.slice(1, 4).map((p) => num(p, 1));
+        const rgb = space === "srgb-linear" ? ch.map(linearToSrgb) : ch.map((v) => clamp255(v * 255));
+        return { kind: "rgb", rgb, alpha };
+      }
+      default:
+        return { kind: "unsupported", raw };
+    }
+  }
+}
+function flatten(fg, bg) {
+  if (fg.kind !== "rgb") return null;
+  if (fg.alpha >= 1) return fg.rgb;
+  return fg.rgb.map((c, i) => clamp255(c * fg.alpha + bg[i] * (1 - fg.alpha)));
+}
+function resolveEffectiveBackground(chain) {
+  const layers = [];
+  for (const raw of chain) {
+    const parsed = parseColor2(raw);
+    if (parsed.kind === "unsupported") {
+      return { rgb: CANVAS_BASE, resolved: false, unsupported: parsed.raw };
+    }
+    if (parsed.kind === "none") continue;
+    layers.push({ rgb: parsed.rgb, alpha: parsed.alpha });
+    if (parsed.alpha >= 1) break;
+  }
+  const bottom = layers[layers.length - 1];
+  const resolved = bottom !== void 0 && bottom.alpha >= 1;
+  let acc = resolved ? bottom.rgb : CANVAS_BASE;
+  for (let i = resolved ? layers.length - 2 : layers.length - 1; i >= 0; i--) {
+    const layer = layers[i];
+    acc = layer.rgb.map(
+      (c, ch) => clamp255(c * layer.alpha + acc[ch] * (1 - layer.alpha))
+    );
+  }
+  return { rgb: acc, resolved };
+}
+var NAMED, clamp255, CANVAS_BASE;
+var init_color_parse = __esm({
+  "src/rules/color-parse.ts"() {
+    "use strict";
+    NAMED = {
+      black: [0, 0, 0],
+      white: [255, 255, 255],
+      red: [255, 0, 0],
+      green: [0, 128, 0],
+      blue: [0, 0, 255],
+      gray: [128, 128, 128],
+      grey: [128, 128, 128],
+      silver: [192, 192, 192],
+      maroon: [128, 0, 0],
+      olive: [128, 128, 0],
+      lime: [0, 255, 0],
+      aqua: [0, 255, 255],
+      cyan: [0, 255, 255],
+      teal: [0, 128, 128],
+      navy: [0, 0, 128],
+      fuchsia: [255, 0, 255],
+      magenta: [255, 0, 255],
+      purple: [128, 0, 128],
+      yellow: [255, 255, 0],
+      orange: [255, 165, 0]
+    };
+    clamp255 = (v) => Math.max(0, Math.min(255, Math.round(v)));
+    CANVAS_BASE = [255, 255, 255];
+  }
+});
+
 // src/design-system/principles/signal-noise.ts
-var signalNoiseRules;
+function hsl(rgb) {
+  const [r, g, b] = rgb.map((c) => c / 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return { s: 0, l };
+  const s = (max - min) / (1 - Math.abs(2 * l - 1));
+  return { s, l };
+}
+function statusLabel(text) {
+  const t = (text || "").trim();
+  if (!t || t.length > BADGE_MAX_CHARS) return null;
+  const tokens = t.split(/\s+/);
+  if (tokens.length > BADGE_MAX_WORDS) return null;
+  const words = tokens.map((w) => w.replace(/[^a-z]/gi, "")).filter(Boolean);
+  if (words.length === 0 || words.length > 2) return null;
+  return STATUS_WORD.test(words[0]) ? words[0].toLowerCase() : null;
+}
+function saturatedFill(bg) {
+  if (!bg) return null;
+  const parsed = parseColor2(bg);
+  if (parsed.kind !== "rgb") return null;
+  if (parsed.alpha < MIN_FILL_ALPHA) return null;
+  const { s, l } = hsl(parsed.rgb);
+  if (l <= 0.05 || l >= 0.98) return null;
+  if (s < MIN_FILL_SATURATION) return null;
+  return { s, l, alpha: parsed.alpha };
+}
+function isPillShaped(element) {
+  const style = element.computedStyles ?? {};
+  const display = (style.display || "").trim().toLowerCase();
+  if (display.startsWith("inline")) return true;
+  if (!display && INLINE_BY_DEFAULT.has((element.tagName || "").toLowerCase())) return true;
+  const radius = parseFloat(style.borderRadius || "0");
+  return Number.isFinite(radius) && radius >= element.bounds.height / 4;
+}
+var STATUS_WORD, BADGE_MAX_HEIGHT, BADGE_MAX_WIDTH, BADGE_MAX_CHARS, BADGE_MAX_WORDS, MIN_FILL_ALPHA, MIN_FILL_SATURATION, INLINE_BY_DEFAULT, signalNoiseRules;
 var init_signal_noise = __esm({
   "src/design-system/principles/signal-noise.ts"() {
     "use strict";
+    init_color_parse();
+    STATUS_WORD = /^(success|successful|error|warning|pending|active|inactive|status|failed|completed|approved|rejected)$/i;
+    BADGE_MAX_HEIGHT = 32;
+    BADGE_MAX_WIDTH = 200;
+    BADGE_MAX_CHARS = 24;
+    BADGE_MAX_WORDS = 3;
+    MIN_FILL_ALPHA = 0.15;
+    MIN_FILL_SATURATION = 0.25;
+    INLINE_BY_DEFAULT = /* @__PURE__ */ new Set(["span", "a", "b", "strong", "em", "small", "mark", "code", "label", "abbr"]);
     signalNoiseRules = [
       {
         id: "calm-precision/signal-noise-status",
@@ -32312,21 +32953,23 @@ var init_signal_noise = __esm({
         check: (element, _context) => {
           const style = element.computedStyles;
           if (!style) return null;
-          const text = (element.text || "").toLowerCase();
-          const isStatus = /\b(success|error|warning|pending|active|inactive|status|failed|completed|approved|rejected)\b/i.test(text);
-          if (!isStatus) return null;
+          const status = statusLabel(element.text);
+          if (!status) return null;
+          const { width, height } = element.bounds ?? { width: 0, height: 0 };
+          if (width <= 0 || height <= 0) return null;
+          if (height > BADGE_MAX_HEIGHT || width > BADGE_MAX_WIDTH) return null;
+          if (!isPillShaped(element)) return null;
           const bg = style.backgroundColor || style["background-color"];
-          if (!bg || bg === "transparent" || bg === "rgba(0, 0, 0, 0)") return null;
-          const subtleMatch = bg.match(/rgba?\([^)]*,\s*(0\.(?:0[0-9]|1[0-4]))\)/);
-          if (subtleMatch) return null;
+          const fill = saturatedFill(bg);
+          if (!fill) return null;
           return {
             ruleId: "calm-precision/signal-noise-status",
             ruleName: "Signal-to-Noise: Status Indication",
             severity: "error",
-            message: `Status element "${text.slice(0, 30)}" has heavy background (${bg}). Use text color only for status.`,
+            message: `Status badge "${(element.text || "").trim()}" (${width}x${height}px) is a filled pill (${bg}). Show status as coloured text, not a background badge.`,
             element: element.selector,
             bounds: element.bounds,
-            fix: "Remove background color. Use text color (green for success, red for error, yellow for warning) instead of background badges."
+            fix: "Remove background color. Use text color (green for success, red for error, amber for warning) with font-medium instead of a background badge."
           };
         }
       }
@@ -32369,26 +33012,6 @@ var init_fitts = __esm({
   }
 });
 
-// src/design-system/principles/visibility.ts
-function isVisibleInteractive(element) {
-  if (!element.interactive?.hasOnClick && !element.interactive?.hasHref) return false;
-  const bounds = element.bounds;
-  if (!bounds || bounds.width <= 0 || bounds.height <= 0) return false;
-  const display = element.computedStyles?.display?.trim().toLowerCase();
-  const visibility = element.computedStyles?.visibility?.trim().toLowerCase();
-  const opacity = Number.parseFloat(element.computedStyles?.opacity ?? "1");
-  if (display === "none") return false;
-  if (visibility === "hidden" || visibility === "collapse") return false;
-  if (Number.isFinite(opacity) && opacity <= 0) return false;
-  if (element.ancestorOpacity !== void 0 && element.ancestorOpacity <= 0) return false;
-  return true;
-}
-var init_visibility = __esm({
-  "src/design-system/principles/visibility.ts"() {
-    "use strict";
-  }
-});
-
 // src/design-system/principles/hick.ts
 var hickRules;
 var init_hick = __esm({
@@ -32428,8 +33051,71 @@ var init_hick = __esm({
 });
 
 // src/design-system/principles/content-chrome.ts
-function isChrome(el) {
-  return CHROME_SELECTORS.test(el.tagName) || CHROME_SELECTORS.test(el.selector || "") || CHROME_SELECTORS.test(el.a11y?.role || "");
+function parsePath(selector) {
+  return selector.split(">").map((raw) => {
+    const seg = raw.trim();
+    if (seg.startsWith("#")) return { tag: "", cls: null, isId: true };
+    const tag = (seg.match(/^[a-z][a-z0-9-]*/i)?.[0] ?? "").toLowerCase();
+    const cls = seg.match(/\.([^.:#\s[]+)/)?.[1] ?? null;
+    return { tag, cls, isId: false };
+  });
+}
+function classTokens(el) {
+  return (el.className || "").split(/\s+/).filter(Boolean);
+}
+function isAnswerControl(el, ancestors) {
+  const tag = (el.tagName || "").toLowerCase();
+  const role = (el.a11y?.role || "").toLowerCase();
+  if (ANSWER_ROLES.has(role)) return true;
+  const isControl = CONTROL_TAGS2.has(tag) || role === "button";
+  return isControl && ancestors.some((a) => FORM_SCOPES.has(a.tag));
+}
+function isScoped(el, ancestors, rootedAtId, population) {
+  if (ancestors.some((a) => SECTIONING_SCOPES.has(a.tag))) return true;
+  if (!rootedAtId || !el.bounds) return false;
+  const b = el.bounds;
+  return population.some((p) => {
+    if (p === el || p.selector === el.selector) return false;
+    if (!SECTIONING_SCOPES.has((p.tagName || "").toLowerCase()) || !p.bounds) return false;
+    const q = p.bounds;
+    if (q.width <= 0 || q.height <= 0) return false;
+    return b.x >= q.x && b.y >= q.y && b.x + b.width <= q.x + q.width && b.y + b.height <= q.y + q.height;
+  });
+}
+function isChrome(el, population = []) {
+  const tag = (el.tagName || "").toLowerCase();
+  const role = (el.a11y?.role || "").toLowerCase();
+  const path3 = parsePath(el.selector || "");
+  const ancestors = path3.slice(0, -1);
+  const rootedAtId = path3[0]?.isId ?? false;
+  const scoped = isScoped(el, ancestors, rootedAtId, population);
+  if (isAnswerControl(el, ancestors)) return false;
+  if (CHROME_ROLES.has(role)) return true;
+  if (CHROME_TAGS.has(tag)) return true;
+  if (SCOPED_CHROME_TAGS.has(tag) && !scoped) return true;
+  for (const t of classTokens(el)) {
+    if (!CHROME_CLASS_TOKEN.test(t)) continue;
+    if (SCOPED_CLASS_TOKEN.test(t) && scoped) continue;
+    return true;
+  }
+  return ancestors.some((a, i) => {
+    if (!a.cls || !CHROME_CLASS_TOKEN.test(a.cls)) return false;
+    if (!SCOPED_CLASS_TOKEN.test(a.cls)) return true;
+    return !ancestors.slice(0, i).some((b) => SECTIONING_SCOPES.has(b.tag));
+  });
+}
+function outermostChrome(chrome) {
+  const sorted = [...chrome].sort((a, b) => b.bounds.width * b.bounds.height - a.bounds.width * a.bounds.height);
+  const kept = [];
+  for (const el of sorted) {
+    const b = el.bounds;
+    const inside = kept.some((k) => b.x >= k.bounds.x && b.y >= k.bounds.y && b.x + b.width <= k.bounds.x + k.bounds.width && b.y + b.height <= k.bounds.y + k.bounds.height);
+    if (!inside) kept.push(el);
+  }
+  return kept;
+}
+function fmtBox(b) {
+  return `(${Math.round(b.x)},${Math.round(b.y)} ${Math.round(b.width)}x${Math.round(b.height)})`;
 }
 function unionAreaPx(rects, viewportWidth, viewportHeight) {
   const CELL = 8;
@@ -32450,12 +33136,33 @@ function unionAreaPx(rects, viewportWidth, viewportHeight) {
   for (let i = 0; i < covered.length; i++) cells += covered[i];
   return cells * CELL * CELL;
 }
-var CHROME_SELECTORS, CONTROL_TAGS, contentChromeRules;
+var CHROME_TAGS, SCOPED_CHROME_TAGS, SECTIONING_SCOPES, CHROME_ROLES, CHROME_CLASS_TOKEN, SCOPED_CLASS_TOKEN, ANSWER_ROLES, FORM_SCOPES, CONTROL_TAGS2, MAX_NAMED_CHROME, contentChromeRules;
 var init_content_chrome = __esm({
   "src/design-system/principles/content-chrome.ts"() {
     "use strict";
-    CHROME_SELECTORS = /\b(nav|header|footer|sidebar|toolbar|menu|breadcrumb|tabs)\b/i;
-    CONTROL_TAGS = /* @__PURE__ */ new Set([
+    CHROME_TAGS = /* @__PURE__ */ new Set(["nav"]);
+    SCOPED_CHROME_TAGS = /* @__PURE__ */ new Set(["header", "footer"]);
+    SECTIONING_SCOPES = /* @__PURE__ */ new Set(["main", "article", "aside", "nav", "section"]);
+    CHROME_ROLES = /* @__PURE__ */ new Set([
+      "navigation",
+      "banner",
+      "contentinfo",
+      "toolbar",
+      "menu",
+      "menubar"
+    ]);
+    CHROME_CLASS_TOKEN = /^((site|app|page|global|main|top|primary)-)?(nav|navbar|navigation|header|footer|sidebar|toolbar|menu|menubar|breadcrumb|breadcrumbs|tabs|topbar|appbar)$/i;
+    SCOPED_CLASS_TOKEN = /^((site|app|page|global|main|top|primary)-)?(header|footer)$/i;
+    ANSWER_ROLES = /* @__PURE__ */ new Set([
+      "radio",
+      "option",
+      "checkbox",
+      "menuitemradio",
+      "menuitemcheckbox",
+      "switch"
+    ]);
+    FORM_SCOPES = /* @__PURE__ */ new Set(["form", "fieldset"]);
+    CONTROL_TAGS2 = /* @__PURE__ */ new Set([
       "button",
       "a",
       "input",
@@ -32464,6 +33171,7 @@ var init_content_chrome = __esm({
       "summary",
       "details"
     ]);
+    MAX_NAMED_CHROME = 10;
     contentChromeRules = [
       {
         id: "calm-precision/content-chrome-ratio",
@@ -32475,9 +33183,9 @@ var init_content_chrome = __esm({
           if (context.allElements[0]?.selector !== element.selector) return null;
           const viewportArea = context.viewportWidth * context.viewportHeight;
           if (viewportArea === 0) return null;
-          const chromeElements = context.allElements.filter((el) => isChrome(el) && el.bounds);
+          const chromeElements = context.allElements.filter((el) => el.bounds && isChrome(el, context.allElements));
           const sawNonControlElements = context.allElements.some(
-            (el) => !CONTROL_TAGS.has(el.tagName)
+            (el) => !CONTROL_TAGS2.has(el.tagName)
           );
           if (chromeElements.length === 0 && !sawNonControlElements) {
             return {
@@ -32489,61 +33197,36 @@ var init_content_chrome = __esm({
             };
           }
           if (chromeElements.length === 0) return null;
+          const vw = context.viewportWidth;
+          const vh = context.viewportHeight;
+          const painted = chromeElements.filter((el) => {
+            const b = el.bounds;
+            return b.width > 0 && b.height > 0 && b.x < vw && b.y < vh && b.x + b.width > 0 && b.y + b.height > 0;
+          });
           const chromeArea = unionAreaPx(
-            chromeElements.map((el) => el.bounds),
+            painted.map((el) => el.bounds),
             context.viewportWidth,
             context.viewportHeight
           );
           const chromePercent = chromeArea / viewportArea * 100;
           if (chromePercent > 30) {
-            return {
+            const named = outermostChrome(painted);
+            const chromeReport = named.map((el) => ({
+              selector: el.selector,
+              tagName: el.tagName,
+              bounds: { x: el.bounds.x, y: el.bounds.y, width: el.bounds.width, height: el.bounds.height }
+            }));
+            const listed = chromeReport.slice(0, MAX_NAMED_CHROME).map((c) => `${c.selector} ${fmtBox(c.bounds)}`);
+            const more = chromeReport.length - listed.length;
+            const violation = {
               ruleId: "calm-precision/content-chrome-ratio",
               ruleName: "Content >= Chrome",
               severity: "warn",
-              message: `Chrome elements occupy ~${Math.round(chromePercent)}% of viewport (${chromeElements.length} chrome element(s) measured). Content should be >= 70%.`,
-              fix: "Reduce navigation/toolbar/sidebar chrome. Consider collapsible panels or minimized navigation."
+              message: `Chrome elements occupy ~${Math.round(chromePercent)}% of viewport (${painted.length} chrome element(s) measured). Counted as chrome: ${listed.join("; ")}${more > 0 ? `; +${more} more` : ""}. Content should be >= 70%.`,
+              fix: "Reduce navigation/toolbar/sidebar chrome. Consider collapsible panels or minimized navigation.",
+              chromeElements: chromeReport
             };
-          }
-          return null;
-        }
-      }
-    ];
-  }
-});
-
-// src/design-system/principles/cognitive-load.ts
-var cognitiveLoadRules;
-var init_cognitive_load = __esm({
-  "src/design-system/principles/cognitive-load.ts"() {
-    "use strict";
-    init_visibility();
-    cognitiveLoadRules = [
-      {
-        id: "calm-precision/cognitive-load-elements",
-        name: "Cognitive Load: Element Count",
-        description: "Visual groups should have 5-7 items max to stay within working memory limits",
-        defaultSeverity: "warn",
-        appliesTo: "any",
-        check: (element, context) => {
-          if (element.interactive?.hasOnClick || element.interactive?.hasHref) return null;
-          if (!element.bounds) return null;
-          const { x, y, width, height } = element.bounds;
-          if (width <= 0 || height <= 0) return null;
-          const children = context.allElements.filter((el) => {
-            if (el.selector === element.selector) return false;
-            if (!isVisibleInteractive(el)) return false;
-            return el.bounds.x >= x && el.bounds.y >= y && el.bounds.x + el.bounds.width <= x + width && el.bounds.y + el.bounds.height <= y + height;
-          });
-          if (children.length > 10) {
-            return {
-              ruleId: "calm-precision/cognitive-load-elements",
-              ruleName: "Cognitive Load: Element Count",
-              severity: "warn",
-              message: `Container has ${children.length} interactive elements. Consider grouping or progressive disclosure (5-7 max per group).`,
-              element: element.selector,
-              bounds: element.bounds,
-              fix: 'Group related actions. Use sections, tabs, or "Show more" to reduce visible elements per group.'
-            };
+            return violation;
           }
           return null;
         }
@@ -32917,191 +33600,6 @@ function collectInteractionMap(ctx) {
 var init_interaction_map = __esm({
   "src/sensors/interaction-map.ts"() {
     "use strict";
-  }
-});
-
-// src/rules/color-parse.ts
-function linearToSrgb(c) {
-  const v = c <= 31308e-7 ? 12.92 * c : 1.055 * Math.pow(Math.max(0, c), 1 / 2.4) - 0.055;
-  return clamp255(v * 255);
-}
-function oklabToLinearSrgb(L, a, b) {
-  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
-  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
-  const s_ = L - 0.0894841775 * a - 1.291485548 * b;
-  const l = l_ ** 3, m = m_ ** 3, s = s_ ** 3;
-  return [
-    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
-    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
-    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s
-  ];
-}
-function labToLinearSrgb(L, a, bb) {
-  const fy = (L + 16) / 116, fx = fy + a / 500, fz = fy - bb / 200;
-  const f = (t) => t ** 3 > 8856e-6 ? t ** 3 : (116 * t - 16) / 903.3;
-  const X = 0.96422 * f(fx), Y = 1 * f(fy), Z = 0.82521 * f(fz);
-  return [
-    3.1338561 * X - 1.6168667 * Y - 0.4906146 * Z,
-    -0.9787684 * X + 1.9161415 * Y + 0.033454 * Z,
-    0.0719453 * X - 0.2289914 * Y + 1.4052427 * Z
-  ];
-}
-function num(tok, pctBasis = 1) {
-  const t = tok.trim();
-  if (t.endsWith("%")) return parseFloat(t) / 100 * pctBasis;
-  return parseFloat(t);
-}
-function splitArgs(body) {
-  const [main, alphaPart] = body.split("/");
-  const parts = main.trim().split(/[\s,]+/).filter(Boolean);
-  const alpha = alphaPart !== void 0 ? num(alphaPart, 1) : 1;
-  return { parts, alpha };
-}
-function hslToRgb(h, s, l) {
-  const c = (1 - Math.abs(2 * l - 1)) * s;
-  const hp = (h % 360 + 360) % 360 / 60;
-  const x = c * (1 - Math.abs(hp % 2 - 1));
-  const [r1, g1, b1] = hp < 1 ? [c, x, 0] : hp < 2 ? [x, c, 0] : hp < 3 ? [0, c, x] : hp < 4 ? [0, x, c] : hp < 5 ? [x, 0, c] : [c, 0, x];
-  const m = l - c / 2;
-  return [clamp255((r1 + m) * 255), clamp255((g1 + m) * 255), clamp255((b1 + m) * 255)];
-}
-function parseColor2(color) {
-  const raw = (color ?? "").trim();
-  if (!raw) return { kind: "none", reason: "empty" };
-  const lower = raw.toLowerCase();
-  if (lower === "transparent") return { kind: "none", reason: "transparent" };
-  if (["initial", "inherit", "unset", "revert", "currentcolor", "none", "auto"].includes(lower)) {
-    return { kind: "none", reason: lower };
-  }
-  if (NAMED[lower]) return { kind: "rgb", rgb: NAMED[lower], alpha: 1 };
-  const hex3 = lower.match(/^#([0-9a-f]{3,8})$/);
-  if (hex3) {
-    const h = hex3[1];
-    const exp = (i) => parseInt(h[i] + h[i], 16);
-    const pair2 = (i) => parseInt(h.slice(i, i + 2), 16);
-    if (h.length === 3) return { kind: "rgb", rgb: [exp(0), exp(1), exp(2)], alpha: 1 };
-    if (h.length === 4) return { kind: "rgb", rgb: [exp(0), exp(1), exp(2)], alpha: exp(3) / 255 };
-    if (h.length === 6) return { kind: "rgb", rgb: [pair2(0), pair2(2), pair2(4)], alpha: 1 };
-    if (h.length === 8) return { kind: "rgb", rgb: [pair2(0), pair2(2), pair2(4)], alpha: pair2(6) / 255 };
-    return { kind: "unsupported", raw };
-  }
-  const fn = lower.match(/^([a-z]+)\(([^)]*)\)$/);
-  if (!fn) return { kind: "unsupported", raw };
-  const [, name, body] = fn;
-  const { parts, alpha } = splitArgs(body);
-  if (alpha === 0) return { kind: "none", reason: "alpha-0" };
-  const finite2 = (r) => r.kind === "rgb" && (!r.rgb.every(Number.isFinite) || !Number.isFinite(r.alpha)) ? { kind: "unsupported", raw } : r;
-  try {
-    return finite2(parseColorBody(name, parts, alpha, raw));
-  } catch {
-    return { kind: "unsupported", raw };
-  }
-}
-function parseColorBody(name, parts, alpha, raw) {
-  {
-    switch (name) {
-      case "rgb":
-      case "rgba": {
-        const rgb = [
-          clamp255(num(parts[0], 255)),
-          clamp255(num(parts[1], 255)),
-          clamp255(num(parts[2], 255))
-        ];
-        const a = parts[3] !== void 0 ? num(parts[3]) : alpha;
-        return a === 0 ? { kind: "none", reason: "alpha-0" } : { kind: "rgb", rgb, alpha: a };
-      }
-      case "hsl":
-      case "hsla": {
-        const a = parts[3] !== void 0 ? num(parts[3]) : alpha;
-        if (a === 0) return { kind: "none", reason: "alpha-0" };
-        return { kind: "rgb", rgb: hslToRgb(parseFloat(parts[0]), num(parts[1], 1), num(parts[2], 1)), alpha: a };
-      }
-      case "oklch":
-      case "lch": {
-        const L = num(parts[0], name === "oklch" ? 1 : 100);
-        const C = num(parts[1], name === "oklch" ? 0.4 : 150);
-        const H = (parseFloat(parts[2]) || 0) * (Math.PI / 180);
-        const a = C * Math.cos(H), b = C * Math.sin(H);
-        const lin = name === "oklch" ? oklabToLinearSrgb(L, a, b) : labToLinearSrgb(L, a, b);
-        return { kind: "rgb", rgb: lin.map(linearToSrgb), alpha };
-      }
-      case "oklab":
-      case "lab": {
-        const L = num(parts[0], name === "oklab" ? 1 : 100);
-        const a = num(parts[1], name === "oklab" ? 0.4 : 125);
-        const b = num(parts[2], name === "oklab" ? 0.4 : 125);
-        const lin = name === "oklab" ? oklabToLinearSrgb(L, a, b) : labToLinearSrgb(L, a, b);
-        return { kind: "rgb", rgb: lin.map(linearToSrgb), alpha };
-      }
-      case "color": {
-        const space = parts[0];
-        if (space !== "srgb" && space !== "srgb-linear" && space !== "display-p3") {
-          return { kind: "unsupported", raw };
-        }
-        const ch = parts.slice(1, 4).map((p) => num(p, 1));
-        const rgb = space === "srgb-linear" ? ch.map(linearToSrgb) : ch.map((v) => clamp255(v * 255));
-        return { kind: "rgb", rgb, alpha };
-      }
-      default:
-        return { kind: "unsupported", raw };
-    }
-  }
-}
-function flatten(fg, bg) {
-  if (fg.kind !== "rgb") return null;
-  if (fg.alpha >= 1) return fg.rgb;
-  return fg.rgb.map((c, i) => clamp255(c * fg.alpha + bg[i] * (1 - fg.alpha)));
-}
-function resolveEffectiveBackground(chain) {
-  const layers = [];
-  for (const raw of chain) {
-    const parsed = parseColor2(raw);
-    if (parsed.kind === "unsupported") {
-      return { rgb: CANVAS_BASE, resolved: false, unsupported: parsed.raw };
-    }
-    if (parsed.kind === "none") continue;
-    layers.push({ rgb: parsed.rgb, alpha: parsed.alpha });
-    if (parsed.alpha >= 1) break;
-  }
-  const bottom = layers[layers.length - 1];
-  const resolved = bottom !== void 0 && bottom.alpha >= 1;
-  let acc = resolved ? bottom.rgb : CANVAS_BASE;
-  for (let i = resolved ? layers.length - 2 : layers.length - 1; i >= 0; i--) {
-    const layer = layers[i];
-    acc = layer.rgb.map(
-      (c, ch) => clamp255(c * layer.alpha + acc[ch] * (1 - layer.alpha))
-    );
-  }
-  return { rgb: acc, resolved };
-}
-var NAMED, clamp255, CANVAS_BASE;
-var init_color_parse = __esm({
-  "src/rules/color-parse.ts"() {
-    "use strict";
-    NAMED = {
-      black: [0, 0, 0],
-      white: [255, 255, 255],
-      red: [255, 0, 0],
-      green: [0, 128, 0],
-      blue: [0, 0, 255],
-      gray: [128, 128, 128],
-      grey: [128, 128, 128],
-      silver: [192, 192, 192],
-      maroon: [128, 0, 0],
-      olive: [128, 128, 0],
-      lime: [0, 255, 0],
-      aqua: [0, 255, 255],
-      cyan: [0, 255, 255],
-      teal: [0, 128, 128],
-      navy: [0, 0, 128],
-      fuchsia: [255, 0, 255],
-      magenta: [255, 0, 255],
-      purple: [128, 0, 128],
-      yellow: [255, 255, 0],
-      orange: [255, 165, 0]
-    };
-    clamp255 = (v) => Math.max(0, Math.min(255, Math.round(v)));
-    CANVAS_BASE = [255, 255, 255];
   }
 });
 
@@ -36122,6 +36620,100 @@ __export(scan_exports, {
   scan: () => scan,
   summarizeContrastCoverage: () => summarizeContrastCoverage
 });
+async function extractControlGroups(page, visibleControlSelectors) {
+  const raw = await page.evaluate((input) => {
+    const groupTags = new Set(input.groupTags);
+    const groupRoles = new Set(input.groupRoles);
+    const NATIVE = 'a[href], button, input:not([type="hidden"]), select, textarea, summary, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="switch"], [role="tab"], [role="menuitem"], [role="option"]';
+    const selectorOf = (el) => {
+      const path3 = [];
+      let cur = el;
+      while (cur && cur !== document.body) {
+        let seg = cur.tagName.toLowerCase();
+        if (cur.id) {
+          path3.unshift("#" + cur.id);
+          break;
+        }
+        const cn = cur.className;
+        if (typeof cn === "string" && cn.trim()) {
+          const c = cn.split(" ").filter((x) => x.trim() && !x.includes(":"))[0];
+          if (c) seg += "." + c;
+        }
+        const parent = cur.parentElement;
+        if (parent) {
+          const tag = cur.tagName;
+          const sibs = Array.from(parent.children).filter((c) => c.tagName === tag);
+          if (sibs.length > 1) seg += ":nth-of-type(" + (sibs.indexOf(cur) + 1) + ")";
+        }
+        path3.unshift(seg);
+        cur = cur.parentElement;
+      }
+      return path3.join(" > ").slice(0, 200);
+    };
+    const visible = (el) => {
+      const r = el.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) return false;
+      const cv = el.checkVisibility;
+      if (typeof cv === "function") {
+        return cv.call(el, { opacityProperty: true, visibilityProperty: true });
+      }
+      const cs = window.getComputedStyle(el);
+      return cs.visibility !== "hidden" && cs.visibility !== "collapse" && cs.opacity !== "0";
+    };
+    const controls = /* @__PURE__ */ new Set();
+    for (const sel of input.selectors) {
+      try {
+        const found = document.querySelectorAll(sel);
+        if (found.length === 1) controls.add(found[0]);
+      } catch {
+      }
+    }
+    document.querySelectorAll(NATIVE).forEach((el) => {
+      if (visible(el)) controls.add(el);
+    });
+    const isGrouping = (el) => {
+      const role = (el.getAttribute("role") || "").toLowerCase();
+      if (role && groupRoles.has(role)) return true;
+      return groupTags.has(el.tagName.toLowerCase());
+    };
+    const isWrapper = (el) => el.tagName.toLowerCase() === "main" || (el.getAttribute("role") || "").toLowerCase() === "main";
+    const owned = /* @__PURE__ */ new Map();
+    controls.forEach((c) => {
+      for (let a = c.parentElement; a; a = a.parentElement) if (controls.has(a)) return;
+      for (let a = c.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+        const grouping = isGrouping(a);
+        if (grouping || isWrapper(a)) {
+          const list = owned.get(a) ?? [];
+          list.push(c);
+          owned.set(a, list);
+        }
+        if (grouping) break;
+      }
+    });
+    const out = [];
+    owned.forEach((list, g) => {
+      const r = g.getBoundingClientRect();
+      out.push({
+        selector: selectorOf(g),
+        tagName: g.tagName.toLowerCase(),
+        role: g.getAttribute("role"),
+        bounds: { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) },
+        ownedControls: list.length,
+        controlSelectors: list.slice(0, 10).map(selectorOf)
+      });
+    });
+    return out;
+  }, { selectors: visibleControlSelectors, groupTags: [...GROUPING_TAGS], groupRoles: [...GROUPING_ROLES] });
+  return raw.map((g) => ({
+    selector: g.selector,
+    tagName: g.tagName,
+    text: "",
+    bounds: g.bounds,
+    interactive: { hasOnClick: false, hasHref: false, isDisabled: false, tabIndex: -1, cursor: "default" },
+    a11y: { role: g.role, ariaLabel: null, ariaDescribedBy: null },
+    controlGroup: { ownedControls: g.ownedControls, controlSelectors: g.controlSelectors }
+  }));
+}
 async function initScanCookies(driver3, ownDriver, cookies) {
   if (!ownDriver) {
     try {
@@ -36204,6 +36796,10 @@ async function scan(url2, options = {}) {
       waitUntil: "domcontentloaded",
       timeout
     });
+    const landedUrl = await page.evaluate(() => document.URL).catch(() => "");
+    if (typeof landedUrl === "string" && landedUrl.startsWith("chrome-error://")) {
+      throw new Error(`Navigation failed: ${url2} could not be loaded (Chrome showed its error page)`);
+    }
     let networkIdleTimedOut = false;
     await page.waitForLoadState?.("networkidle", { timeout: patience ?? networkIdleTimeout ?? 1e4 }).catch(() => {
       networkIdleTimedOut = true;
@@ -36260,7 +36856,7 @@ async function scan(url2, options = {}) {
     } catch {
       route = url2;
     }
-    const layoutCollisions = detectLayoutCollisions(elements.all);
+    const layoutCollisions = await excludeDomRelatedCollisions(page, detectLayoutCollisions(elements.all));
     const issues = aggregateIssues(elements.audit, interactivity, semantic, consoleErrors, themeAnalysis);
     let cssExtract;
     let cssExtractionFailed;
@@ -36356,6 +36952,19 @@ async function scan(url2, options = {}) {
       options.outputDir || process.cwd()
     );
     if (resolvedRules.presets.length > 0 || Object.keys(resolvedRules.config.rules ?? {}).length > 0) {
+      let controlGroups;
+      if (activeRuleIds.has(COGNITIVE_LOAD_RULE_ID)) {
+        try {
+          controlGroups = await extractControlGroups(
+            page,
+            elements.all.filter(isVisibleInteractive).map((el) => el.selector)
+          );
+        } catch {
+          controlGroups = void 0;
+        }
+      }
+      const containerViolations = runRules(containerElements, ruleContext, resolvedRules.config, { surface: "content" }).filter((v) => !controlGroups || v.ruleId !== COGNITIVE_LOAD_RULE_ID);
+      const groupViolations = controlGroups ? runRules(controlGroups, ruleContext, resolvedRules.config, { surface: "content" }).filter((v) => v.ruleId === COGNITIVE_LOAD_RULE_ID) : [];
       const presetViolations = [
         ...runRules(elements.all, ruleContext, resolvedRules.config, { surface: "interactive" }),
         ...runRules(contentAsElements, ruleContext, resolvedRules.config, { surface: "content" }),
@@ -36365,15 +36974,18 @@ async function scan(url2, options = {}) {
         // rules could not fire even once the styles existed. Filtered to the
         // tags the content pass does not already carry, so nothing is graded
         // twice.
-        ...runRules(containerElements, ruleContext, resolvedRules.config, { surface: "content" })
+        ...containerViolations,
+        ...groupViolations
       ];
       for (const v of presetViolations) {
+        const chromeElements = v.chromeElements;
         issues.push({
           category: "interactivity",
           severity: v.severity === "error" ? "error" : "warning",
           element: v.element,
           description: `[${v.ruleId}] ${v.message}`,
-          fix: v.fix
+          fix: v.fix,
+          ...chromeElements ? { evidence: { chromeElements } } : {}
         });
       }
     }
@@ -36798,6 +37410,7 @@ function formatScanResult(result) {
       const t1 = c.element1.text.slice(0, 30);
       const t2 = c.element2.text.slice(0, 30);
       lines.push(`    \x1B[31m\u2717\x1B[0m "${t1}" overlaps "${t2}" by ${pct}% (${overlapPx}px overlap)`);
+      lines.push(`      ${c.element1.selector}  \xD7  ${c.element2.selector}`);
     }
     lines.push("");
   }
@@ -36827,7 +37440,7 @@ function formatScanResult(result) {
   lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   return lines.join("\n");
 }
-var CONTAINER_TAGS, IssueCollector;
+var CONTAINER_TAGS, COGNITIVE_LOAD_RULE_ID, IssueCollector;
 var init_scan = __esm({
   "src/scan.ts"() {
     "use strict";
@@ -36838,6 +37451,8 @@ var init_scan = __esm({
     init_interactivity();
     init_semantic();
     init_layout_collision();
+    init_cognitive_load();
+    init_visibility();
     init_consistency();
     init_design_system();
     init_wait();
@@ -36858,6 +37473,7 @@ var init_scan = __esm({
       "section",
       "form"
     ]);
+    COGNITIVE_LOAD_RULE_ID = "calm-precision/cognitive-load-elements";
     IssueCollector = class {
       issues = [];
       add(issue2) {
@@ -39272,8 +39888,8 @@ async function* askStream(url2, question, options = {}) {
   } else {
     if (typeof options.screenshot === "string" || options.screenshot === true) {
       const { mkdir: mkdir30 } = await import("fs/promises");
-      const { dirname: dirname15 } = await import("path");
-      if (screenshotPath) await mkdir30(dirname15(screenshotPath), { recursive: true });
+      const { dirname: dirname16 } = await import("path");
+      if (screenshotPath) await mkdir30(dirname16(screenshotPath), { recursive: true });
     }
     const result = await scan(url2, {
       viewport: options.viewport ?? "desktop",
@@ -55292,7 +55908,7 @@ var init_tools = __esm({
   }
 });
 
-// node_modules/commander/lib/error.js
+// ../../interface-built-right/node_modules/commander/lib/error.js
 var CommanderError = class extends Error {
   /**
    * Constructs the CommanderError class
@@ -55321,7 +55937,7 @@ var InvalidArgumentError = class extends CommanderError {
   }
 };
 
-// node_modules/commander/lib/argument.js
+// ../../interface-built-right/node_modules/commander/lib/argument.js
 var Argument = class {
   /**
    * Initialize a new command argument with the given name and description.
@@ -55442,7 +56058,7 @@ function humanReadableArgName(arg) {
   return arg.required ? "<" + nameOutput + ">" : "[" + nameOutput + "]";
 }
 
-// node_modules/commander/lib/command.js
+// ../../interface-built-right/node_modules/commander/lib/command.js
 var import_node_events = require("events");
 var import_node_child_process = __toESM(require("child_process"), 1);
 var import_node_path = __toESM(require("path"), 1);
@@ -55450,7 +56066,7 @@ var import_node_fs = __toESM(require("fs"), 1);
 var import_node_process = __toESM(require("process"), 1);
 var import_node_util2 = require("util");
 
-// node_modules/commander/lib/help.js
+// ../../interface-built-right/node_modules/commander/lib/help.js
 var import_node_util = require("util");
 var Help = class {
   constructor() {
@@ -56042,7 +56658,7 @@ ${itemIndentStr}`);
   }
 };
 
-// node_modules/commander/lib/option.js
+// ../../interface-built-right/node_modules/commander/lib/option.js
 var Option = class {
   /**
    * Initialize a new `Option` with the given `flags` and `description`.
@@ -56348,7 +56964,7 @@ function splitOptionFlags(flags) {
   return { shortFlag, longFlag };
 }
 
-// node_modules/commander/lib/suggestSimilar.js
+// ../../interface-built-right/node_modules/commander/lib/suggestSimilar.js
 var maxDistance = 3;
 function editDistance(a, b) {
   if (Math.abs(a.length - b.length) > maxDistance)
@@ -56423,7 +57039,7 @@ function suggestSimilar(word, candidates) {
   return "";
 }
 
-// node_modules/commander/lib/command.js
+// ../../interface-built-right/node_modules/commander/lib/command.js
 var Command = class _Command extends import_node_events.EventEmitter {
   /**
    * Initialize a new `Command`.
@@ -58657,7 +59273,7 @@ function useColor() {
   return void 0;
 }
 
-// node_modules/commander/index.js
+// ../../interface-built-right/node_modules/commander/index.js
 var program = new Command();
 
 // src/bin/ibr.ts
@@ -58690,6 +59306,13 @@ function ensureToolchainPath(env = process.env) {
 
 // src/bin/ibr.ts
 init_driver();
+
+// src/exit-codes.ts
+var EXIT_PASS = 0;
+var EXIT_ISSUES = 1;
+var EXIT_TOOL_ERROR = 2;
+
+// src/bin/ibr.ts
 init_compat();
 init_index();
 init_operation_tracker();
@@ -59866,6 +60489,15 @@ function registerDesignSpecCommands(program3) {
 
 // src/bin/ibr.ts
 ensureToolchainPath();
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled rejection:", reason instanceof Error ? reason.stack || reason.message : reason);
+  process.exit(EXIT_TOOL_ERROR);
+});
+process.on("uncaughtException", (err) => {
+  if (process.listenerCount("uncaughtException") > 1) return;
+  console.error("Uncaught exception:", err instanceof Error ? err.stack || err.message : err);
+  process.exit(EXIT_TOOL_ERROR);
+});
 function readPackageVersion() {
   try {
     const pkg = JSON.parse((0, import_fs29.readFileSync)((0, import_path43.join)(__dirname, "..", "..", "package.json"), "utf8"));
@@ -59965,7 +60597,7 @@ program2.hook("postAction", async (_thisCommand, actionCommand) => {
     }
     activeSession = null;
   }
-  const code = typeof process.exitCode === "number" ? process.exitCode : 0;
+  const code = typeof process.exitCode === "number" ? process.exitCode : EXIT_PASS;
   setImmediate(() => process.exit(code));
 });
 program2.hook("preAction", () => {
@@ -60039,7 +60671,48 @@ function withBrowserOptions(opts) {
   };
 }
 program2.name("ibr").description("End-to-end design tool for AI coding agents").version(readPackageVersion());
+program2.exitOverride((err) => {
+  process.exit(err.exitCode === 0 ? EXIT_PASS : EXIT_TOOL_ERROR);
+});
 program2.option("-b, --base-url <url>", "Base URL for the application").option("-o, --output <dir>", "Output directory (default ./.ibr)").option("-v, --viewport <name>", "Viewport: desktop, mobile, tablet (default desktop)").option("-t, --threshold <percent>", "Verdict tolerance percentage (default 1.0; deprecated alias for allowedDiffPercent)").option("--browser <browser>", "Browser to use: chrome or safari", "chrome").option("--browser-mode <mode>", "Browser transport: local or connect").option("--cdp-url <url>", "Connect to an existing browser via CDP HTTP endpoint").option("--ws-endpoint <url>", "Connect to an existing browser via CDP WebSocket endpoint").option("--chrome-path <path>", "Path to Chrome/Chromium executable");
+program2.addHelpText("after", `
+Recipes:
+  Scan at two viewports:
+    ibr scan <url> -v mobile
+    ibr scan <url> -v desktop         # also: tablet, desktop-sm (1440x900), desktop-lg, laptop \u2014 see src/schemas.ts VIEWPORTS
+
+  Interactive session \u2014 thread the session id through each step:
+    ibr session:start <url> --detach  # prints "Session started: <id>"
+    ibr session:click <id> "<selector>"
+    ibr session:type <id> "<selector>" "<text>"
+    ibr session:screenshot <id>
+    ibr session:close <id>            # or: ibr session:close all
+
+  Run JS in a session (wrap await in an async IIFE):
+    ibr session:eval <id> "document.title"
+    ibr session:eval <id> "(async () => { return (await fetch('/api')).status })()"
+
+  Screenshot one element:
+    ibr session:screenshot <id> -s '<selector>'
+
+  Batch a list of URLs, using exit codes to tell crashes from findings:
+    for url in "\${urls[@]}"; do
+      ibr scan "$url" --json > "out-$(basename "$url").json"
+      case $? in
+        0) echo "PASS $url" ;;
+        1) echo "ISSUES $url" ;;
+        2) echo "TOOL ERROR $url \u2014 investigate before trusting the output" ;;
+      esac
+    done
+
+Exit codes: 0 pass (no issues) | 1 issues found (verdict FAIL/ISSUES, a
+failed comparison/test/interaction \u2014 per that command's own policy) | 2 tool
+error (exception, bad argument, navigation/Chrome failure, timeout, or a CLI
+parse error). Loop on 1, stop and investigate on 2.
+
+Global flags -v/-t/-o can shadow a subcommand's own short flags (e.g.
+interact's -t/--target). Use long forms (--target, --value) with interact.
+`);
 program2.command("start [url]").description("Capture a baseline screenshot (auto-detects dev server if no URL)").option("-n, --name <name>", "Session name").option("-s, --selector <css>", "CSS selector to capture specific element").option("-w, --wait-for <selector>", "Wait for selector before screenshot").option("--no-full-page", "Capture only the viewport, not full page").option("--headed", "Show visible browser window (default: headless)").option("--sandbox", "Deprecated alias for --headed").option("--debug", "Visible browser + slow motion + devtools").action(async (url2, options) => {
   try {
     const resolvedUrl = await resolveBaseUrl(url2);
@@ -60061,7 +60734,7 @@ program2.command("start [url]").description("Capture a baseline screenshot (auto
     await ibr.close();
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("auto").description("Zero-config: detect server, scan pages, open viewer").option("-n, --max-pages <count>", "Maximum pages to scan", "5").option("--nav-only", "Only scan navigation links (faster)").option("--no-open", "Do not open browser automatically").action(async (options) => {
@@ -60132,7 +60805,7 @@ program2.command("auto").description("Zero-config: detect server, scan pages, op
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("check [sessionId]").description("Compare current state against baseline").option("-f, --format <format>", "Output format: json, text, minimal", "text").action(async (sessionId, options) => {
@@ -60161,11 +60834,11 @@ program2.command("check [sessionId]").description("Compare current state against
     }
     await ibr.close();
     if (!report.comparison.match && (report.analysis.verdict === "UNEXPECTED_CHANGE" || report.analysis.verdict === "LAYOUT_BROKEN")) {
-      process.exit(1);
+      process.exit(EXIT_ISSUES);
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("audit [url]").description("Full audit: functional checks + visual comparison + semantic verification").option("-r, --rules <preset>", "Override with preset (minimal). Auto-detects from CLAUDE.md by default").option("--show-framework", "Display detected design framework").option("--check-apis [dir]", "Cross-reference UI API calls against backend routes").option("--visual", "Include visual comparison against most recent baseline").option("--baseline <session>", "Compare against specific baseline session").option("--semantic", "Include semantic verification (expected elements, page intent)").option("--full", "Run all checks: functional + visual + semantic (default)").option("--json", "Output as JSON").option("--fail-on <level>", "Exit non-zero on errors/warnings", "error").option("--cookie <pairs>", 'Cookies to set before audit (e.g. "session=abc; csrf=xyz"). Audited URL is used as the cookie origin.').option("--cookie-jar <file>", "Path to a JSON file with an array of {name,value,...} cookie objects (CDP setCookie params).").action(async (url2, options) => {
@@ -60461,13 +61134,13 @@ program2.command("audit [url]").description("Full audit: functional checks + vis
     const hasSemanticIssues = semanticResult && semanticResult.issues.length > 0;
     const hasMissingElements = semanticResult && semanticResult.expectedElements.some((e) => !e.found);
     if (options.failOn === "error" && (result.summary.errors > 0 || hasIntegrationErrors || hasVisualRegression || hasMissingElements)) {
-      process.exit(1);
+      process.exit(EXIT_ISSUES);
     } else if (options.failOn === "warning" && (result.summary.errors > 0 || result.summary.warnings > 0 || hasIntegrationErrors || hasVisualRegression || hasSemanticIssues)) {
-      process.exit(1);
+      process.exit(EXIT_ISSUES);
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 function applyOutputMode(result, mode) {
@@ -60506,7 +61179,14 @@ function applyOutputMode(result, mode) {
 program2.command("scan <url>").description("Full UI scan: elements + interactivity + semantic + console errors").option("-v, --viewport <preset>", "Viewport preset (desktop, mobile, tablet)", "desktop").option(
   "-d, --device <name>",
   `Canonical device profile (overrides --viewport). One of: ${DEVICE_NAMES.join(", ")}`
-).option("--wait-for <selector>", "Wait for selector before scanning").option("--screenshot <path>", "Save screenshot to path").option("--json", "Output as JSON").option("--timeout <ms>", "Page load timeout in ms", "30000").option("--patience <ms>", "Wait longer for slow async content (AI search, LLM results)").option("--network-idle-timeout <ms>", "Network idle timeout in ms (default: 10000)").option("--rules <presets>", 'Rule presets to run. Defaults to touch-targets,wcag-contrast,calm-precision. Use "none" (or --no-rules) to run no preset rules.').option("--no-rules", "Run no preset rules \u2014 restores the pre-default silent behavior").option("--output <mode>", "Output mode: full (default), summary (sensor summaries + verdict only, ~60% fewer tokens), raw (no sensors)", "full").option("--content", "Also extract content elements (headings/paragraphs/images/captions/quotes) and page metadata \u2014 adds scan.content.elements and scan.metadata").option("--full-text", "Capture uncapped element text and complete rendered body text for design-spec checks").action(async (url2, options) => {
+).option("--wait-for <selector>", "Wait for selector before scanning").option("--screenshot <path>", "Save screenshot to path").option("--json", "Output as JSON").option("--timeout <ms>", "Page load timeout in ms", "30000").option("--patience <ms>", "Wait longer for slow async content (AI search, LLM results)").option("--network-idle-timeout <ms>", "Network idle timeout in ms (default: 10000)").option("--rules <presets>", 'Rule presets to run. Defaults to touch-targets,wcag-contrast,calm-precision. Use "none" (or --no-rules) to run no preset rules.').option("--no-rules", "Run no preset rules \u2014 restores the pre-default silent behavior").option("--output <mode>", "Output mode: full (default), summary (sensor summaries + verdict only, ~60% fewer tokens), raw (no sensors)", "full").option("--content", "Also extract content elements (headings/paragraphs/images/captions/quotes) and page metadata \u2014 adds scan.content.elements and scan.metadata").option("--full-text", "Capture uncapped element text and complete rendered body text for design-spec checks").addHelpText("after", `
+Exit codes: 0 = pass (verdict PASS or ISSUES \u2014 the page scanned cleanly, or
+scanned with only non-blocking findings) | 1 = issues found (verdict FAIL
+only \u2014 a real, blocking finding, not a crash) | 2 = tool error
+(navigation/Chrome failure, timeout, or an unhandled exception \u2014 the page
+was never actually scanned). This split (FAIL-only, not ISSUES) is
+unchanged from prior versions \u2014 verdict ISSUES has always exited 0 here.
+`).action(async (url2, options) => {
   try {
     const { scan: scan2, formatScanResult: formatScanResult2 } = await Promise.resolve().then(() => (init_scan(), scan_exports));
     const resolvedUrl = await resolveBaseUrl(url2);
@@ -60543,11 +61223,11 @@ program2.command("scan <url>").description("Full UI scan: elements + interactivi
       console.log(formatScanResult2(result));
     }
     if (result.verdict === "FAIL") {
-      process.exit(1);
+      process.exit(EXIT_ISSUES);
     }
   } catch (error51) {
     console.error("Scan error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("scan-obsidian <plugin-path>").description("Mount an Obsidian plugin view in a real browser and scan it (computed styles, layout, touch targets, a11y)").requiredOption("--view-class <name>", "View class exported from the bundle (e.g. DailyPlannerView)").option("--viewport <preset>", "Viewport preset (iphone-14, mobile, tablet, desktop)", "iphone-14").option("--mobile", "Force Platform.isMobile = true").option("--desktop", "Force Platform.isMobile = false").option("--theme <name>", "Obsidian theme: dark or light", "dark").option("--view-state <path>", "JSON file of properties assigned onto the view before render (the fixture)").option("--post-mount <js>", "JavaScript evaluated after mount, with `view` and `root` in scope").option("--harness-out <path>", "Write the generated harness HTML here for inspection").option("--screenshot <path>", "Save a screenshot of the mounted view").option("--rules <presets>", "Comma-separated rule presets (default: touch-targets,wcag-contrast)").option("--no-obsidian-css", "Skip Obsidian's real app.css \u2014 renders an APPROXIMATION where var() fallbacks apply and button-height overflow is undetectable").option("--obsidian-css-path <path>", "Explicit path to an extracted app.css or an obsidian.asar (non-standard install)").option("--no-layout-overflow", "Skip layout-overflow detection").option("--json", "Output as JSON").action(async (pluginPath, options) => {
@@ -60576,11 +61256,11 @@ program2.command("scan-obsidian <plugin-path>").description("Mount an Obsidian p
       console.log(formatObsidianScanResult2(result));
     }
     if (result.verdict === "FAIL" || result.verdict === "PARTIAL") {
-      process.exit(1);
+      process.exit(EXIT_ISSUES);
     }
   } catch (error51) {
     console.error("Obsidian scan error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("ask <url> <question...>").description("Ask a focused question about a page. Returns a token-minimal verdict + findings, not a full scan dump. Viewport set via the top-level `-v/--viewport` flag (see `ibr --help`).").option("--timeout <ms>", "Page load timeout in ms", "30000").option("--max-findings <n>", "Cap returned findings (default 25)", "25").option("--stream", "Emit NDJSON stream \u2014 one event per line (start, finding..., end). Findings arrive as the rule loop produces them.").option("--screenshot", "Capture a page screenshot during the scan. Path is surfaced in response.meta.screenshotPath. Saves to .ibr/ask-screenshots/.").option("--screenshot-path <path>", "Explicit screenshot output path. Implies --screenshot.").option("--cookie <pairs>", 'Cookies to set before ask (e.g. "session=abc; csrf=xyz"). Asked URL is used as the cookie origin. Same shape as `audit`/`observe` \u2014 lets ask reach authenticated routes (dashboards, settings) instead of scanning the login redirect.').option("--cookie-jar <file>", "Path to a JSON file with an array of {name,value,...} cookie objects (CDP setCookie params).").action(async (url2, questionWords, options) => {
@@ -60630,15 +61310,15 @@ program2.command("ask <url> <question...>").description("Ask a focused question 
         process.off("SIGINT", onSig);
         process.off("SIGTERM", onSig);
       }
-      if (endVerdict === "FAIL") process.exit(1);
+      if (endVerdict === "FAIL") process.exit(EXIT_ISSUES);
       return;
     }
     const response = await ask2(resolvedUrl, question, askOpts);
     console.log(JSON.stringify(response, null, 2));
-    if (response.verdict === "FAIL") process.exit(1);
+    if (response.verdict === "FAIL") process.exit(EXIT_ISSUES);
   } catch (error51) {
     console.error("Ask error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("status").description("Show sessions awaiting comparison (baselines without checks)").action(async () => {
@@ -60667,7 +61347,7 @@ program2.command("status").description("Show sessions awaiting comparison (basel
     console.log("  npx ibr check <session-id> # checks specific session");
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("list").description("List all sessions").option("-f, --format <format>", "Output format: json, text", "text").option("--by-app", "Group sessions by app/branch (git context)").action(async (options) => {
@@ -60722,7 +61402,7 @@ program2.command("list").description("List all sessions").option("-f, --format <
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("update [sessionId]").alias("approve").description("Update baseline with current screenshot (alias: approve)").action(async (sessionId) => {
@@ -60734,7 +61414,7 @@ program2.command("update [sessionId]").alias("approve").description("Update base
     await ibr.close();
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("clean").description("Clean old sessions").option("--older-than <duration>", "Delete sessions older than duration (e.g., 7d, 24h)").option("--keep-last <count>", "Keep the last N sessions", "0").option("--dry-run", "Show what would be deleted without deleting").action(async (options) => {
@@ -60761,7 +61441,7 @@ program2.command("clean").description("Clean old sessions").option("--older-than
 Kept: ${result.kept.length} sessions`);
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("delete <sessionId>").description("Delete a specific session").action(async (sessionId) => {
@@ -60772,11 +61452,11 @@ program2.command("delete <sessionId>").description("Delete a specific session").
       console.log(`Deleted session: ${sessionId}`);
     } else {
       console.log(`Session not found: ${sessionId}`);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("serve").description("Start the comparison viewer web UI").option("-p, --port <port>", `Port number (default: ${IBR_DEFAULT_PORT}, auto-scans for available)`).option("--no-open", "Do not open browser automatically").action(async (options) => {
@@ -60829,7 +61509,7 @@ program2.command("serve").description("Start the comparison viewer web UI").opti
         console.log(`Using next available port: ${port}`);
       } catch (e) {
         console.error(e instanceof Error ? e.message : "Failed to find available port");
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
     }
   } else {
@@ -60840,7 +61520,7 @@ program2.command("serve").description("Start the comparison viewer web UI").opti
       }
     } catch (e) {
       console.error(e instanceof Error ? e.message : "Failed to find available port");
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   }
   console.log(`Starting web UI on http://localhost:${port}`);
@@ -60878,7 +61558,7 @@ program2.command("login <url>").description("Open browser for manual login, then
     });
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("logout").description("Clear saved authentication state").action(async () => {
@@ -60889,7 +61569,7 @@ program2.command("logout").description("Clear saved authentication state").actio
     await clearAuthState2(outputDir);
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 var flowCmd = program2.command("flow").description("Execute pre-built interaction flows");
@@ -60912,10 +61592,10 @@ flowCmd.command("search <url>").description("Execute search flow").requiredOptio
     });
     await driver3.close().catch(() => {
     });
-    if (!result.success) process.exit(1);
+    if (!result.success) process.exit(EXIT_ISSUES);
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 flowCmd.command("form <url>").description("Fill and submit a form").requiredOption("--fields <json>", `Field values as JSON, e.g. '{"Email":"test@example.com"}'`).option("--no-submit", "Fill without submitting").option("--session <id>", "Use existing session").action(async (url2, options) => {
@@ -60928,7 +61608,7 @@ flowCmd.command("form <url>").description("Fill and submit a form").requiredOpti
       fieldMap = JSON.parse(options.fields);
     } catch {
       console.error(`--fields must be valid JSON, e.g. '{"Email":"test@example.com"}'`);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
       return;
     }
     const driver3 = new EngineDriver2();
@@ -60948,10 +61628,10 @@ flowCmd.command("form <url>").description("Fill and submit a form").requiredOpti
     if (result.error) console.log(`Error: ${result.error}`);
     await driver3.close().catch(() => {
     });
-    if (!result.success) process.exit(1);
+    if (!result.success) process.exit(EXIT_ISSUES);
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 flowCmd.command("login <url>").description("Execute login flow").requiredOption("--username <text>", "Username or email").requiredOption("--password <text>", "Password").option("--session <id>", "Use existing session").action(async (url2, options) => {
@@ -60973,10 +61653,10 @@ flowCmd.command("login <url>").description("Execute login flow").requiredOption(
     });
     await driver3.close().catch(() => {
     });
-    if (!result.success) process.exit(1);
+    if (!result.success) process.exit(EXIT_ISSUES);
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 async function startDetachedServer(outputDir, argv, expectSession) {
@@ -61162,7 +61842,7 @@ Closing browser server after ${idleMs}ms without IBR session activity.`);
         process.on("uncaughtException", (err) => {
           console.error("Uncaught exception in session:start:", err);
           syncReap();
-          process.exit(1);
+          process.exit(EXIT_TOOL_ERROR);
         });
       });
     } else {
@@ -61188,7 +61868,7 @@ Closing browser server after ${idleMs}ms without IBR session activity.`);
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 async function getSession2(outputDir, sessionId) {
@@ -61203,7 +61883,7 @@ async function getSession2(outputDir, sessionId) {
     console.log("");
     console.log("The first session:start launches the server and keeps it alive.");
     console.log("Run session commands in a separate terminal.");
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
   const session = await PersistentSession2.get(outputDir, sessionId);
   if (!session) {
@@ -61214,12 +61894,12 @@ async function getSession2(outputDir, sessionId) {
     console.log("  2. The session was created with a different browser server");
     console.log("");
     console.log("List sessions with: npx ibr session:list");
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
   if (session.hardWall) {
     console.log(formatUserActionRequired(session.hardWall, true));
     await session.disconnect();
-    process.exit(2);
+    process.exit(EXIT_TOOL_ERROR);
   }
   return session;
 }
@@ -61237,6 +61917,7 @@ program2.command("session:click <sessionId> <selector>").description("Click an e
     await session.click(selector, { force: options.force });
     console.log(`Clicked: ${selector}${options.force ? " (forced)" : ""}`);
   } catch (error51) {
+    process.exitCode = EXIT_TOOL_ERROR;
     const msg = error51 instanceof Error ? error51.message : String(error51);
     console.error("Error:", msg);
     console.log("");
@@ -61274,6 +61955,7 @@ program2.command("session:select <sessionId> <selector> <option>").description("
     const chosen = await session.select(selector, option, { by });
     console.log(`Selected: ${chosen.join(", ")} in: ${selector}`);
   } catch (error51) {
+    process.exitCode = EXIT_TOOL_ERROR;
     const msg = error51 instanceof Error ? error51.message : String(error51);
     console.error("Error:", msg);
     console.log("");
@@ -61313,6 +61995,7 @@ program2.command("session:type <sessionId> <selector> <text>").description("Type
       console.log("Waited for network idle after submit");
     }
   } catch (error51) {
+    process.exitCode = EXIT_TOOL_ERROR;
     const msg = error51 instanceof Error ? error51.message : String(error51);
     console.error("Error:", msg);
     console.log("");
@@ -61336,6 +62019,7 @@ program2.command("session:press <sessionId> <key>").description("Press a keyboar
     await session.press(key);
     console.log(`Pressed: ${key}`);
   } catch (error51) {
+    process.exitCode = EXIT_TOOL_ERROR;
     const msg = error51 instanceof Error ? error51.message : String(error51);
     console.error("Error:", msg);
     console.log("");
@@ -61347,7 +62031,7 @@ program2.command("session:scroll <sessionId> <direction> [amount]").description(
   if (!validDirections.includes(direction)) {
     console.error(`Error: Invalid direction "${direction}"`);
     console.log(`Valid directions: ${validDirections.join(", ")}`);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
   try {
     const globalOpts = program2.opts();
@@ -61363,6 +62047,7 @@ program2.command("session:scroll <sessionId> <direction> [amount]").description(
     }
     console.log(`Position: x=${position.x}, y=${position.y}`);
   } catch (error51) {
+    process.exitCode = EXIT_TOOL_ERROR;
     const msg = error51 instanceof Error ? error51.message : String(error51);
     console.error("Error:", msg);
     if (options?.selector) {
@@ -61412,6 +62097,7 @@ program2.command("session:screenshot <sessionId>").description("Take a screensho
       }
     }
   } catch (error51) {
+    process.exitCode = EXIT_TOOL_ERROR;
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
     console.log("");
     console.log("Tip: Session is still active. Try without --selector for full page.");
@@ -61433,6 +62119,7 @@ program2.command("session:scan <sessionId>").description("Run full IBR scan agai
       console.log(formatScanResult2(result));
     }
   } catch (error51) {
+    process.exitCode = EXIT_TOOL_ERROR;
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
   }
 });
@@ -61471,6 +62158,7 @@ program2.command("session:capture <sessionId>").description("Combined screenshot
       }
     }
   } catch (error51) {
+    process.exitCode = EXIT_TOOL_ERROR;
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
   }
 });
@@ -61494,6 +62182,7 @@ program2.command("session:wait <sessionId> <selectorOrMs>").description("Wait fo
       console.log(`Found: ${selectorOrMs}`);
     }
   } catch (error51) {
+    process.exitCode = EXIT_TOOL_ERROR;
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
     console.log("");
     console.log("Tip: Session is still active. Element may not exist yet or selector is wrong.");
@@ -61515,6 +62204,7 @@ program2.command("session:navigate <sessionId> <url>").description("Navigate to 
     await session.navigate(url2, { waitFor: options.waitFor });
     console.log(`Navigated to: ${url2}`);
   } catch (error51) {
+    process.exitCode = EXIT_TOOL_ERROR;
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
     console.log("");
     console.log("Tip: Session is still active. Check URL or try without --wait-for.");
@@ -61551,7 +62241,7 @@ program2.command("session:list").description("List all active interactive sessio
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("session:pending").description("List pending operations (useful before session:close all)").option("--json", "Output as JSON").action(async (options) => {
@@ -61578,7 +62268,7 @@ program2.command("session:pending").description("List pending operations (useful
     console.log("  npx ibr session:close all --force");
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("session:close <sessionId>").description('Close a session (use "all" to stop browser server)').option("--force", "Skip waiting for pending operations").option("--wait-timeout <ms>", "Max wait time for pending operations (default: 30000)", "30000").action(async (sessionId, options) => {
@@ -61606,7 +62296,7 @@ program2.command("session:close <sessionId>").description('Close a session (use 
           const remaining = await getPendingOperations(outputDir);
           console.log(`Timeout reached. ${remaining.length} operation(s) still pending.`);
           console.log("Use --force to close anyway, or wait for operations to complete.");
-          process.exit(1);
+          process.exit(EXIT_TOOL_ERROR);
         }
         console.log("All operations completed.");
       }
@@ -61635,7 +62325,7 @@ Reason: ${why}` : "No browser server running."
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("session:html <sessionId>").description("Get the full page HTML/DOM structure").option("-s, --selector <css>", "Get HTML of specific element only").action(async (sessionId, options) => {
@@ -61654,7 +62344,7 @@ program2.command("session:html <sessionId>").description("Get the full page HTML
         console.log(html);
       } else {
         console.error(`Element not found: ${options.selector}`);
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
     } else {
       const html = await session.content();
@@ -61662,7 +62352,7 @@ program2.command("session:html <sessionId>").description("Get the full page HTML
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("session:text <sessionId> <selector>").description("Get text content from a specific element").option("-a, --all", "Get text from all matching elements").action(async (sessionId, selector, options) => {
@@ -61675,7 +62365,7 @@ program2.command("session:text <sessionId> <selector>").description("Get text co
       const texts = await session.allTextContent(selector);
       if (texts.length === 0) {
         console.error(`No elements found: ${selector}`);
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
       texts.forEach((text, i) => {
         console.log(`[${i + 1}] ${text}`);
@@ -61684,13 +62374,13 @@ program2.command("session:text <sessionId> <selector>").description("Get text co
       const text = await session.textContent(selector);
       if (text === null) {
         console.error(`Element not found: ${selector}`);
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
       console.log(text.trim());
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("session:eval <sessionId> <script>").description("Execute JavaScript in the browser context").option("--json", "Output result as JSON").action(async (sessionId, script, options) => {
@@ -61719,7 +62409,7 @@ program2.command("session:eval <sessionId> <script>").description("Execute JavaS
     console.log('  npx ibr session:eval <id> "document.title"');
     console.log(`  npx ibr session:eval <id> "document.querySelectorAll('.item').length"`);
     console.log('  npx ibr session:eval <id> "window.scrollY"');
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("session:actions <sessionId>").description("Show action history for a session").action(async (sessionId) => {
@@ -61728,7 +62418,7 @@ program2.command("session:actions <sessionId>").description("Show action history
     const session = liveSessionManager2.get(sessionId);
     if (!session) {
       console.error(`Session not found or not active: ${sessionId}`);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
     const actions = session.actions;
     console.log(`Actions for ${sessionId}:`);
@@ -61747,7 +62437,7 @@ program2.command("session:actions <sessionId>").description("Show action history
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("session:modal <sessionId>").description("Detect and optionally dismiss active modals").option("--dismiss", "Attempt to dismiss the modal").action(async (sessionId, options) => {
@@ -61790,7 +62480,7 @@ program2.command("session:modal <sessionId>").description("Detect and optionally
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("screenshots:list [sessionId]").description("List screenshots for a session or all sessions").option("--json", "Output as JSON").action(async (sessionId, options) => {
@@ -61821,7 +62511,7 @@ program2.command("screenshots:list [sessionId]").description("List screenshots f
     console.log(`Total: ${formatBytes3(usage.totalBytes)} across ${usage.fileCount} files`);
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("screenshots:cleanup").description("Clean up old screenshots based on retention policy").option("--max-age <days>", "Delete screenshots older than N days", "7").option("--max-size <mb>", "Max total storage in MB", "500").option("--dry-run", "Show what would be deleted without deleting").action(async (options) => {
@@ -61854,7 +62544,7 @@ program2.command("screenshots:cleanup").description("Clean up old screenshots ba
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("screenshots:view <path>").description("View a screenshot with metadata").action(async (path3) => {
@@ -61866,7 +62556,7 @@ program2.command("screenshots:view <path>").description("View a screenshot with 
     const metadata = await manager.getMetadata(path3);
     if (!metadata) {
       console.error(`Screenshot not found: ${path3}`);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
     console.log("Screenshot Metadata:");
     console.log(`  Path: ${metadata.path}`);
@@ -61886,7 +62576,7 @@ program2.command("screenshots:view <path>").description("View a screenshot with 
     });
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("search-test <url>").description("Run AI search test with screenshots and validation context").option("-q, --query <query>", "Search query to test", "test").option("-i, --intent <intent>", "User intent for validation").option("--results-selector <css>", "CSS selector for results").option("--no-screenshots", "Skip capturing screenshots").option("--json", "Output as JSON").action(async (url2, options) => {
@@ -61976,7 +62666,7 @@ program2.command("search-test <url>").description("Run AI search test with scree
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("discover [url]").description("Discover pages (auto-detects dev server if no URL)").option("-n, --max-pages <count>", "Maximum pages to discover", "5").option("-p, --prefix <path>", "Only scan pages under this path prefix").option("--nav-only", "Only scan navigation links (faster)").option("-f, --format <format>", "Output format: json, text", "text").action(async (url2, options) => {
@@ -62015,7 +62705,7 @@ program2.command("discover [url]").description("Discover pages (auto-detects dev
     console.log(`  npx ibr scan-start`);
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("scan-start [url]").description("Discover pages and capture baselines (auto-detects dev server if no URL)").option("-n, --max-pages <count>", "Maximum pages to discover", "5").option("-p, --prefix <path>", "Only scan pages under this path prefix").option("--nav-only", "Only scan navigation links (faster)").action(async (url2, options) => {
@@ -62058,7 +62748,7 @@ program2.command("scan-start [url]").description("Discover pages and capture bas
     await ibr.close();
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("scan-check").description("Compare all sessions from the last scan-start").option("-f, --format <format>", "Output format: json, text, minimal", "text").action(async (_options) => {
@@ -62103,10 +62793,10 @@ program2.command("scan-check").description("Compare all sessions from the last s
       console.log("  npx ibr serve");
     }
     await ibr.close();
-    if (broken > 0) process.exit(1);
+    if (broken > 0) process.exit(EXIT_ISSUES);
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("consistency <url>").description("Check UI consistency across multiple pages (opt-in)").option("-n, --max-pages <count>", "Maximum pages to check", "5").option("--nav-only", "Only check navigation links (faster)").option("--ignore <types>", "Ignore certain checks (layout,typography,color,spacing)", "").option("-f, --format <format>", "Output format: json, text", "text").option("--confirm", "Skip confirmation prompt (for automation/Claude Code)").action(async (url2, options) => {
@@ -62158,11 +62848,11 @@ program2.command("consistency <url>").description("Check UI consistency across m
       console.log(formatConsistencyReport2(result));
     }
     if (result.score < 50) {
-      process.exit(1);
+      process.exit(EXIT_ISSUES);
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("diagnose [url]").description("Diagnose page load issues (auto-detects dev server if no URL)").option("--timeout <ms>", "Timeout in milliseconds", "30000").action(async (url2, options) => {
@@ -62229,11 +62919,11 @@ program2.command("diagnose [url]").description("Diagnose page load issues (auto-
       }
     }
     if (!result.success) {
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 async function isPortInUse(port) {
@@ -62467,7 +63157,7 @@ memoryCmd.command("add <description>").description("Add a UI/UX preference").opt
   const { addPreference: addPreference2, formatPreference: formatPreference2 } = await Promise.resolve().then(() => (init_memory(), memory_exports));
   if (!opts.value) {
     console.error("Error: --value is required");
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
   const pref = await addPreference2(program2.opts().output || "./.ibr", {
     description,
@@ -62579,7 +63269,7 @@ program2.command("native:devices").description("List available iOS/watchOS simul
     console.log(`Total: ${devices.length} available, ${booted.length} booted`);
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("native:request-permission").description("Open the macOS Accessibility permission prompt and settings pane for this terminal when access is missing").action(async () => {
@@ -62594,7 +63284,7 @@ program2.command("native:request-permission").description("Open the macOS Access
     process.exit(77);
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("native:scan [device]").description("Scan a running simulator for accessibility and design issues").option("--no-screenshot", "Skip screenshot capture").option("--json", "Output as JSON").option("--fix-guide", "Generate actionable fix instructions with source mapping").action(async (device, options) => {
@@ -62636,7 +63326,7 @@ program2.command("native:scan [device]").description("Scan a running simulator f
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("native:start [device]").description("Capture a native simulator baseline screenshot").option("-n, --name <name>", "Baseline session name").action(async (device, options) => {
@@ -62650,13 +63340,13 @@ program2.command("native:start [device]").description("Capture a native simulato
       resolved = await findDevice2(device);
       if (!resolved) {
         console.error(`No simulator found matching "${device}".`);
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
     } else {
       const booted = await getBootedDevices2();
       if (booted.length === 0) {
         console.error("No booted simulators. Boot one first.");
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
       resolved = booted[0];
     }
@@ -62676,7 +63366,7 @@ program2.command("native:start [device]").description("Capture a native simulato
     });
     if (!captureResult.success) {
       console.error(`Screenshot failed: ${captureResult.error}`);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
     console.log(`Baseline captured: ${session.id}`);
     console.log(`Device: ${resolved.name} (${resolved.platform})`);
@@ -62686,7 +63376,7 @@ program2.command("native:start [device]").description("Capture a native simulato
     console.log(`  npx ibr native:check ${session.id}`);
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("native:check [sessionId]").description("Compare current simulator state against native baseline").option("-d, --device <device>", "Device name or UDID").action(async (sessionId, options) => {
@@ -62701,14 +63391,14 @@ program2.command("native:check [sessionId]").description("Compare current simula
       session = await getSessionById(outputDir, sessionId);
       if (!session) {
         console.error(`Session not found: ${sessionId}`);
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
     } else {
       const sessions2 = await listSessions2(outputDir);
       session = sessions2.find((s) => s.platform === "ios" || s.platform === "watchos");
       if (!session) {
         console.error("No native sessions found. Run native:start first.");
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
     }
     let resolved;
@@ -62720,7 +63410,7 @@ program2.command("native:check [sessionId]").description("Compare current simula
     }
     if (!resolved) {
       console.error("No booted simulator found.");
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
     const paths = getSessionPaths2(outputDir, session.id);
     const captureResult = await captureNativeScreenshot2({
@@ -62729,7 +63419,7 @@ program2.command("native:check [sessionId]").description("Compare current simula
     });
     if (!captureResult.success) {
       console.error(`Screenshot failed: ${captureResult.error}`);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
     const result = await compareFn({
       baselinePath: paths.baseline,
@@ -62747,18 +63437,18 @@ program2.command("native:check [sessionId]").description("Compare current simula
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("scan:macos").description("Scan a running macOS native app via Accessibility API").option("--app <name>", 'App name (e.g., "Secrets Vault")').option("--bundle-id <id>", 'Bundle identifier (e.g., "com.secretsvault.app")').option("--pid <pid>", "Process ID").option("--screenshot <path>", "Save screenshot to path").option("--json", "Output as JSON").action(async (options) => {
   try {
     if (process.platform !== "darwin") {
       console.error("Error: scan:macos is only available on macOS");
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
     if (!options.app && !options.bundleId && !options.pid) {
       console.error("Error: Provide --app, --bundle-id, or --pid to identify the target app");
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
     const { scanMacOS: scanMacOS2, formatMacOSScanResult: formatMacOSScanResult2 } = await Promise.resolve().then(() => (init_native(), native_exports));
     if (!options.json) {
@@ -62777,11 +63467,11 @@ program2.command("scan:macos").description("Scan a running macOS native app via 
       console.log(formatMacOSScanResult2(result));
     }
     if (result.verdict === "FAIL") {
-      process.exit(1);
+      process.exit(EXIT_ISSUES);
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("test-search <url>").description("Test search functionality on a page using the search flow").option("-q, --query <q>", "Search query", "test").option("--expect-count <n>", "Expected minimum result count", "0").option("--results-selector <css>", "CSS selector for result elements").option("--json", "Output as JSON").action(async (url2, options) => {
@@ -62811,10 +63501,10 @@ program2.command("test-search <url>").description("Test search functionality on 
         console.log(`Expected at least ${expected} results, got ${result.resultCount}`);
       }
     }
-    if (!result.success) process.exit(1);
+    if (!result.success) process.exit(EXIT_ISSUES);
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   } finally {
     await driver3.close();
   }
@@ -62833,7 +63523,7 @@ program2.command("test-form <url>").description("Test form submission on a page 
         fields = Object.entries(parsed).map(([name, value]) => ({ name, value }));
       } catch {
         console.error(`Error: --fill must be valid JSON, e.g. '{"email":"user@example.com"}'`);
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
     }
     await driver3.launch(withBrowserOptions({ headless: true, viewport: viewportToConfig(viewport) }));
@@ -62854,10 +63544,10 @@ program2.command("test-form <url>").description("Test form submission on a page 
       console.log(`Duration: ${result.duration}ms`);
       if (result.error) console.log(`Error: ${result.error}`);
     }
-    if (!result.success) process.exit(1);
+    if (!result.success) process.exit(EXIT_ISSUES);
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   } finally {
     await driver3.close();
   }
@@ -62871,7 +63561,7 @@ program2.command("test-login <url>").description("Test login flow on a page usin
     const { loginFlow: loginFlow2 } = await Promise.resolve().then(() => (init_login(), login_exports));
     if (!options.email || !options.password) {
       console.error("Error: --email and --password are required");
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
     await driver3.launch(withBrowserOptions({ headless: true, viewport: viewportToConfig(viewport) }));
     const page = new CompatPage(driver3);
@@ -62890,10 +63580,10 @@ program2.command("test-login <url>").description("Test login flow on a page usin
       console.log(`Duration: ${result.duration}ms`);
       if (result.error) console.log(`Error: ${result.error}`);
     }
-    if (!result.success) process.exit(1);
+    if (!result.success) process.exit(EXIT_ISSUES);
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   } finally {
     await driver3.close();
   }
@@ -62919,7 +63609,7 @@ program2.command("test-interact <url>").description("Run interaction assertions:
     console.error("");
     console.error("Usage:");
     console.error('  npx ibr test-interact <url> --action "click:button:Submit" --expect "visible:Success"');
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
   const steps = options.action.map((actionSpec, i) => {
     let action;
@@ -62927,7 +63617,7 @@ program2.command("test-interact <url>").description("Run interaction assertions:
       action = parseActionArg2(actionSpec);
     } catch (err) {
       console.error(`Error parsing --action "${actionSpec}": ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
     const isLastStep = i === options.action.length - 1;
     let expectObj = void 0;
@@ -62939,7 +63629,7 @@ program2.command("test-interact <url>").description("Run interaction assertions:
           Object.assign(expectObj, parsed);
         } catch (err) {
           console.error(`Error parsing --expect "${expectSpec}": ${err instanceof Error ? err.message : err}`);
-          process.exit(1);
+          process.exit(EXIT_TOOL_ERROR);
         }
       }
       if (options.expectScreenshot) {
@@ -62985,10 +63675,10 @@ program2.command("test-interact <url>").description("Run interaction assertions:
       }
     }
     const anyFailed = results.some((r) => !r.action.success) || results.some((r) => r.assertions.some((a) => !a.passed));
-    if (anyFailed) process.exit(1);
+    if (anyFailed) process.exit(EXIT_ISSUES);
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("match <mockup> <url>").description("Compare a design mockup PNG against a live rendered page (SSIM + pixelmatch)").option("-s, --selector <css>", "Crop live page to this CSS selector before comparison").option("-m, --mask-dynamic", "Auto-mask dynamic content (timestamps, ads, live regions)").option("--json", "Output results as JSON").option("--save-diff <path>", "Save the pixel diff image to this file path").option("--headless", "Run browser headless (default: true)", true).action(async (mockup, url2, options) => {
@@ -63040,11 +63730,11 @@ Mockup Match: ${label2}`);
       console.log("");
     }
     if (result.ssim.verdict !== "pass") {
-      process.exit(1);
+      process.exit(EXIT_ISSUES);
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("record-change <url>").description("Record a design change specification for later verification").option("--element <name>", "Accessible name or CSS selector of the target element").option("--description <text>", "Human-readable description of the change").option("--checks <json>", "JSON array of check objects: [{property,operator,value,confidence}]").option("--platform <platform>", "Target platform: web, ios, macos", "web").action(async (url2, options) => {
@@ -63055,11 +63745,11 @@ program2.command("record-change <url>").description("Record a design change spec
     const outputDir = globalOpts.output || "./.ibr";
     if (!options.element) {
       console.error("Error: --element is required");
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
     if (!options.description) {
       console.error("Error: --description is required");
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
     let checks = [];
     if (options.checks) {
@@ -63067,11 +63757,11 @@ program2.command("record-change <url>").description("Record a design change spec
         checks = JSON.parse(options.checks);
         if (!Array.isArray(checks)) {
           console.error("Error: --checks must be a JSON array");
-          process.exit(1);
+          process.exit(EXIT_TOOL_ERROR);
         }
       } catch {
         console.error("Error: --checks is not valid JSON");
-        process.exit(1);
+        process.exit(EXIT_TOOL_ERROR);
       }
     }
     const changeRaw = {
@@ -63088,7 +63778,7 @@ program2.command("record-change <url>").description("Record a design change spec
       for (const issue2 of parseResult.error.issues) {
         console.error(`  ${issue2.path.join(".")}: ${issue2.message}`);
       }
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
     await saveChange2(outputDir, parseResult.data);
     console.log("Design change recorded:");
@@ -63102,7 +63792,7 @@ program2.command("record-change <url>").description("Record a design change spec
     console.log(`  npx ibr verify-changes ${url2}`);
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("verify-changes <url>").description("Verify all recorded design changes against the live page").option("--json", "Output results as JSON").action(async (url2, options) => {
@@ -63140,13 +63830,13 @@ program2.command("verify-changes <url>").description("Verify all recorded design
     }
     await driver3.close();
     if (results.some((r) => !r.overallPassed)) {
-      process.exit(1);
+      process.exit(EXIT_ISSUES);
     }
   } catch (error51) {
     await driver3.close().catch(() => {
     });
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("zoom-track <url>").description("Emit a Spectra zoom track [{tMs,cx,cy}] from the page's interactive elements").option("--out <path>", "Write the track here (default: stdout)").option("--viewport <name>", "Viewport preset", "desktop").option("--per-ms <ms>", "Spacing between targets in ms", "1500").option("--min <n>", "Fail if fewer than N targets are found", "1").option("--events <path>", "JSON [{tMs,label}] of real event times, matched by element text").option("--max <n>", "Keep at most N targets, highest importance first").option("--rich", "Include text, role, weight and resolved colours per target").action(async (url2, options) => {
@@ -63158,8 +63848,8 @@ program2.command("zoom-track <url>").description("Emit a Spectra zoom track [{tM
 `);
     let events;
     if (options.events) {
-      const { readFileSync: readFileSync15 } = await import("fs");
-      events = JSON.parse(readFileSync15(options.events, "utf8"));
+      const { readFileSync: readFileSync16 } = await import("fs");
+      events = JSON.parse(readFileSync16(options.events, "utf8"));
       if (!Array.isArray(events)) {
         throw new Error(`--events must be a JSON array of {tMs,label}, got ${typeof events}`);
       }
@@ -63183,7 +63873,7 @@ program2.command("zoom-track <url>").description("Emit a Spectra zoom track [{tM
         `zoom-track: found ${track.clicks.length} target(s), need at least ${min} \u2014 ${why}
 `
       );
-      process.exit(1);
+      process.exit(EXIT_ISSUES);
     }
     const payload = JSON.stringify(
       options.rich ? track.clicks : toSpectraClicks2(track.clicks),
@@ -63208,7 +63898,7 @@ program2.command("zoom-track <url>").description("Emit a Spectra zoom track [{tM
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("generate-test <url>").description("Generate a declarative .ibr-test.json file from page observation").option("--scenario <text>", "Natural language scenario description").option("--test-file <path>", "Output path for test file", ".ibr-test.json").action(async (url2, options) => {
@@ -63224,7 +63914,7 @@ program2.command("generate-test <url>").description("Generate a declarative .ibr
     console.log(`Generated ${total} test(s) for ${pageNames.length} page(s) \u2192 ${options.testFile}`);
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("test").description("Run declarative .ibr-test.json test file").option("--file <path>", "Path to test file", ".ibr-test.json").option("--output-dir <dir>", "Directory to store screenshots/results", ".ibr/test-results").option("--headless", "Run headless (default: true)", true).option("--json", "Output results as JSON").action(async (options) => {
@@ -63248,10 +63938,10 @@ program2.command("test").description("Run declarative .ibr-test.json test file")
       console.log(`Summary: ${totalPassed} passed, ${totalFailed} failed`);
     }
     const anyFailed = results.some((r) => r.failed > 0);
-    process.exit(anyFailed ? 1 : 0);
+    process.exit(anyFailed ? EXIT_ISSUES : EXIT_PASS);
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("run-script <script>").description("Execute a Python test script with sandboxed resource limits").option("--url <url>", "URL passed to script as IBR_URL env var").option("--timeout <ms>", "Timeout in milliseconds", "60000").option("--memory <mb>", "Memory limit in MB", "512").option("--cpu <seconds>", "CPU time limit in seconds", "30").option("--json", "Output result as JSON").action(async (script, options) => {
@@ -63272,7 +63962,7 @@ program2.command("run-script <script>").description("Execute a Python test scrip
     process.exit(result.exitCode);
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("iterate <url>").description("Run one iteration of the test-fix loop and report convergence state").option("--test <path>", "Path to .ibr-test.json (uses IBR scan if omitted)").option("--max-iterations <n>", "Maximum iterations before stopping", "7").option("--output-dir <dir>", "Directory for iteration state and results", ".ibr/iterate").option("--auto-approve", "Skip user approval at checkpoint iterations").option("--reset", "Reset iteration state and start fresh").option("--json", "Output result as JSON").action(async (url2, options) => {
@@ -63303,11 +63993,11 @@ program2.command("iterate <url>").description("Run one iteration of the test-fix
     const last = result.iterations[result.iterations.length - 1];
     const hasIssues = last ? last.issueCount > 0 : false;
     if (result.finalState === "regressing" || result.finalState === "budget_exceeded" && hasIssues) {
-      process.exit(1);
+      process.exit(EXIT_ISSUES);
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("compare-browsers <url>").description("Scan in Chrome and Safari, diff screenshots and element counts").option("--save-diff <path>", "Save pixel diff image to this path").option("--json", "Output results as JSON").option("--timeout <ms>", "Navigation timeout in ms", "15000").action(async (url2, options) => {
@@ -63389,8 +64079,8 @@ program2.command("compare-browsers <url>").description("Scan in Chrome and Safar
       diffPercent = Math.round(pixelDiff / (w * h) * 1e4) / 100;
       if (options.saveDiff) {
         const { writeFile: writeFile21, mkdir: mkdirFs } = await import("fs/promises");
-        const { dirname: dirname15 } = await import("path");
-        await mkdirFs(dirname15(options.saveDiff), { recursive: true });
+        const { dirname: dirname16 } = await import("path");
+        await mkdirFs(dirname16(options.saveDiff), { recursive: true });
         await writeFile21(options.saveDiff, PNG6.sync.write(diff));
         diffSaved = true;
       }
@@ -63459,13 +64149,13 @@ program2.command("interact <url>").description("Click, type, fill, or interact w
     if (!element) {
       console.error(`Element not found: "${opts.target}"`);
       console.error('Use "ibr observe <url>" to see available elements.');
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
     const action = opts.action;
     const knownActions = ["click", "type", "fill", "hover", "press", "scroll", "select", "check"];
     if (!knownActions.includes(action)) {
       console.error(`Unknown action: ${action}`);
-      process.exit(1);
+      process.exit(EXIT_TOOL_ERROR);
     }
     const { validateWebAction: validateWebAction2 } = await Promise.resolve().then(() => (init_tools(), tools_exports));
     const beforeUrl = driver3.url;
@@ -63511,7 +64201,7 @@ program2.command("interact <url>").description("Click, type, fill, or interact w
       console.error(`\u2717 ${action} on "${opts.target}" did not produce the expected change (no-op)`);
       console.error(`  expected: ${validator.expected}`);
       console.error(`  observed: ${validator.observed}`);
-      process.exitCode = 1;
+      process.exitCode = EXIT_ISSUES;
     }
     if (opts.screenshot !== false) {
       const fs3 = await import("fs");
@@ -63526,7 +64216,7 @@ program2.command("interact <url>").description("Click, type, fill, or interact w
     }
   } catch (err) {
     console.error(`Failed: ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   } finally {
     await driver3.close().catch(() => {
     });
@@ -63558,7 +64248,7 @@ program2.command("observe <url>").description("Preview available actions on a pa
     });
   } catch (err) {
     console.error(`Failed: ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   } finally {
     await driver3.close().catch(() => {
     });
@@ -63601,7 +64291,7 @@ program2.command("extract <url>").description("Extract structured data from a pa
     }
   } catch (err) {
     console.error(`Failed: ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   } finally {
     await driver3.close().catch(() => {
     });
@@ -63622,7 +64312,7 @@ program2.command("live:targets").description("List page targets exposed by an al
     }
   } catch (error51) {
     console.error(error51 instanceof Error ? error51.message : String(error51));
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 program2.command("live:measure").description("Measure a CSS selector in an already-running app \u2014 real box model, typography, contrast, baselines. Read-only: never navigates or reloads.").requiredOption("-s, --selector <css>", "CSS selector scoping what gets measured").option("--target-title <substring>", "Pick the target whose title contains this").option("--target-url <substring>", "Pick the target whose URL contains this").option("--target-id <id>", "Pick the target by exact CDP target id").option("--limit <count>", "Maximum elements to measure (default 200)").option("--emulate-width <px>", "Force this CSS width for this measurement only, then restore (checks a responsive rule at a width the window cannot physically reach)").option("--emulate-height <px>", "Height to pair with --emulate-width (defaults to the window's own height)").option("--probe-timeout <ms>", "CDP endpoint probe timeout in ms (default 4000)").option("--json", "Output as JSON").action(async (options) => {
@@ -63648,7 +64338,7 @@ program2.command("live:measure").description("Measure a CSS selector in an alrea
     }
   } catch (error51) {
     console.error(error51 instanceof Error ? error51.message : String(error51));
-    process.exit(1);
+    process.exit(EXIT_TOOL_ERROR);
   }
 });
 registerNativeSessionCommands(program2);
