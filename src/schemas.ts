@@ -324,9 +324,11 @@ export const InteractiveStateSchema = z.object({
   hasEventListener: z.boolean().optional(),
   // A non-root ancestor (excluding document.body/documentElement/document/
   // window) carries an activation listener that would fire for this element
-  // — event delegation. Root-level listeners are deliberately excluded: a
-  // document-level click listener (e.g. menu-dismissal) would otherwise
-  // "rescue" every dead control on the page.
+  // — event delegation. A root-level (document/body/window) click listener is
+  // credited ONLY when its handler source names this control (a selector
+  // literal it matches, its id, or a data-* key it carries): a bare
+  // document-level listener (e.g. menu-dismissal) must not "rescue" every
+  // dead control on the page.
   hasDelegatedListener: z.boolean().optional(),
   // True when the browser activates this control with no author JS at all
   // (a `<button type=submit>` whose form has an action/formaction, a

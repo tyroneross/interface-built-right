@@ -15,6 +15,7 @@ const BROWSER_INTEGRATION = [
   'src/obsidian/obsidian.integration.test.ts',
   'src/live/live.integration.test.ts',
   'src/native-activation.integration.test.ts',
+  'src/handler-listeners.root-delegation.integration.test.ts',
 ];
 
 export default defineConfig({

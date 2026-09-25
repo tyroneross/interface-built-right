@@ -304,10 +304,21 @@ const ACTIVATION_EVENT_TYPES = [
  * more expensive check.
  *
  * Root-level listeners (document.body, document.documentElement, document,
- * window) are deliberately EXCLUDED from the delegation walk: a
+ * window) are deliberately EXCLUDED from the ancestor walk: a
  * document-level click listener (menu dismissal, outside-click handling,
  * analytics) would otherwise "rescue" every dead control on the page,
- * silencing the exact defect class this enrichment exists to catch.
+ * silencing the exact defect class this enrichment exists to catch. They
+ * are credited only through a separate, EVIDENCE-based check: the root click
+ * listener's handler source (`listener.toString()`) must name the candidate —
+ * a selector literal the candidate (or a non-root ancestor) matches, e.g.
+ * `e.target.closest('[data-action]')`; its id alongside an `.id` read; or a
+ * `dataset.<key>` read the candidate carries — or jQuery's delegated-event
+ * data must hold a matching selector. A pure dismissal listener names no
+ * selector the dead control matches, so it still gets flagged. Known gap:
+ * a negated check (`if (!e.target.closest('.menu')) close()`) credits
+ * controls inside `.menu`. When the root handler source is not inspectable
+ * (native/bound function), nothing is credited and the NO_HANDLER message
+ * is hedged instead (see ROOT_DELEGATION_UNRESOLVED).
  *
  * The ancestor (delegation) walk only checks for `click` listeners, unlike
  * the element's OWN check above which uses the full ACTIVATION_EVENT_TYPES
@@ -357,6 +368,17 @@ const ACTIVATION_EVENT_TYPES = [
  * by any of the above — a framework-managed node with a genuine
  * addEventListener of its own is still detected.
  */
+/**
+ * Elements for which enrichment found no handler of their own or on a
+ * non-root ancestor, but a root-level click listener exists whose source is
+ * not inspectable (native/bound function, handleEvent object) — so whether it
+ * delegates to this element cannot be decided. In-memory only (not part of
+ * the schema); analyzeElements uses it to hedge its NO_HANDLER message instead
+ * of asserting a flat "has no click handler". Lost on serialization, in which
+ * case the message falls back to the flat form.
+ */
+const ROOT_DELEGATION_UNRESOLVED = new WeakSet<EnhancedElement>();
+
 async function enrichWithEventListeners(page: PageLike, elements: EnhancedElement[]): Promise<void> {
   const evaluateWithCommandLineAPI = page.evaluateWithCommandLineAPI?.bind(page);
   if (!evaluateWithCommandLineAPI) return;
@@ -472,6 +494,106 @@ async function enrichWithEventListeners(page: PageLike, elements: EnhancedElemen
         return false;
       };
 
+      // ---- Root-level (window/document/html/body) click delegation ----
+      // Root listeners are NOT credited blindly (menu-dismissal listeners
+      // would silence every dead control). A root click listener is credited
+      // to a candidate only when its handler source names that candidate:
+      // a string literal that is a CSS selector the candidate matches
+      // (e.target.closest('[data-action]'), .matches('.js-copy')), a literal
+      // equal to the candidate's id alongside an .id read, or a dataset.<key>
+      // / getAttribute('data-<key>') read the candidate carries. jQuery
+      // delegated handlers ($(document).on('click', sel, fn)) store their
+      // selector in jQuery's private event data, read directly when present.
+      const rootNodes = [window, document, document.documentElement, document.body].filter(Boolean);
+      const literalRe = /'((?:[^'\\\\\\n]|\\\\.){1,200})'|"((?:[^"\\\\\\n]|\\\\.){1,200})"|\`([^\`$\\\\]{1,200})\`/g;
+      const bareTagRe = /^[a-zA-Z][a-zA-Z0-9-]*$/;
+      const rootInfo = { sources: [], opaque: false, jquerySelectors: [] };
+      for (const node of rootNodes) {
+        let listeners;
+        try {
+          listeners = getEventListeners(node);
+        } catch (e) {
+          continue;
+        }
+        const clicks = listeners && Array.isArray(listeners.click) ? listeners.click : [];
+        for (const entry of clicks) {
+          const fn = entry && entry.listener;
+          let src = '';
+          try {
+            src = typeof fn === 'function' ? Function.prototype.toString.call(fn) : '';
+          } catch (e) {
+            src = '';
+          }
+          if (!src || /\\{\\s*\\[native code\\]\\s*\\}/.test(src)) {
+            rootInfo.opaque = true;
+            continue;
+          }
+          rootInfo.sources.push(src.length > 100000 ? src.slice(0, 100000) : src);
+        }
+        try {
+          const jq = window.jQuery;
+          const data = jq && typeof jq._data === 'function' ? jq._data(node, 'events') : null;
+          const handlers = data && Array.isArray(data.click) ? data.click : [];
+          for (const h of handlers) {
+            if (h && typeof h.selector === 'string' && h.selector) rootInfo.jquerySelectors.push(h.selector);
+          }
+        } catch (e) { /* jQuery absent or private API changed */ }
+      }
+      const rootLiterals = [];
+      const rootDatasetAttrs = [];
+      let rootReadsId = false;
+      for (const src of rootInfo.sources) {
+        literalRe.lastIndex = 0;
+        let m;
+        let count = 0;
+        while ((m = literalRe.exec(src)) !== null && count < 500) {
+          count++;
+          const lit = (m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3]).trim();
+          if (lit) rootLiterals.push(lit);
+        }
+        const dsRe = /\\.dataset\\.([A-Za-z_$][\\w$]*)|\\.dataset\\[\\s*['"]([^'"]+)['"]\\s*\\]/g;
+        let d;
+        while ((d = dsRe.exec(src)) !== null) {
+          const key = d[1] || d[2];
+          rootDatasetAttrs.push('data-' + key.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase()));
+        }
+        if (/\\.id\\b/.test(src)) rootReadsId = true;
+      }
+      for (const lit of rootLiterals) {
+        if (/^data-[\\w-]+$/.test(lit)) rootDatasetAttrs.push(lit.toLowerCase());
+      }
+      const isRootEl = (n) => n === document.body || n === document.documentElement;
+      // A literal "matches" a candidate when the candidate itself matches it,
+      // or a non-root ancestor does (closest-style delegation). Bare tag
+      // names ('div', 'span') only count on the candidate itself: incidental
+      // createElement('div') literals would otherwise match nearly every
+      // candidate through some ancestor. Literals that match <html>/<body>
+      // ('*', 'body', ':root') are never selective and are skipped.
+      const selectorMatches = (el, sel) => {
+        try {
+          if (document.documentElement.matches(sel) || (document.body && document.body.matches(sel))) return false;
+          if (el.matches(sel)) return true;
+          if (bareTagRe.test(sel)) return false;
+          const hit = el.closest(sel);
+          return !!(hit && !isRootEl(hit));
+        } catch (e) {
+          return false; // not a valid selector
+        }
+      };
+      const rootDelegatesTo = (el) => {
+        for (const sel of rootInfo.jquerySelectors) {
+          if (selectorMatches(el, sel)) return true;
+        }
+        for (const lit of rootLiterals) {
+          if (selectorMatches(el, lit)) return true;
+          if (rootReadsId && el.id && lit === el.id) return true;
+        }
+        for (const attr of rootDatasetAttrs) {
+          if (el.hasAttribute(attr)) return true;
+        }
+        return false;
+      };
+
       const results = {};
       for (const selector of selectors) {
         let el;
@@ -500,7 +622,13 @@ async function enrichWithEventListeners(page: PageLike, elements: EnhancedElemen
           if (form && (hasSubmitListener(form) || hasReactPropsOnSubmit(form))) hasDelegatedListener = true;
         }
 
-        results[selector] = { hasEventListener, hasDelegatedListener };
+        let rootDelegationUnresolved = false;
+        if (!hasEventListener && !hasDelegatedListener) {
+          if (rootDelegatesTo(el)) hasDelegatedListener = true;
+          else if (rootInfo.opaque) rootDelegationUnresolved = true;
+        }
+
+        results[selector] = { hasEventListener, hasDelegatedListener, rootDelegationUnresolved };
       }
       return results;
     })()
@@ -517,11 +645,16 @@ async function enrichWithEventListeners(page: PageLike, elements: EnhancedElemen
   }
 
   if (!raw || typeof raw !== 'object') return;
-  const results = raw as Record<string, { hasEventListener?: boolean; hasDelegatedListener?: boolean } | undefined>;
+  const results = raw as Record<string, {
+    hasEventListener?: boolean;
+    hasDelegatedListener?: boolean;
+    rootDelegationUnresolved?: boolean;
+  } | undefined>;
 
   for (const el of candidates) {
     const result = results[el.selector];
     if (!result) continue;
+    if (result.rootDelegationUnresolved) ROOT_DELEGATION_UNRESOLVED.add(el);
     if (result.hasEventListener) el.interactive.hasEventListener = true;
     if (result.hasDelegatedListener) el.interactive.hasDelegatedListener = true;
     if (result.hasEventListener || result.hasDelegatedListener) el.interactive.hasOnClick = true;
@@ -1056,7 +1189,9 @@ export function analyzeElements(elements: EnhancedElement[], isMobile = false): 
       issues.push({
         type: 'NO_HANDLER',
         severity: 'error',
-        message: `Button "${el.text || el.selector}" has no click handler`,
+        message: ROOT_DELEGATION_UNRESOLVED.has(el)
+          ? `Button "${el.text || el.selector}" has no click handler found; a document-level click listener exists whose source could not be inspected and may delegate to it`
+          : `Button "${el.text || el.selector}" has no click handler`,
       });
     }
 
