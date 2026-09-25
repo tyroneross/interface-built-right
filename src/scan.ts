@@ -20,6 +20,13 @@ import {
 import { testInteractivity, type InteractivityResult } from './interactivity.js';
 import { getSemanticOutput, type SemanticResult } from './semantic/index.js';
 import { detectLayoutCollisions, type LayoutCollisionResult } from './layout-collision.js';
+import {
+  analyzeLayoutOverflow,
+  buildLayoutOverflowProbe,
+  type LayoutOverflowFinding,
+  type LayoutOverflowNode,
+  type LayoutOverflowOptions,
+} from './layout-overflow.js';
 import { analyzeThemeConsistency, type ThemeAnalysis } from './consistency.js';
 import { runDesignSystemCheck } from './design-system/index.js';
 import type { DesignSystemResult } from './schemas.js';
@@ -79,6 +86,16 @@ export interface ScanResult {
 
   /** Layout collision detection — overlapping text elements */
   layoutCollisions?: LayoutCollisionResult;
+
+  /**
+   * Content that has escaped or been clipped by its box — self-overflow,
+   * container-escape, sibling text-over-text overlap, and clipped/truncated
+   * text with no ellipsis. Absent when `ScanOptions.layoutOverflow === false`
+   * or the probe/analysis failed (see the `[layout-overflow-failed]` issue in
+   * that case). `layoutCollisions` above covers INTERACTIVE elements only;
+   * this covers the whole page, including plain text.
+   */
+  layoutOverflow?: LayoutOverflowFinding[];
 
   /** Theme consistency — detects light content on dark page (and vice versa) */
   themeAnalysis?: ThemeAnalysis;
@@ -371,6 +388,16 @@ export interface ScanOptions extends BrowserLaunchOptions {
    * to run. Defaults to `process.cwd()`.
    */
   projectDir?: string;
+
+  /**
+   * Detect content that has escaped or been clipped by its box — the same
+   * detector `scan_obsidian` has run since its 30px-button regression. Runs
+   * ON BY DEFAULT, rooted at `body`. Pass `false` to skip it (e.g. a caller
+   * that runs its own probe at a narrower root — see `src/obsidian/scan.ts`,
+   * which passes `false` here to avoid double-reporting its own root-scoped
+   * probe), or an options object to override the default thresholds.
+   */
+  layoutOverflow?: false | LayoutOverflowOptions;
 }
 
 /**
@@ -891,6 +918,44 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
       ? summarizeContrastCoverage([...elements.all, ...contentAsElements], textCensus)
       : undefined;
 
+    // Content that has escaped or been clipped by its box — the same
+    // detector `scan_obsidian` has run since its 30px-button regression, now
+    // rooted at `body` for a plain web page. ON by default; `false` opts out
+    // (see `src/obsidian/scan.ts`, which runs its own root-scoped probe and
+    // would otherwise double-report). Best-effort like the probes above: a
+    // broken measurement must not take down the scan that carries it, and it
+    // must SAY it did not measure rather than look like a clean page.
+    let layoutOverflow: LayoutOverflowFinding[] | undefined;
+    if (options.layoutOverflow !== false) {
+      try {
+        const overflowNodes = (await driver.evaluate(
+          buildLayoutOverflowProbe({ rootSelector: 'body' }),
+        )) as LayoutOverflowNode[];
+        const overflowOptions: LayoutOverflowOptions =
+          typeof options.layoutOverflow === 'object' ? options.layoutOverflow : {};
+        layoutOverflow = analyzeLayoutOverflow(overflowNodes, overflowOptions);
+        for (const finding of layoutOverflow) {
+          issues.push({
+            category: 'structure',
+            severity: finding.severity,
+            element: finding.selector,
+            description: finding.detail,
+            fix: finding.fix,
+          });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        issues.push({
+          category: 'structure',
+          severity: 'warning',
+          description:
+            `[layout-overflow-failed] Content overflow/clipping was NOT measured — self-overflow, ` +
+            `container-escape, sibling-overlap, and clip findings are all absent from this scan: ${message}`,
+          fix: 'Re-run the scan. If it persists, the page navigated or the browser detached mid-scan.',
+        });
+      }
+    }
+
     // Verdict is computed HERE, after every violation has been aggregated into
     // `issues`. It used to be computed before the preset violations were
     // injected, so a scan could print a contrast ERROR and still report PASS.
@@ -948,6 +1013,10 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
       },
       coverage,
       layoutCollisions,
+      // Absent (not present-and-undefined) when layoutOverflow===false OR the
+      // probe/analysis threw — same present/absent contract as `content`
+      // below, so a caller can tell "did not run" from "ran and found none".
+      ...(layoutOverflow !== undefined ? { layoutOverflow } : {}),
       themeAnalysis,
       designSystem,
       hydration: hydrationReason !== 'skipped'
@@ -1553,6 +1622,23 @@ export function formatScanResult(result: ScanResult): string {
       const t1 = c.element1.text.slice(0, 30);
       const t2 = c.element2.text.slice(0, 30);
       lines.push(`    \x1b[31m✗\x1b[0m "${t1}" overlaps "${t2}" by ${pct}% (${overlapPx}px overlap)`);
+    }
+    lines.push('');
+  }
+
+  // Layout overflow — content that escaped or was clipped by its box.
+  // Mirrors formatObsidianScanResult's register (src/obsidian/scan.ts).
+  if (result.layoutOverflow && result.layoutOverflow.length > 0) {
+    lines.push('  LAYOUT OVERFLOW');
+    lines.push('  ───────────────');
+    lines.push(`  Findings: ${result.layoutOverflow.length}`);
+    for (const f of result.layoutOverflow.slice(0, 10)) {
+      const icon = f.severity === 'error' ? '\x1b[31m✗\x1b[0m' : '\x1b[33m!\x1b[0m';
+      lines.push(`    ${icon} [${f.kind}] ${f.spillPx}px · ${f.detail}`);
+      if (f.fix) lines.push(`      → ${f.fix}`);
+    }
+    if (result.layoutOverflow.length > 10) {
+      lines.push(`    ... and ${result.layoutOverflow.length - 10} more`);
     }
     lines.push('');
   }

@@ -359,6 +359,13 @@ export async function scanObsidian(options: ObsidianScanOptions): Promise<Obsidi
         options.layoutOverflow === false
           ? undefined
           : { [LAYOUT_OVERFLOW_PROBE]: buildLayoutOverflowProbe({ rootSelector: '#ibr-container' }) },
+      // scan()'s own layout-overflow detector defaults to ON, rooted at
+      // `body`. This module runs its own copy above, rooted at
+      // `#ibr-container` (the harness mount point, not the whole synthetic
+      // page) and reads it back via `result.probes[LAYOUT_OVERFLOW_PROBE]`
+      // below — so the inner scan()'s pass must be OFF, or every finding is
+      // measured and reported twice.
+      layoutOverflow: false,
     };
 
     const result = (await scan(server.url, scanOptions)) as ObsidianScanResult;

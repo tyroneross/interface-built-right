@@ -476,6 +476,11 @@ export const TOOLS = [
           type: "string",
           description: "R3: Optional session ID from session_start. When supplied, the scan reuses the session's auth cookies so gated routes (dashboards, settings) are scanned authenticated instead of bouncing to login.",
         },
+        layout_overflow: {
+          type: "boolean",
+          description:
+            "Detect content that has escaped or been clipped by its box: self-overflow (scrollHeight > clientHeight on an overflow:visible box), container escape, text-over-text sibling collisions, and clipped/truncated text with no ellipsis. Each finding names the computed declaration responsible. DEFAULT TRUE — pass false to skip.",
+        },
       },
       required: ["url"],
     },
@@ -2620,6 +2625,7 @@ async function handleScan(
     patience: args.patience as number | undefined,
     networkIdleTimeout: args.networkIdleTimeout as number | undefined,
     ...(scanCookies ? { cookies: scanCookies } : {}),
+    layoutOverflow: args.layout_overflow === false ? false : undefined,
     pool,
   });
 

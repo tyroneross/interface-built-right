@@ -1049,7 +1049,8 @@ program
   .option('--output <mode>', 'Output mode: full (default), summary (sensor summaries + verdict only, ~60% fewer tokens), raw (no sensors)', 'full')
   .option('--content', 'Also extract content elements (headings/paragraphs/images/captions/quotes) and page metadata — adds scan.content.elements and scan.metadata')
   .option('--full-text', 'Capture uncapped element text and complete rendered body text for design-spec checks')
-  .action(async (url: string, options: { viewport: string; device?: string; waitFor?: string; screenshot?: string; json?: boolean; timeout: string; patience?: string; networkIdleTimeout?: string; rules?: string | boolean; output: string; content?: boolean; fullText?: boolean }) => {
+  .option('--no-layout-overflow', 'Skip the layout-overflow / clipped-content check')
+  .action(async (url: string, options: { viewport: string; device?: string; waitFor?: string; screenshot?: string; json?: boolean; timeout: string; patience?: string; networkIdleTimeout?: string; rules?: string | boolean; output: string; content?: boolean; fullText?: boolean; layoutOverflow?: boolean }) => {
     try {
       const { scan, formatScanResult } = await import('../scan.js');
       const resolvedUrl = await resolveBaseUrl(url);
@@ -1103,6 +1104,10 @@ program
         rules: rulePresets,
         content: options.content || options.fullText,
         fullText: options.fullText,
+        // Commander sets layoutOverflow=false only for --no-layout-overflow;
+        // undefined means "no preference", which scan() treats as its own
+        // default (on).
+        layoutOverflow: options.layoutOverflow === false ? false : undefined,
         ...getBrowserConnectionOptions(),
       });
 

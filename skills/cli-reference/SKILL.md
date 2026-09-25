@@ -60,6 +60,7 @@ npx ibr diagnose http://localhost:3000
 - All interactive elements with handler wiring
 - Accessibility audit (roles, labels, touch targets)
 - Console errors and warnings
+- Layout overflow: content escaping or clipped by its box (self-overflow, container-escape, sibling text-over-text, clipped/truncated text with no ellipsis). On by default; skip with `--no-layout-overflow`.
 - Verdict: PASS / ISSUES / FAIL
 
 ---
