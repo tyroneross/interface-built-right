@@ -1140,7 +1140,8 @@ only — a real, blocking finding, not a crash) | 2 = tool error
 was never actually scanned). This split (FAIL-only, not ISSUES) is
 unchanged from prior versions — verdict ISSUES has always exited 0 here.
 `)
-  .action(async (url: string, options: { viewport: string; device?: string; waitFor?: string; screenshot?: string; json?: boolean; timeout: string; patience?: string; networkIdleTimeout?: string; rules?: string | boolean; output: string; content?: boolean; fullText?: boolean }) => {
+  .option('--no-layout-overflow', 'Skip the layout-overflow / clipped-content check')
+  .action(async (url: string, options: { viewport: string; device?: string; waitFor?: string; screenshot?: string; json?: boolean; timeout: string; patience?: string; networkIdleTimeout?: string; rules?: string | boolean; output: string; content?: boolean; fullText?: boolean; layoutOverflow?: boolean }) => {
     try {
       const { scan, formatScanResult } = await import('../scan.js');
       const resolvedUrl = await resolveBaseUrl(url);
@@ -1194,6 +1195,10 @@ unchanged from prior versions — verdict ISSUES has always exited 0 here.
         rules: rulePresets,
         content: options.content || options.fullText,
         fullText: options.fullText,
+        // Commander sets layoutOverflow=false only for --no-layout-overflow;
+        // undefined means "no preference", which scan() treats as its own
+        // default (on).
+        layoutOverflow: options.layoutOverflow === false ? false : undefined,
         ...getBrowserConnectionOptions(),
       });
 

@@ -423,4 +423,394 @@ describe('buildLayoutOverflowProbe', () => {
     // worth catching in the unit job rather than in a browser run.
     expect(() => new Function(`return ${buildLayoutOverflowProbe()};`)).not.toThrow();
   });
+
+  it('guards checkVisibility for the clipped-content probe fields', () => {
+    const probe = buildLayoutOverflowProbe();
+    expect(probe).toContain('checkVisibility');
+    expect(probe).toContain('contentVisibilityAuto');
+    expect(probe).toContain('createRange');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Clip — text spilling past an ancestor that hides overflow.
+// ---------------------------------------------------------------------------
+
+describe('analyzeLayoutOverflow — clip', () => {
+  it('fires when text spills past an overflow-x:hidden ancestor', () => {
+    const nodes: LayoutOverflowNode[] = [
+      node({
+        index: 0,
+        selector: 'div#box',
+        tagName: 'DIV',
+        rect: { x: 0, y: 0, width: 200, height: 20 },
+        overflowX: 'hidden',
+      }),
+      node({
+        index: 1,
+        parent: 0,
+        depth: 1,
+        selector: 'div#box > span.label',
+        tagName: 'SPAN',
+        ownText: 'A long unbreakable label that does not fit',
+        rect: { x: 0, y: 0, width: 250, height: 20 },
+        textRect: { x: 0, y: 0, width: 250, height: 20 },
+      }),
+    ];
+    const findings = analyzeLayoutOverflow(nodes);
+    const clip = findings.find((f) => f.kind === 'clip');
+    expect(clip).toBeDefined();
+    expect(clip!.axis).toBe('horizontal');
+    expect(clip!.spillPx).toBe(50);
+    expect(clip!.otherSelector).toBe('div#box');
+    expect(clip!.detail).toContain('is clipped');
+    expect(clip!.detail).toContain('no ellipsis');
+  });
+
+  it('is suppressed when the box declares text-overflow: ellipsis', () => {
+    const nodes: LayoutOverflowNode[] = [
+      node({
+        index: 0,
+        selector: 'div#box',
+        tagName: 'DIV',
+        rect: { x: 0, y: 0, width: 200, height: 20 },
+        overflowX: 'hidden',
+        textOverflow: 'ellipsis',
+      }),
+      node({
+        index: 1,
+        parent: 0,
+        depth: 1,
+        selector: 'div#box > span.label',
+        tagName: 'SPAN',
+        ownText: 'A long unbreakable label that does not fit',
+        rect: { x: 0, y: 0, width: 250, height: 20 },
+        textRect: { x: 0, y: 0, width: 250, height: 20 },
+      }),
+    ];
+    expect(analyzeLayoutOverflow(nodes).some((f) => f.kind === 'clip')).toBe(false);
+  });
+
+  it('is suppressed when a line-clamp is declared between the text and the clip box', () => {
+    const nodes: LayoutOverflowNode[] = [
+      node({
+        index: 0,
+        selector: 'div#box',
+        tagName: 'DIV',
+        rect: { x: 0, y: 0, width: 200, height: 20 },
+        overflowX: 'hidden',
+        lineClamp: '2',
+      }),
+      node({
+        index: 1,
+        parent: 0,
+        depth: 1,
+        selector: 'div#box > span.label',
+        tagName: 'SPAN',
+        ownText: 'A long unbreakable label that does not fit',
+        rect: { x: 0, y: 0, width: 250, height: 20 },
+        textRect: { x: 0, y: 0, width: 250, height: 20 },
+      }),
+    ];
+    expect(analyzeLayoutOverflow(nodes).some((f) => f.kind === 'clip')).toBe(false);
+  });
+
+  it('is suppressed for a 2px sr-only clip box', () => {
+    const nodes: LayoutOverflowNode[] = [
+      node({
+        index: 0,
+        selector: 'div#sr',
+        tagName: 'DIV',
+        rect: { x: 0, y: 0, width: 2, height: 2 },
+        overflowX: 'hidden',
+        overflowY: 'hidden',
+      }),
+      node({
+        index: 1,
+        parent: 0,
+        depth: 1,
+        selector: 'div#sr > span.label',
+        tagName: 'SPAN',
+        ownText: 'Visually hidden label',
+        rect: { x: 0, y: 0, width: 100, height: 20 },
+        textRect: { x: 0, y: 0, width: 100, height: 20 },
+      }),
+    ];
+    expect(analyzeLayoutOverflow(nodes).some((f) => f.kind === 'clip')).toBe(false);
+  });
+
+  it('is suppressed when the walk reaches overflow:auto before any hidden/clip box', () => {
+    const nodes: LayoutOverflowNode[] = [
+      node({
+        index: 0,
+        selector: 'div#scroller',
+        tagName: 'DIV',
+        rect: { x: 0, y: 0, width: 200, height: 20 },
+        overflowX: 'auto',
+      }),
+      node({
+        index: 1,
+        parent: 0,
+        depth: 1,
+        selector: 'div#scroller > span.label',
+        tagName: 'SPAN',
+        ownText: 'A long unbreakable label that does not fit',
+        rect: { x: 0, y: 0, width: 250, height: 20 },
+        textRect: { x: 0, y: 0, width: 250, height: 20 },
+      }),
+    ];
+    expect(analyzeLayoutOverflow(nodes).some((f) => f.kind === 'clip')).toBe(false);
+  });
+
+  it('is suppressed when the text lies wholly outside the clip box (hidden on purpose)', () => {
+    const nodes: LayoutOverflowNode[] = [
+      node({
+        index: 0,
+        selector: 'div#box',
+        tagName: 'DIV',
+        rect: { x: 0, y: 0, width: 200, height: 20 },
+        overflowX: 'hidden',
+      }),
+      node({
+        index: 1,
+        parent: 0,
+        depth: 1,
+        selector: 'div#box > span.offscreen',
+        tagName: 'SPAN',
+        ownText: 'Parked off to the side on purpose',
+        rect: { x: 300, y: 0, width: 50, height: 20 },
+        textRect: { x: 300, y: 0, width: 50, height: 20 },
+      }),
+    ];
+    expect(analyzeLayoutOverflow(nodes).some((f) => f.kind === 'clip')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Self-overflow ancestor-chain collapse.
+// ---------------------------------------------------------------------------
+
+describe('analyzeLayoutOverflow — self-overflow chain collapse', () => {
+  it('drops the ancestor finding when a descendant carries a comparably large spill', () => {
+    const nodes: LayoutOverflowNode[] = [
+      node({
+        index: 0,
+        selector: 'div#outer',
+        tagName: 'DIV',
+        rect: { x: 0, y: 0, width: 300, height: 100 },
+        clientHeight: 100,
+        scrollHeight: 150, // 50px self-overflow
+      }),
+      node({
+        index: 1,
+        parent: 0,
+        depth: 1,
+        selector: 'div#outer > div.inner',
+        tagName: 'DIV',
+        rect: { x: 0, y: 0, width: 300, height: 60 },
+        clientHeight: 60,
+        scrollHeight: 140, // 80px self-overflow, descendant of #outer
+      }),
+    ];
+    const findings = analyzeLayoutOverflow(nodes);
+    const selfOverflow = findings.filter((f) => f.kind === 'self-overflow' && f.axis === 'vertical');
+    expect(selfOverflow).toHaveLength(1);
+    expect(selfOverflow[0].selector).toBe('div#outer > div.inner');
+  });
+
+  it('keeps the ancestor finding when its spill is far larger than any descendant', () => {
+    const nodes: LayoutOverflowNode[] = [
+      node({
+        index: 0,
+        selector: 'div#outer',
+        tagName: 'DIV',
+        rect: { x: 0, y: 0, width: 300, height: 100 },
+        clientHeight: 100,
+        scrollHeight: 300, // 200px self-overflow
+      }),
+      node({
+        index: 1,
+        parent: 0,
+        depth: 1,
+        selector: 'div#outer > div.inner',
+        tagName: 'DIV',
+        rect: { x: 0, y: 0, width: 300, height: 60 },
+        clientHeight: 60,
+        scrollHeight: 80, // 20px self-overflow — far smaller than the ancestor's
+      }),
+    ];
+    const findings = analyzeLayoutOverflow(nodes);
+    const selfOverflow = findings.filter((f) => f.kind === 'self-overflow' && f.axis === 'vertical');
+    const selectors = selfOverflow.map((f) => f.selector);
+    expect(selectors).toContain('div#outer');
+    expect(selectors).toContain('div#outer > div.inner');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Grid/flex culprit attribution — the min-content track-floor bug class.
+// ---------------------------------------------------------------------------
+
+describe('attributeCulprit — grid/flex track floor', () => {
+  // Deliberately NOT overriding `width` here — `node()`'s default sets it to
+  // `${rect.width}px` ("300px"), exactly what `getComputedStyle().width`
+  // returns for a real, auto-sized grid/flex container in a real browser
+  // (the used value, not `auto`). Before the reorder, `size !== null &&
+  // content > size` matched on THAT resolved width and reported "fixed
+  // width: 300px" — a declaration nobody wrote. Leaving the default in place
+  // is what proves the grid/flex branch now runs BEFORE the fixed-width
+  // branch, not just when the fixed-width branch happens to be unreachable.
+  it('names grid-template-columns and a minmax(0, 1fr) fix when a grid track cannot shrink', () => {
+    const nodes: LayoutOverflowNode[] = [
+      node({
+        index: 0,
+        selector: 'div.cols',
+        tagName: 'DIV',
+        display: 'grid',
+        maxWidth: 'none',
+        gridTemplateColumns: '1fr 1fr 1fr',
+        rect: { x: 0, y: 0, width: 300, height: 40 },
+        clientWidth: 300,
+        scrollWidth: 400, // 100px self-overflow — a track refused to shrink
+      }),
+    ];
+    const findings = analyzeLayoutOverflow(nodes);
+    const finding = findings.find((f) => f.kind === 'self-overflow' && f.axis === 'horizontal');
+    expect(finding).toBeDefined();
+    expect(finding!.culprit?.origin).toBe('author');
+    expect(finding!.culprit?.property).toBe('grid-template-columns');
+    expect(finding!.culprit?.value).toBe('1fr 1fr 1fr');
+    expect(finding!.fix).toContain('minmax(0, 1fr)');
+    expect(finding!.fix).toContain('overflow-wrap: anywhere');
+  });
+
+  it('names min-width: 0 for a flex item that cannot shrink', () => {
+    const nodes: LayoutOverflowNode[] = [
+      node({
+        index: 0,
+        selector: 'div.row',
+        tagName: 'DIV',
+        display: 'flex',
+        maxWidth: 'none',
+        rect: { x: 0, y: 0, width: 300, height: 40 },
+        clientWidth: 300,
+        scrollWidth: 380, // 80px self-overflow
+      }),
+    ];
+    const findings = analyzeLayoutOverflow(nodes);
+    const finding = findings.find((f) => f.kind === 'self-overflow' && f.axis === 'horizontal');
+    expect(finding).toBeDefined();
+    expect(finding!.culprit?.origin).toBe('author');
+    expect(finding!.culprit?.property).toBe('min-width');
+    expect(finding!.culprit?.value).toBe('auto');
+    expect(finding!.fix).toContain('min-width: 0');
+    expect(finding!.fix).toContain('overflow-wrap: anywhere');
+  });
+
+  // The reorder is scoped to horizontal grid/flex only. A vertical
+  // self-overflow on a grid container (e.g. a fixed `height`) must still
+  // attribute to the real, explicit height — not get reinterpreted as a
+  // track-floor problem it has nothing to do with.
+  it('leaves the vertical axis on a grid container attributed to its explicit height', () => {
+    const capped = node({
+      index: 0,
+      selector: 'div.cols',
+      tagName: 'DIV',
+      display: 'grid',
+      height: '40px',
+      scrollHeight: 90,
+    });
+    const culprit = attributeCulprit(capped, 'vertical');
+    expect(culprit.origin).toBe('author');
+    expect(culprit.property).toBe('height');
+    expect(culprit.value).toBe('40px');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// maxFindings — a flat top-N slice starves whichever kind never outranks
+// sibling-overlap (always severity 'error', so it always sorts first).
+// ---------------------------------------------------------------------------
+
+describe('analyzeLayoutOverflow — maxFindings does not starve a kind', () => {
+  it('keeps every self-overflow and clip finding even when 50 overlap errors outrank them', () => {
+    const nodes: LayoutOverflowNode[] = [];
+
+    // 50 ISOLATED sibling-overlap pairs — each pair fully overlaps its
+    // partner and sits far enough from every other pair (1000px steps) that
+    // the y-sorted sweep in pass 3 cannot match across pairs. 50 pairs -> 50
+    // sibling-overlap findings, no more, no less.
+    for (let i = 0; i < 50; i++) {
+      const y = i * 1000;
+      nodes.push(
+        node({
+          index: nodes.length,
+          selector: `p#a${i}`,
+          tagName: 'P',
+          ownText: `overlap a ${i}`,
+          rect: { x: 0, y, width: 100, height: 20 },
+        }),
+      );
+      nodes.push(
+        node({
+          index: nodes.length,
+          selector: `p#b${i}`,
+          tagName: 'P',
+          ownText: `overlap b ${i}`,
+          rect: { x: 0, y, width: 100, height: 20 },
+        }),
+      );
+    }
+
+    // 3 isolated self-overflow boxes — no ownText, so pass 3 never touches
+    // them, and no parent/children, so pass 1's chain collapse has nothing
+    // to collapse against.
+    for (let i = 0; i < 3; i++) {
+      nodes.push(
+        node({
+          index: nodes.length,
+          selector: `div#self${i}`,
+          tagName: 'DIV',
+          rect: { x: 500, y: i * 1000, width: 300, height: 40 },
+          clientHeight: 40,
+          scrollHeight: 90, // 50px self-overflow, vertical
+        }),
+      );
+    }
+
+    // 2 isolated clip pairs — one text-bearing child each, so pass 3 never
+    // finds a second text node to overlap it with.
+    for (let i = 0; i < 2; i++) {
+      const y = 20000 + i * 1000;
+      const boxIndex = nodes.length;
+      nodes.push(
+        node({
+          index: boxIndex,
+          selector: `div#clip${i}`,
+          tagName: 'DIV',
+          rect: { x: 0, y, width: 200, height: 20 },
+          overflowX: 'hidden',
+        }),
+      );
+      nodes.push(
+        node({
+          index: nodes.length,
+          parent: boxIndex,
+          depth: 1,
+          selector: `div#clip${i} > span.label`,
+          tagName: 'SPAN',
+          ownText: `clipped label ${i}`,
+          rect: { x: 0, y, width: 250, height: 20 },
+          textRect: { x: 0, y, width: 250, height: 20 },
+        }),
+      );
+    }
+
+    const findings = analyzeLayoutOverflow(nodes, { maxFindings: 40 });
+
+    expect(findings).toHaveLength(40);
+    expect(findings.filter((f) => f.kind === 'self-overflow')).toHaveLength(3);
+    expect(findings.filter((f) => f.kind === 'clip')).toHaveLength(2);
+    expect(findings.filter((f) => f.kind === 'sibling-overlap')).toHaveLength(35);
+  });
 });

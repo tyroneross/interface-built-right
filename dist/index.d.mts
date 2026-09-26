@@ -6002,6 +6002,53 @@ interface LayoutCollisionResult {
     hasCollisions: boolean;
 }
 
+type LayoutOverflowKind = 'self-overflow' | 'container-escape' | 'sibling-overlap' | 'clip';
+interface LayoutOverflowCulprit {
+    /** Element carrying the constraining declaration. */
+    selector: string;
+    /** e.g. `height`. */
+    property: string;
+    /** e.g. `30px`. */
+    value: string;
+    /**
+     * Where the declaration most likely comes from.
+     * `obsidian-base` is asserted only on positive evidence (see analyzer).
+     */
+    origin: 'obsidian-base' | 'author' | 'unknown';
+    /** One sentence naming the rule, suitable for pasting into a report. */
+    note: string;
+}
+interface LayoutOverflowFinding {
+    kind: LayoutOverflowKind;
+    severity: 'error' | 'warning';
+    axis: 'horizontal' | 'vertical';
+    /** The element the finding is about. */
+    selector: string;
+    tagName: string;
+    text?: string;
+    /** Spill / overlap magnitude in CSS px. */
+    spillPx: number;
+    /** The other element, for cross-element findings. */
+    otherSelector?: string;
+    otherText?: string;
+    culprit?: LayoutOverflowCulprit;
+    /** Pre-formatted message, suitable as a `ScanIssue.description`. */
+    detail: string;
+    fix?: string;
+}
+interface LayoutOverflowOptions {
+    /** Min `scroll - client` on a visible-overflow box, in px. Default 8. */
+    selfOverflowPx?: number;
+    /** Min rect escape past the parent's border box, in px. Default 8. */
+    containerEscapePx?: number;
+    /** Min overlap on BOTH axes for a cross-element collision, in px. Default 8. */
+    overlapPx?: number;
+    /** Min text spill past a clip box on one axis, in px. Default 8. */
+    clipPx?: number;
+    /** Cap on findings returned, highest severity/magnitude first. Default 40. */
+    maxFindings?: number;
+}
+
 interface VisualPatternGroup$1 {
     patternKey: string;
     count: number;
@@ -6390,6 +6437,15 @@ interface ScanResult {
     coverage?: CoverageReport;
     /** Layout collision detection — overlapping text elements */
     layoutCollisions?: LayoutCollisionResult;
+    /**
+     * Content that has escaped or been clipped by its box — self-overflow,
+     * container-escape, sibling text-over-text overlap, and clipped/truncated
+     * text with no ellipsis. Absent when `ScanOptions.layoutOverflow === false`
+     * or the probe/analysis failed (see the `[layout-overflow-failed]` issue in
+     * that case). `layoutCollisions` above covers INTERACTIVE elements only;
+     * this covers the whole page, including plain text.
+     */
+    layoutOverflow?: LayoutOverflowFinding[];
     /** Theme consistency — detects light content on dark page (and vice versa) */
     themeAnalysis?: ThemeAnalysis;
     /** Design system check results — principle violations, token compliance */
@@ -6582,6 +6638,15 @@ interface ScanOptions extends BrowserLaunchOptions {
      * to run. Defaults to `process.cwd()`.
      */
     projectDir?: string;
+    /**
+     * Detect content that has escaped or been clipped by its box — the same
+     * detector `scan_obsidian` has run since its 30px-button regression. Runs
+     * ON BY DEFAULT, rooted at `body`. Pass `false` to skip it (e.g. a caller
+     * that runs its own probe at a narrower root — see `src/obsidian/scan.ts`,
+     * which passes `false` here to avoid double-reporting its own root-scoped
+     * probe), or an options object to override the default thresholds.
+     */
+    layoutOverflow?: false | LayoutOverflowOptions;
 }
 /**
  * Run a comprehensive UI scan on a URL.
