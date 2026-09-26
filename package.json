@@ -1,6 +1,6 @@
 {
   "name": "@tyroneross/interface-built-right",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "UI/UX design and building tool for AI coding agents. Plans and builds web, iOS, and macOS interfaces with platform guidance and Calm Precision patterns; auditing, validation, and iterative editing support the build.",
   "license": "Apache-2.0",
   "publishConfig": {
