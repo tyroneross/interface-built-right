@@ -126,6 +126,42 @@ private func activateApp(pid: pid_t) -> Bool {
     return ok
 }
 
+/// `activate` returning true only means the request was accepted; macOS can
+/// still refuse to move focus. A global HID post then lands in whatever app IS
+/// frontmost (observed 2026-09-25: Return keys meant for Ambient Agent were
+/// typed into Easy Terminal). Refuse the post unless the target owns focus.
+func frontmostGuardError(targetPid: pid_t, frontmostPid: pid_t?, frontmostName: String?) -> String? {
+    if frontmostPid == targetPid { return nil }
+    let who = frontmostPid.map { "\(frontmostName ?? "unknown") (pid \($0))" } ?? "no app"
+    return "Refusing foreground key post: target pid \(targetPid) is not frontmost; \(who) is. The keystroke would have gone to that app."
+}
+
+/// The app that owns keyboard focus, read via Accessibility. A CLI process has
+/// no run loop, so `NSWorkspace.frontmostApplication` stays frozen at launch
+/// value and cannot be used here.
+private func focusedAppPid() -> pid_t? {
+    var value: AnyObject?
+    let systemWide = AXUIElementCreateSystemWide()
+    guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedApplicationAttribute as CFString, &value) == .success,
+          let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+    var pid: pid_t = 0
+    guard AXUIElementGetPid(value as! AXUIElement, &pid) == .success else { return nil }
+    return pid
+}
+
+/// Poll briefly for the activation to take effect, then return the guard verdict.
+private func awaitFrontmost(pid: pid_t) -> String? {
+    var error: String?
+    for _ in 0..<10 {
+        let frontPid = focusedAppPid()
+        let frontName = frontPid.flatMap { findAppByPid($0)?.localizedName }
+        error = frontmostGuardError(targetPid: pid, frontmostPid: frontPid, frontmostName: frontName)
+        if error == nil { return nil }
+        usleep(50_000)
+    }
+    return error
+}
+
 /// Deliver a chord to `pid`. `foreground` selects the delivery mode:
 ///   - `false` (default): `CGEventPostToPid` — background, no focus steal.
 ///   - `true`: activate the target app, then post via the global HID tap.
@@ -143,6 +179,9 @@ func deliverKeystroke(pid: pid_t, chord: String, foreground: Bool) -> (Bool, Str
     if foreground {
         guard activateApp(pid: pid) else {
             return (false, "No running application found for pid \(pid)")
+        }
+        if let error = awaitFrontmost(pid: pid) {
+            return (false, error)
         }
         guard postKeyGlobal(keyCode: spec.keyCode, flags: spec.flags, down: true) else {
             return (false, "Failed to create keyboard event for chord: \(chord)")
