@@ -6376,6 +6376,10 @@ interface ContrastReportEntry {
     elementCount: number;
     /** Up to 3 representative element labels */
     sampleElements: string[];
+    /** WCAG large-text classification (3:1 threshold instead of 4.5:1). Absent for 'unknown' rows. */
+    largeText?: boolean;
+    /** Why an 'unknown' row could not be graded, e.g. "unparseable color". */
+    reason?: string;
 }
 interface InteractionMapEntry {
     category: 'has-handler' | 'looks-interactive-no-handler' | 'disabled-with-handler' | 'properly-disabled';

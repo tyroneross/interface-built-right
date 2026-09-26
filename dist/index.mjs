@@ -9818,6 +9818,589 @@ var init_cognitive_load = __esm({
     ];
   }
 });
+
+// src/layout-overflow.ts
+function buildLayoutOverflowProbe(options = {}) {
+  const rootSelector = JSON.stringify(options.rootSelector ?? "#ibr-container");
+  const maxNodes = Math.max(1, Math.floor(options.maxNodes ?? 4e3));
+  return `(function () {
+  var MAX = ${maxNodes};
+  var root = document.querySelector(${rootSelector}) || document.body;
+  if (!root) return [];
+  var out = [];
+
+  function nth(el) {
+    var p = el.parentElement;
+    if (!p) return 1;
+    var n = 0;
+    for (var i = 0; i < p.children.length; i++) {
+      if (p.children[i].tagName === el.tagName) {
+        n++;
+        if (p.children[i] === el) return n;
+      }
+    }
+    return n;
+  }
+
+  function shortSel(el) {
+    var s = el.tagName.toLowerCase();
+    if (el.id) return s + '#' + el.id;
+    var cls = (typeof el.className === 'string' ? el.className : '').trim();
+    if (cls) {
+      var parts = cls.split(/\\s+/).slice(0, 2);
+      s += '.' + parts.join('.');
+    }
+    var i = nth(el);
+    if (i > 1) s += ':nth-of-type(' + i + ')';
+    return s;
+  }
+
+  function pathSel(el, rootEl) {
+    var chain = [];
+    var cur = el;
+    var guard = 0;
+    while (cur && guard++ < 12) {
+      chain.unshift(shortSel(cur));
+      if (cur === rootEl) break;
+      cur = cur.parentElement;
+    }
+    return chain.join(' > ');
+  }
+
+  function directText(el) {
+    var t = '';
+    for (var i = 0; i < el.childNodes.length; i++) {
+      var n = el.childNodes[i];
+      if (n.nodeType === 3) t += n.nodeValue;
+    }
+    t = t.replace(/\\s+/g, ' ').trim();
+    return t.length > 80 ? t.slice(0, 80) : t;
+  }
+
+  // A closed disclosure can retain child geometry while its zero-height
+  // overflow:hidden body paints none of that subtree. Rect intersections alone
+  // would report those hidden descendants as collisions with later content.
+  function isPainted(el, rect) {
+    var cur = el.parentElement;
+    while (cur) {
+      var cs;
+      try { cs = getComputedStyle(cur); } catch (e) { cur = cur.parentElement; continue; }
+      var clipsX = cs.overflowX === 'hidden' || cs.overflowX === 'clip';
+      var clipsY = cs.overflowY === 'hidden' || cs.overflowY === 'clip';
+      if (clipsX || clipsY) {
+        var parentRect = cur.getBoundingClientRect();
+        if (clipsX && (rect.right <= parentRect.left || rect.left >= parentRect.right)) return false;
+        if (clipsY && (rect.bottom <= parentRect.top || rect.top >= parentRect.bottom)) return false;
+      }
+      cur = cur.parentElement;
+    }
+    return true;
+  }
+
+  // DIRECT child text nodes with non-whitespace content \u2014 same population
+  // directText() stringifies, kept as nodes here so a Range can measure them.
+  function directTextNodes(el) {
+    var found = [];
+    for (var i = 0; i < el.childNodes.length; i++) {
+      var n = el.childNodes[i];
+      if (n.nodeType === 3 && /\\S/.test(n.nodeValue)) found.push(n);
+    }
+    return found;
+  }
+
+  // Union bounding box of Range.getClientRects() over this element's direct
+  // text. null when there is no direct text or its measured rect is zero-size
+  // (e.g. collapsed by an ancestor already excluded above).
+  function textRectOf(el) {
+    var nodes = directTextNodes(el);
+    if (nodes.length === 0) return null;
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, found = false;
+    for (var i = 0; i < nodes.length; i++) {
+      var range;
+      try {
+        range = document.createRange();
+        range.selectNodeContents(nodes[i]);
+      } catch (e) { continue; }
+      var rects = range.getClientRects();
+      for (var j = 0; j < rects.length; j++) {
+        var rc = rects[j];
+        if (rc.width <= 0 || rc.height <= 0) continue;
+        found = true;
+        if (rc.left < minX) minX = rc.left;
+        if (rc.top < minY) minY = rc.top;
+        if (rc.right > maxX) maxX = rc.right;
+        if (rc.bottom > maxY) maxY = rc.bottom;
+      }
+    }
+    if (!found) return null;
+    var w = maxX - minX, h = maxY - minY;
+    if (w <= 0 || h <= 0) return null;
+    return { x: minX, y: minY, width: w, height: h };
+  }
+
+  function walk(el, parentIndex, depth) {
+    if (out.length >= MAX) return;
+    var cs;
+    try { cs = getComputedStyle(el); } catch (e) { return; }
+    // display:none has no layout at all; its subtree is not rendered either.
+    if (cs.display === 'none') return;
+
+    var hasCheckVisibility = typeof el.checkVisibility === 'function';
+
+    // Closed <details> content (and content-visibility:hidden generally) is
+    // laid out but never painted, and painted:false alone would still walk
+    // and report its descendants. contentVisibilityAuto:true catches that
+    // whole subtree in one check, so skip it here rather than let every
+    // downstream pass special-case it. The <details>/<summary> element ITSELF
+    // stays visible \u2014 this only trips on the hidden content inside.
+    if (hasCheckVisibility) {
+      try {
+        if (!el.checkVisibility({ contentVisibilityAuto: true })) return;
+      } catch (e) { /* fall through and measure anyway */ }
+    }
+
+    var r = el.getBoundingClientRect();
+
+    // visibility:hidden / opacity:0 still occupy layout space (unlike
+    // content-visibility above), so they are measured but flagged unpainted \u2014
+    // same contract isPainted() already carries for clip-hidden boxes.
+    var visibilityPainted = true;
+    if (hasCheckVisibility) {
+      try {
+        visibilityPainted = el.checkVisibility({ visibilityProperty: true, opacityProperty: true });
+      } catch (e) { visibilityPainted = true; }
+    }
+
+    var index = out.length;
+    out.push({
+      index: index,
+      parent: parentIndex,
+      depth: depth,
+      selector: pathSel(el, root),
+      tagName: el.tagName,
+      ownText: directText(el),
+      rect: { x: r.left, y: r.top, width: r.width, height: r.height },
+      clientWidth: el.clientWidth,
+      clientHeight: el.clientHeight,
+      scrollWidth: el.scrollWidth,
+      scrollHeight: el.scrollHeight,
+      overflowX: cs.overflowX,
+      overflowY: cs.overflowY,
+      display: cs.display,
+      position: cs.position,
+      height: cs.height,
+      minHeight: cs.minHeight,
+      maxHeight: cs.maxHeight,
+      width: cs.width,
+      minWidth: cs.minWidth,
+      maxWidth: cs.maxWidth,
+      boxSizing: cs.boxSizing,
+      hasTransform: cs.transform !== 'none' && cs.transform !== '',
+      painted: isPainted(el, r) && visibilityPainted,
+      inputHeightVar: (cs.getPropertyValue('--input-height') || '').trim(),
+      textRect: textRectOf(el),
+      textOverflow: cs.textOverflow,
+      lineClamp: cs.webkitLineClamp || cs.getPropertyValue('-webkit-line-clamp') || '',
+      gridTemplateColumns: cs.gridTemplateColumns
+    });
+
+    for (var i = 0; i < el.children.length; i++) {
+      walk(el.children[i], index, depth + 1);
+      if (out.length >= MAX) return;
+    }
+  }
+
+  walk(root, null, 0);
+  return out;
+})()`;
+}
+function px(value) {
+  const m = /^(-?\d+(?:\.\d+)?)px$/.exec(value.trim());
+  return m ? Number(m[1]) : null;
+}
+function isVisibleOverflow(value) {
+  return value === "visible";
+}
+function hasBoxMetrics(node) {
+  return node.display !== "inline" && node.display !== "contents" && node.clientHeight > 0;
+}
+function isInFlow(node) {
+  return (node.position === "static" || node.position === "relative") && !node.hasTransform;
+}
+function hasOutOfFlowAncestor(node, byIndex) {
+  let parent = node.parent === null ? void 0 : byIndex.get(node.parent);
+  while (parent) {
+    if (parent.position === "fixed" || parent.position === "sticky" || parent.hasTransform) return true;
+    parent = parent.parent === null ? void 0 : byIndex.get(parent.parent);
+  }
+  return false;
+}
+function short(text, max = 40) {
+  return text.length > max ? `${text.slice(0, max)}\u2026` : text;
+}
+function attributeCulprit(node, axis) {
+  const isVertical = axis === "vertical";
+  const sizeProp = isVertical ? "height" : "width";
+  const maxProp = isVertical ? "max-height" : "max-width";
+  const size = px(isVertical ? node.height : node.width);
+  const maxSize = px(isVertical ? node.maxHeight : node.maxWidth);
+  const content = isVertical ? node.scrollHeight : node.scrollWidth;
+  const FORM_CONTROLS = /* @__PURE__ */ new Set(["BUTTON", "INPUT", "SELECT", "TEXTAREA"]);
+  const inputHeight = px(node.inputHeightVar);
+  if (isVertical && FORM_CONTROLS.has(node.tagName) && size !== null && inputHeight !== null && Math.abs(size - inputHeight) < 0.5) {
+    return {
+      selector: node.selector,
+      property: "height",
+      value: node.height,
+      origin: "obsidian-base",
+      note: `Obsidian's app.css pins every <${node.tagName.toLowerCase()}> to height: var(--input-height) (${node.inputHeightVar}). This element's content is ${Math.round(content)}px tall, so it renders outside the box. A <${node.tagName.toLowerCase()}> used as a multi-line layout container must reset that rule.`
+    };
+  }
+  if (!isVertical && (node.display === "grid" || node.display === "inline-grid")) {
+    return {
+      selector: node.selector,
+      property: "grid-template-columns",
+      value: node.gridTemplateColumns ?? "",
+      origin: "author",
+      note: `grid-template-columns: ${node.gridTemplateColumns ?? "(unknown)"} \u2014 a bare \`1fr\` track is shorthand for \`minmax(auto, 1fr)\`, so the track floors at its content's min-content width, not zero. An unbreakable token inside it raised that floor past the track's fair share.`
+    };
+  }
+  if (!isVertical && (node.display === "flex" || node.display === "inline-flex")) {
+    return {
+      selector: node.selector,
+      property: "min-width",
+      value: "auto",
+      origin: "author",
+      note: `Flex items default to min-width: auto, so this box will not shrink below its content's min-content width even though the row is flex. An unbreakable token inside it raised that floor past the item's fair share of the row.`
+    };
+  }
+  if (size !== null && content > size + 0.5) {
+    return {
+      selector: node.selector,
+      property: sizeProp,
+      value: isVertical ? node.height : node.width,
+      origin: "author",
+      note: `${sizeProp}: ${isVertical ? node.height : node.width} holds this box to a fixed size while its content measures ${Math.round(content)}px.`
+    };
+  }
+  if (maxSize !== null && content > maxSize + 0.5) {
+    return {
+      selector: node.selector,
+      property: maxProp,
+      value: isVertical ? node.maxHeight : node.maxWidth,
+      origin: "author",
+      note: `${maxProp}: ${isVertical ? node.maxHeight : node.maxWidth} caps this box below its ${Math.round(content)}px content.`
+    };
+  }
+  return {
+    selector: node.selector,
+    property: sizeProp,
+    value: isVertical ? node.height : node.width,
+    origin: "unknown",
+    note: `No fixed ${sizeProp} on this element \u2014 the constraint is on an ancestor, or the content genuinely exceeds the space available.`
+  };
+}
+function fixFor(culprit, axis) {
+  if (culprit?.origin === "obsidian-base") {
+    return `Reset the base rule on this element: \`height: auto; min-height: 0;\` (and \`display: block\`/\`grid\` if it must wrap). Or use a non-<button> element with a click handler and \`role="button"\`.`;
+  }
+  if (culprit?.origin === "author" && culprit.property === "grid-template-columns") {
+    return `Change the \`1fr\` tracks to \`minmax(0, 1fr)\` so they can shrink below their content's min-content width, and add \`overflow-wrap: anywhere\` on the text children so they wrap instead of forcing the track wider.`;
+  }
+  if (culprit?.origin === "author" && culprit.property === "min-width" && culprit.value === "auto") {
+    return `Add \`min-width: 0\` on this flex item so it can shrink below its content's min-content width, and \`overflow-wrap: anywhere\` on the text children so they wrap instead of forcing the item wider.`;
+  }
+  if (culprit?.origin === "author") {
+    return `Replace \`${culprit.property}: ${culprit.value}\` with \`min-${culprit.property}\`, or allow the box to grow (\`${culprit.property}: auto\`).`;
+  }
+  return axis === "vertical" ? "Let the box grow (`height: auto`), or give it `overflow: hidden` if clipping is intended." : "Let the box grow (`width: auto`), allow wrapping, or clip deliberately.";
+}
+function analyzeLayoutOverflow(nodes, options = {}) {
+  const selfOverflowPx = options.selfOverflowPx ?? LAYOUT_OVERFLOW_DEFAULTS.selfOverflowPx;
+  const containerEscapePx = options.containerEscapePx ?? LAYOUT_OVERFLOW_DEFAULTS.containerEscapePx;
+  const overlapPx = options.overlapPx ?? LAYOUT_OVERFLOW_DEFAULTS.overlapPx;
+  const clipPx = options.clipPx ?? LAYOUT_OVERFLOW_DEFAULTS.clipPx;
+  const maxFindings = options.maxFindings ?? LAYOUT_OVERFLOW_DEFAULTS.maxFindings;
+  if (nodes.length === 0) return [];
+  const byIndex = /* @__PURE__ */ new Map();
+  for (const n of nodes) byIndex.set(n.index, n);
+  const findings = [];
+  const overflowingBoxes = /* @__PURE__ */ new Set();
+  const EPSILON_PX = 0.5;
+  for (const node of nodes) {
+    if (!node.painted) continue;
+    if (!hasBoxMetrics(node)) continue;
+    if (isVisibleOverflow(node.overflowY) && node.scrollHeight - node.clientHeight > EPSILON_PX) {
+      overflowingBoxes.add(`${node.index}:vertical`);
+    }
+    if (isVisibleOverflow(node.overflowX) && node.clientWidth > 0 && node.scrollWidth - node.clientWidth > EPSILON_PX) {
+      overflowingBoxes.add(`${node.index}:horizontal`);
+    }
+  }
+  const selfOverflowRaw = [];
+  for (const node of nodes) {
+    if (!node.painted) continue;
+    if (!hasBoxMetrics(node)) continue;
+    if (isVisibleOverflow(node.overflowY)) {
+      const spill = node.scrollHeight - node.clientHeight;
+      if (spill >= selfOverflowPx) {
+        const culprit = attributeCulprit(node, "vertical");
+        selfOverflowRaw.push({
+          nodeIndex: node.index,
+          finding: {
+            kind: "self-overflow",
+            severity: "warning",
+            axis: "vertical",
+            selector: node.selector,
+            tagName: node.tagName,
+            text: node.ownText || void 0,
+            spillPx: round(spill),
+            culprit,
+            detail: `layout-overflow: <${node.tagName.toLowerCase()}> ${node.selector} renders ${Math.round(node.scrollHeight)}px of content in a ${Math.round(node.clientHeight)}px box ` + `(overflow: visible) \u2014 ${Math.round(spill)}px paints outside the element. ${culprit?.note ?? ""}`.trim(),
+            fix: fixFor(culprit, "vertical")
+          }
+        });
+      }
+    }
+    if (isVisibleOverflow(node.overflowX) && node.clientWidth > 0) {
+      const spill = node.scrollWidth - node.clientWidth;
+      if (spill >= selfOverflowPx) {
+        const culprit = attributeCulprit(node, "horizontal");
+        selfOverflowRaw.push({
+          nodeIndex: node.index,
+          finding: {
+            kind: "self-overflow",
+            severity: "warning",
+            axis: "horizontal",
+            selector: node.selector,
+            tagName: node.tagName,
+            text: node.ownText || void 0,
+            spillPx: round(spill),
+            culprit,
+            detail: `layout-overflow: <${node.tagName.toLowerCase()}> ${node.selector} renders ${Math.round(node.scrollWidth)}px of content in a ${Math.round(node.clientWidth)}px box ` + `(overflow: visible) \u2014 ${Math.round(spill)}px paints outside the element. ${culprit?.note ?? ""}`.trim(),
+            fix: fixFor(culprit, "horizontal")
+          }
+        });
+      }
+    }
+  }
+  const ancestorsOf = buildAncestorSets(nodes, byIndex);
+  const droppedSelfOverflow = /* @__PURE__ */ new Set();
+  for (let i = 0; i < selfOverflowRaw.length; i++) {
+    const outer = selfOverflowRaw[i];
+    for (let j = 0; j < selfOverflowRaw.length; j++) {
+      if (i === j) continue;
+      const inner = selfOverflowRaw[j];
+      if (inner.finding.axis !== outer.finding.axis) continue;
+      if (!ancestorsOf.get(inner.nodeIndex)?.has(outer.nodeIndex)) continue;
+      if (inner.finding.spillPx >= outer.finding.spillPx - selfOverflowPx) {
+        droppedSelfOverflow.add(i);
+        break;
+      }
+    }
+  }
+  for (let i = 0; i < selfOverflowRaw.length; i++) {
+    if (!droppedSelfOverflow.has(i)) findings.push(selfOverflowRaw[i].finding);
+  }
+  for (const node of nodes) {
+    if (!node.painted) continue;
+    if (node.parent === null) continue;
+    if (!isInFlow(node)) continue;
+    const parent = byIndex.get(node.parent);
+    if (!parent) continue;
+    if (parent.rect.width <= 0 || parent.rect.height <= 0) continue;
+    if (node.rect.width <= 0 || node.rect.height <= 0) continue;
+    const axes = [
+      [
+        "vertical",
+        node.rect.y,
+        node.rect.y + node.rect.height,
+        parent.rect.y,
+        parent.rect.y + parent.rect.height,
+        parent.overflowY
+      ],
+      [
+        "horizontal",
+        node.rect.x,
+        node.rect.x + node.rect.width,
+        parent.rect.x,
+        parent.rect.x + parent.rect.width,
+        parent.overflowX
+      ]
+    ];
+    for (const [axis, start, end, pStart, pEnd, parentOverflow] of axes) {
+      if (!isVisibleOverflow(parentOverflow)) continue;
+      if (overflowingBoxes.has(`${parent.index}:${axis}`)) continue;
+      const past = Math.max(end - pEnd, 0);
+      const before = Math.max(pStart - start, 0);
+      const spill = Math.max(past, before);
+      if (spill < containerEscapePx) continue;
+      const culprit = attributeCulprit(parent, axis);
+      const direction = axis === "vertical" ? past >= before ? "below" : "above" : past >= before ? "past the end of" : "before the start of";
+      findings.push({
+        kind: "container-escape",
+        severity: "warning",
+        axis,
+        selector: node.selector,
+        tagName: node.tagName,
+        text: node.ownText || void 0,
+        spillPx: round(spill),
+        otherSelector: parent.selector,
+        otherText: parent.ownText || void 0,
+        culprit,
+        detail: `layout-overflow: ${node.selector} extends ${Math.round(spill)}px ${direction} its parent ${parent.selector} (parent overflow: visible, so the excess paints over ` + `whatever follows). ${culprit?.note ?? ""}`.trim(),
+        fix: fixFor(culprit, axis)
+      });
+    }
+  }
+  const textNodes = nodes.filter(
+    (n) => n.ownText.length > 0 && n.painted && n.rect.width > 0 && n.rect.height > 0 && isInFlow(n) && !hasOutOfFlowAncestor(n, byIndex)
+  ).sort((a, b) => a.rect.y !== b.rect.y ? a.rect.y - b.rect.y : a.rect.x - b.rect.x);
+  for (let i = 0; i < textNodes.length; i++) {
+    const a = textNodes[i];
+    const aBottom = a.rect.y + a.rect.height;
+    for (let j = i + 1; j < textNodes.length; j++) {
+      const b = textNodes[j];
+      if (b.rect.y >= aBottom - overlapPx) break;
+      if (ancestorsOf.get(a.index)?.has(b.index) || ancestorsOf.get(b.index)?.has(a.index)) continue;
+      const overlapH = Math.min(aBottom, b.rect.y + b.rect.height) - Math.max(a.rect.y, b.rect.y);
+      const overlapW = Math.min(a.rect.x + a.rect.width, b.rect.x + b.rect.width) - Math.max(a.rect.x, b.rect.x);
+      if (overlapH < overlapPx || overlapW < overlapPx) continue;
+      const culprit = nearestOverflowingAncestor(a, byIndex, overflowingBoxes) ?? nearestOverflowingAncestor(b, byIndex, overflowingBoxes);
+      findings.push({
+        kind: "sibling-overlap",
+        severity: "error",
+        axis: "vertical",
+        selector: a.selector,
+        tagName: a.tagName,
+        text: short(a.ownText),
+        spillPx: round(overlapH),
+        otherSelector: b.selector,
+        otherText: short(b.ownText),
+        culprit,
+        detail: `layout-overflow: "${short(a.ownText)}" (${a.selector}) overlaps "${short(b.ownText)}" (${b.selector}) by ${Math.round(overlapH)}x${Math.round(overlapW)}px \u2014 ` + `text is rendering on top of text. ${culprit?.note ?? ""}`.trim(),
+        fix: culprit ? fixFor(culprit, "vertical") : "Two in-flow text elements occupy the same pixels. Check for a fixed height, a negative margin, or an absolute position on a shared ancestor."
+      });
+    }
+  }
+  for (const node of nodes) {
+    if (!node.painted) continue;
+    const tr = node.textRect;
+    if (!tr || tr.width <= 0 || tr.height <= 0) continue;
+    for (const axis of ["horizontal", "vertical"]) {
+      let cur = node;
+      let clipBox;
+      let sawEllipsisOrClamp = false;
+      let guard = 0;
+      while (cur && guard++ < 64) {
+        if (cur.textOverflow === "ellipsis") sawEllipsisOrClamp = true;
+        const clamp2 = (cur.lineClamp ?? "").trim();
+        if (clamp2 && clamp2 !== "none") sawEllipsisOrClamp = true;
+        const overflowValue = axis === "horizontal" ? cur.overflowX : cur.overflowY;
+        if (overflowValue === "scroll" || overflowValue === "auto") {
+          clipBox = void 0;
+          break;
+        }
+        if (overflowValue === "hidden" || overflowValue === "clip") {
+          clipBox = cur;
+          break;
+        }
+        cur = cur.parent === null ? void 0 : byIndex.get(cur.parent);
+      }
+      if (!clipBox) continue;
+      if (sawEllipsisOrClamp) continue;
+      if (clipBox.rect.width <= 2 || clipBox.rect.height <= 2) continue;
+      const textStart = axis === "horizontal" ? tr.x : tr.y;
+      const textEnd = axis === "horizontal" ? tr.x + tr.width : tr.y + tr.height;
+      const clipStart = axis === "horizontal" ? clipBox.rect.x : clipBox.rect.y;
+      const clipEnd = axis === "horizontal" ? clipBox.rect.x + clipBox.rect.width : clipBox.rect.y + clipBox.rect.height;
+      if (textEnd <= clipStart || textStart >= clipEnd) continue;
+      const spill = Math.max(textEnd - clipEnd, clipStart - textStart);
+      if (spill < clipPx) continue;
+      const axisProp = axis === "horizontal" ? "overflow-x" : "overflow-y";
+      const overflowAtClip = axis === "horizontal" ? clipBox.overflowX : clipBox.overflowY;
+      findings.push({
+        kind: "clip",
+        severity: "warning",
+        axis,
+        selector: node.selector,
+        tagName: node.tagName,
+        text: short(node.ownText) || void 0,
+        spillPx: round(spill),
+        otherSelector: clipBox.selector,
+        detail: `layout-overflow: "${short(node.ownText)}" (${node.selector}) is clipped ${Math.round(spill)}px past ${clipBox.selector} (${axisProp}: ${overflowAtClip}) \u2014 the text is cut off with no ellipsis.`,
+        fix: "Allow the text to wrap (`overflow-wrap: anywhere`; add `min-width: 0` if this sits in a grid/flex child), or declare the truncation explicitly (`text-overflow: ellipsis` alongside `white-space: nowrap` and `overflow: hidden`)."
+      });
+    }
+  }
+  const bySeverityThenSpill = (a, b) => {
+    if (a.severity !== b.severity) return a.severity === "error" ? -1 : 1;
+    return b.spillPx - a.spillPx;
+  };
+  findings.sort(bySeverityThenSpill);
+  if (findings.length <= maxFindings) return findings;
+  const KIND_FLOOR = 5;
+  const seenPerKind = /* @__PURE__ */ new Map();
+  const floorSelected = [];
+  const remaining = [];
+  for (const f of findings) {
+    const seen = seenPerKind.get(f.kind) ?? 0;
+    if (seen < KIND_FLOOR) {
+      floorSelected.push(f);
+      seenPerKind.set(f.kind, seen + 1);
+    } else {
+      remaining.push(f);
+    }
+  }
+  const selected = floorSelected.slice(0, maxFindings);
+  if (selected.length < maxFindings) {
+    selected.push(...remaining.slice(0, maxFindings - selected.length));
+  }
+  selected.sort(bySeverityThenSpill);
+  return selected;
+}
+function round(n) {
+  return Math.round(n * 10) / 10;
+}
+function buildAncestorSets(nodes, byIndex) {
+  const out = /* @__PURE__ */ new Map();
+  for (const node of nodes) {
+    const set = /* @__PURE__ */ new Set();
+    let cur = node.parent;
+    let guard = 0;
+    while (cur !== null && guard++ < 64) {
+      set.add(cur);
+      cur = byIndex.get(cur)?.parent ?? null;
+    }
+    out.set(node.index, set);
+  }
+  return out;
+}
+function nearestOverflowingAncestor(node, byIndex, overflowingBoxes) {
+  let cur = node.parent;
+  let guard = 0;
+  while (cur !== null && guard++ < 64) {
+    const ancestor = byIndex.get(cur);
+    if (!ancestor) return void 0;
+    if (overflowingBoxes.has(`${ancestor.index}:vertical`)) {
+      return attributeCulprit(ancestor, "vertical");
+    }
+    cur = ancestor.parent;
+  }
+  return void 0;
+}
+var LAYOUT_OVERFLOW_DEFAULTS;
+var init_layout_overflow = __esm({
+  "src/layout-overflow.ts"() {
+    LAYOUT_OVERFLOW_DEFAULTS = {
+      selfOverflowPx: 8,
+      containerEscapePx: 8,
+      overlapPx: 8,
+      clipPx: 8,
+      maxFindings: 40
+    };
+  }
+});
 async function loadDesignSystemConfig(projectDir) {
   let configPath = join(projectDir, ".ibr", "design-system.json");
   if (!existsSync(configPath)) {
@@ -12861,9 +13444,9 @@ var init_handler_integrity = __esm({
 });
 
 // src/rules/spacing-grid.ts
-function isOnGrid(px) {
-  if (px === 0) return true;
-  return Math.round(px) % 4 === 0;
+function isOnGrid(px2) {
+  if (px2 === 0) return true;
+  return Math.round(px2) % 4 === 0;
 }
 function offGridFor(element) {
   const offGrid = [];
@@ -12875,10 +13458,10 @@ function offGridFor(element) {
       continue;
     }
     if (read.status === "absent") continue;
-    const px = parsePx(read.value);
-    if (px === null) continue;
-    if (!Number.isInteger(px)) continue;
-    if (!isOnGrid(px)) offGrid.push(`${prop}: ${read.value}`);
+    const px2 = parsePx(read.value);
+    if (px2 === null) continue;
+    if (!Number.isInteger(px2)) continue;
+    if (!isOnGrid(px2)) offGrid.push(`${prop}: ${read.value}`);
   }
   return { offGrid, unmeasured };
 }
@@ -13149,57 +13732,6 @@ function elementLabel(el) {
 function resolveRole(el) {
   return el.a11y?.role ?? el.tagName ?? "unknown";
 }
-function parseColor3(color) {
-  if (!color || color === "transparent" || color === "none") return null;
-  const rgbMatch = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
-  if (rgbMatch) {
-    return {
-      r: Number(rgbMatch[1]),
-      g: Number(rgbMatch[2]),
-      b: Number(rgbMatch[3])
-    };
-  }
-  const hexMatch = color.match(/^#([0-9a-f]{3,8})$/i);
-  if (hexMatch) {
-    const h = hexMatch[1];
-    if (h.length === 3) {
-      return {
-        r: parseInt(h[0] + h[0], 16),
-        g: parseInt(h[1] + h[1], 16),
-        b: parseInt(h[2] + h[2], 16)
-      };
-    }
-    if (h.length >= 6) {
-      return {
-        r: parseInt(h.slice(0, 2), 16),
-        g: parseInt(h.slice(2, 4), 16),
-        b: parseInt(h.slice(4, 6), 16)
-      };
-    }
-  }
-  const named = {
-    white: { r: 255, g: 255, b: 255 },
-    black: { r: 0, g: 0, b: 0 },
-    red: { r: 255, g: 0, b: 0 },
-    green: { r: 0, g: 128, b: 0 },
-    blue: { r: 0, g: 0, b: 255 },
-    gray: { r: 128, g: 128, b: 128 },
-    grey: { r: 128, g: 128, b: 128 }
-  };
-  return named[color.toLowerCase()] ?? null;
-}
-function relativeLuminance3(r, g, b) {
-  const lin = (c) => {
-    const s = c / 255;
-    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
-  };
-  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-}
-function contrastRatio2(l1, l2) {
-  const lighter = Math.max(l1, l2);
-  const darker = Math.min(l1, l2);
-  return (lighter + 0.05) / (darker + 0.05);
-}
 function buildVisualPatterns(elements) {
   if (elements.length === 0) return [];
   const groups = /* @__PURE__ */ new Map();
@@ -13343,41 +13875,45 @@ function buildNavigationMap(elements) {
 }
 function buildContrastReport(elements) {
   if (elements.length === 0) return [];
-  const pairMap = /* @__PURE__ */ new Map();
-  for (const el of elements) {
-    const styles = el.computedStyles ?? {};
-    const fg = styles["color"] ?? "";
-    const bg = styles["backgroundColor"] ?? "";
-    if (!fg && !bg) continue;
-    const key = `${fg}|${bg}`;
-    const existing = pairMap.get(key);
+  const groups = /* @__PURE__ */ new Map();
+  const addEntry = (el, acc) => {
+    const key = `${acc.status}|${acc.foreground}|${acc.background}|${acc.largeText ?? ""}`;
+    const existing = groups.get(key);
     if (existing) {
       existing.elements.push(el);
     } else {
-      pairMap.set(key, { fg, bg, elements: [el] });
+      groups.set(key, { ...acc, elements: [el] });
     }
+  };
+  for (const el of elements) {
+    const m = measureElementContrast(el);
+    if (m.status === "no-text" || m.status === "no-styles" || m.status === "invisible") {
+      continue;
+    }
+    if (m.status === "unmeasurable") {
+      addEntry(el, {
+        status: "unknown",
+        ratio: 0,
+        foreground: el.computedStyles?.["color"] ?? "",
+        background: m.raw,
+        reason: `unparseable colour: ${m.raw}`
+      });
+      continue;
+    }
+    const threshold = m.large ? 3 : 4.5;
+    addEntry(el, {
+      status: m.ratio >= threshold ? "pass" : "fail",
+      ratio: Math.round(m.ratio * 100) / 100,
+      foreground: m.fgRaw,
+      background: m.bgRaw,
+      largeText: m.large
+    });
   }
-  return Array.from(pairMap.values()).map(({ fg, bg, elements: els }) => {
-    const fgRgb = parseColor3(fg);
-    const bgRgb = parseColor3(bg);
-    let status = "unknown";
-    let ratio = 0;
-    if (fgRgb && bgRgb) {
-      const fgL = relativeLuminance3(fgRgb.r, fgRgb.g, fgRgb.b);
-      const bgL = relativeLuminance3(bgRgb.r, bgRgb.g, bgRgb.b);
-      ratio = contrastRatio2(fgL, bgL);
-      status = ratio >= 4.5 ? "pass" : "fail";
-    }
-    const sampleElements = els.slice(0, 3).map(elementLabel).filter(Boolean);
-    return {
-      status,
-      ratio: Math.round(ratio * 100) / 100,
-      foreground: fg,
-      background: bg,
-      elementCount: els.length,
-      sampleElements
-    };
-  });
+  return Array.from(groups.values()).map(({ elements: els, ...acc }) => ({
+    ...acc,
+    elementCount: els.length,
+    sampleElements: els.slice(0, 3).map(elementLabel).filter(Boolean)
+  }));
 }
 function isLooksInteractive(el) {
   const tag = el.tagName ?? "";
@@ -13455,6 +13991,7 @@ function summarizeScan(elements, url) {
 var SIGNATURE_KEYS, PRIMITIVE_PATTERNS, HEADING_DEPTH, NAV_ROLES, INTERACTIVE_TAGS2, INTERACTIVE_ROLES2;
 var init_summarize = __esm({
   "src/summarize.ts"() {
+    init_contrast_measure();
     SIGNATURE_KEYS = [
       "fontSize",
       "fontWeight",
@@ -14418,6 +14955,33 @@ async function scan(url, options = {}) {
       }
     }
     const contrastCoverage = activeRuleIds.has("wcag-aa-contrast") || activeRuleIds.has("wcag-aaa-contrast") ? summarizeContrastCoverage([...elements.all, ...contentAsElements], textCensus) : void 0;
+    let layoutOverflow;
+    if (options.layoutOverflow !== false) {
+      try {
+        const overflowNodes = await driver2.evaluate(
+          buildLayoutOverflowProbe({ rootSelector: "body" })
+        );
+        const overflowOptions = typeof options.layoutOverflow === "object" ? options.layoutOverflow : {};
+        layoutOverflow = analyzeLayoutOverflow(overflowNodes, overflowOptions);
+        for (const finding of layoutOverflow) {
+          issues.push({
+            category: "structure",
+            severity: finding.severity,
+            element: finding.selector,
+            description: finding.detail,
+            fix: finding.fix
+          });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        issues.push({
+          category: "structure",
+          severity: "warning",
+          description: `[layout-overflow-failed] Content overflow/clipping was NOT measured \u2014 self-overflow, container-escape, sibling-overlap, and clip findings are all absent from this scan: ${message}`,
+          fix: "Re-run the scan. If it persists, the page navigated or the browser detached mid-scan."
+        });
+      }
+    }
     const verdict = determineVerdict2(issues);
     const summary = generateSummary2(elements, interactivity, semantic, issues, consoleErrors);
     const summaries = summarizeScan(elements.all, url);
@@ -14463,6 +15027,10 @@ async function scan(url, options = {}) {
       },
       coverage,
       layoutCollisions,
+      // Absent (not present-and-undefined) when layoutOverflow===false OR the
+      // probe/analysis threw — same present/absent contract as `content`
+      // below, so a caller can tell "did not run" from "ran and found none".
+      ...layoutOverflow !== void 0 ? { layoutOverflow } : {},
       themeAnalysis,
       designSystem,
       hydration: hydrationReason !== "skipped" ? { timedOut: hydrationTimedOut, reason: hydrationReason } : void 0,
@@ -14834,6 +15402,20 @@ function formatScanResult(result) {
     }
     lines.push("");
   }
+  if (result.layoutOverflow && result.layoutOverflow.length > 0) {
+    lines.push("  LAYOUT OVERFLOW");
+    lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+    lines.push(`  Findings: ${result.layoutOverflow.length}`);
+    for (const f of result.layoutOverflow.slice(0, 10)) {
+      const icon = f.severity === "error" ? "\x1B[31m\u2717\x1B[0m" : "\x1B[33m!\x1B[0m";
+      lines.push(`    ${icon} [${f.kind}] ${f.spillPx}px \xB7 ${f.detail}`);
+      if (f.fix) lines.push(`      \u2192 ${f.fix}`);
+    }
+    if (result.layoutOverflow.length > 10) {
+      lines.push(`    ... and ${result.layoutOverflow.length - 10} more`);
+    }
+    lines.push("");
+  }
   if (result.issues.length > 0) {
     const rank = { error: 0, warning: 1, info: 2 };
     const ranked = [...result.issues].sort((a, b) => rank[a.severity] - rank[b.severity]);
@@ -14872,6 +15454,7 @@ var init_scan = __esm({
     init_layout_collision();
     init_cognitive_load();
     init_visibility();
+    init_layout_overflow();
     init_consistency();
     init_design_system();
     init_wait();
