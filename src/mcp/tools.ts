@@ -35,6 +35,7 @@ import {
 import { captureScreenshot } from "../capture.js";
 import { VIEWPORTS } from "../schemas.js";
 import { loadTokenSpec, validateAgainstTokens } from '../tokens.js';
+import { formatContrastSummaryLine } from '../summarize.js';
 import { correlateToSource, formatBridgeResult } from '../native/bridge.js';
 import { EngineDriver, type FindDiagnostics } from '../engine/driver.js';
 import type { ActionDescriptor } from '../engine/observe.js';
@@ -2736,9 +2737,8 @@ async function handleScan(
       lines.push(`  Components: ${s.componentCensus.map((c) => `${c.pattern}(${c.count})`).join(", ")}`);
     }
     if (s.contrastReport && s.contrastReport.length > 0) {
-      const failing = s.contrastReport.filter((c) => c.status === 'fail').length;
-      const total = s.contrastReport.length;
-      lines.push(`  Contrast: ${total - failing}/${total} pass`);
+      const line = formatContrastSummaryLine(s.contrastReport);
+      if (line) lines.push('  ' + line);
     }
     if (s.interactionMap && s.interactionMap.length > 0) {
       lines.push(`  Interaction coverage: ${s.interactionMap.map((m) => `${m.category}(${m.count})`).join(", ")}`);

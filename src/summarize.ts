@@ -6,6 +6,7 @@
  */
 
 import type { EnhancedElement } from './schemas.js';
+import { measureElementContrast } from './rules/contrast-measure.js';
 
 // ============================================================================
 // Public interfaces
@@ -57,6 +58,10 @@ export interface ContrastReportEntry {
   elementCount: number;
   /** Up to 3 representative element labels */
   sampleElements: string[];
+  /** WCAG large-text classification (3:1 threshold instead of 4.5:1). Absent for 'unknown' rows. */
+  largeText?: boolean;
+  /** Why an 'unknown' row could not be graded, e.g. "unparseable color". */
+  reason?: string;
 }
 
 export interface InteractionMapEntry {
@@ -147,79 +152,6 @@ function elementLabel(el: EnhancedElement): string {
 /** Resolve an element's effective role */
 function resolveRole(el: EnhancedElement): string {
   return el.a11y?.role ?? el.tagName ?? 'unknown';
-}
-
-// ============================================================================
-// WCAG 2.1 contrast utilities (no external deps)
-// ============================================================================
-
-interface RGB {
-  r: number;
-  g: number;
-  b: number;
-}
-
-/** Parse CSS color string → RGB (0–255), returns null on failure */
-function parseColor(color: string): RGB | null {
-  if (!color || color === 'transparent' || color === 'none') return null;
-
-  // rgb() / rgba()
-  const rgbMatch = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
-  if (rgbMatch) {
-    return {
-      r: Number(rgbMatch[1]),
-      g: Number(rgbMatch[2]),
-      b: Number(rgbMatch[3]),
-    };
-  }
-
-  // hex #rrggbb or #rgb
-  const hexMatch = color.match(/^#([0-9a-f]{3,8})$/i);
-  if (hexMatch) {
-    const h = hexMatch[1];
-    if (h.length === 3) {
-      return {
-        r: parseInt(h[0] + h[0], 16),
-        g: parseInt(h[1] + h[1], 16),
-        b: parseInt(h[2] + h[2], 16),
-      };
-    }
-    if (h.length >= 6) {
-      return {
-        r: parseInt(h.slice(0, 2), 16),
-        g: parseInt(h.slice(2, 4), 16),
-        b: parseInt(h.slice(4, 6), 16),
-      };
-    }
-  }
-
-  // Named colors (minimal set)
-  const named: Record<string, RGB> = {
-    white: { r: 255, g: 255, b: 255 },
-    black: { r: 0, g: 0, b: 0 },
-    red: { r: 255, g: 0, b: 0 },
-    green: { r: 0, g: 128, b: 0 },
-    blue: { r: 0, g: 0, b: 255 },
-    gray: { r: 128, g: 128, b: 128 },
-    grey: { r: 128, g: 128, b: 128 },
-  };
-  return named[color.toLowerCase()] ?? null;
-}
-
-/** WCAG 2.1 relative luminance from 0–255 RGB */
-function relativeLuminance(r: number, g: number, b: number): number {
-  const lin = (c: number): number => {
-    const s = c / 255;
-    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
-  };
-  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-}
-
-/** WCAG contrast ratio between two luminance values */
-function contrastRatio(l1: number, l2: number): number {
-  const lighter = Math.max(l1, l2);
-  const darker = Math.min(l1, l2);
-  return (lighter + 0.05) / (darker + 0.05);
 }
 
 // ============================================================================
@@ -470,60 +402,102 @@ function buildNavigationMap(elements: EnhancedElement[]): NavigationNode[] {
 // 4. Contrast Report
 // ============================================================================
 
+// This delegates to the canonical `measureElementContrast` (src/rules/contrast-measure.ts)
+// instead of a private rgb/hex-only parser. That private parser returned `null` for any
+// modern color space (oklch, lab, color(), ...), so every such pair fell through to
+// `status:'unknown'` here — and the MCP summary line then counted `total - failing` as
+// passing, silently counting every unknown-colour element as a pass.
 function buildContrastReport(elements: EnhancedElement[]): ContrastReportEntry[] {
   if (elements.length === 0) return [];
 
-  // Accumulate by color pair key
-  const pairMap = new Map<
-    string,
-    { fg: string; bg: string; elements: EnhancedElement[] }
-  >();
+  interface GroupAcc {
+    status: 'pass' | 'fail' | 'unknown';
+    ratio: number;
+    foreground: string;
+    background: string;
+    largeText?: boolean;
+    reason?: string;
+    elements: EnhancedElement[];
+  }
 
-  for (const el of elements) {
-    const styles = el.computedStyles ?? {};
-    const fg = styles['color'] ?? '';
-    const bg = styles['backgroundColor'] ?? '';
+  const groups = new Map<string, GroupAcc>();
 
-    if (!fg && !bg) continue;
-
-    const key = `${fg}|${bg}`;
-    const existing = pairMap.get(key);
+  const addEntry = (el: EnhancedElement, acc: Omit<GroupAcc, 'elements'>) => {
+    const key = `${acc.status}|${acc.foreground}|${acc.background}|${acc.largeText ?? ''}`;
+    const existing = groups.get(key);
     if (existing) {
       existing.elements.push(el);
     } else {
-      pairMap.set(key, { fg, bg, elements: [el] });
+      groups.set(key, { ...acc, elements: [el] });
     }
+  };
+
+  for (const el of elements) {
+    const m = measureElementContrast(el);
+
+    if (m.status === 'no-text' || m.status === 'no-styles' || m.status === 'invisible') {
+      continue;
+    }
+
+    if (m.status === 'unmeasurable') {
+      addEntry(el, {
+        status: 'unknown',
+        ratio: 0,
+        foreground: el.computedStyles?.['color'] ?? '',
+        background: m.raw,
+        reason: `unparseable colour: ${m.raw}`,
+      });
+      continue;
+    }
+
+    // m.status === 'measured'
+    const threshold = m.large ? 3 : 4.5;
+    addEntry(el, {
+      status: m.ratio >= threshold ? 'pass' : 'fail',
+      ratio: Math.round(m.ratio * 100) / 100,
+      foreground: m.fgRaw,
+      background: m.bgRaw,
+      largeText: m.large,
+    });
   }
 
-  return Array.from(pairMap.values()).map(({ fg, bg, elements: els }) => {
-    const fgRgb = parseColor(fg);
-    const bgRgb = parseColor(bg);
+  return Array.from(groups.values()).map(({ elements: els, ...acc }) => ({
+    ...acc,
+    elementCount: els.length,
+    sampleElements: els.slice(0, 3).map(elementLabel).filter(Boolean),
+  }));
+}
 
-    let status: 'pass' | 'fail' | 'unknown' = 'unknown';
-    let ratio = 0;
+/**
+ * Render the one-line contrast summary for a report's entries, weighted by
+ * `elementCount` (a group represents N elements, not one). Returns null when
+ * there is nothing to report. Pulled out as a pure helper so callers (MCP
+ * tool output, CLI, live formatter) share one counting rule instead of each
+ * re-deriving "pass" from `total - failing`, which is how unknown rows were
+ * previously counted as passes.
+ */
+export function formatContrastSummaryLine(entries: ContrastReportEntry[]): string | null {
+  if (entries.length === 0) return null;
 
-    if (fgRgb && bgRgb) {
-      const fgL = relativeLuminance(fgRgb.r, fgRgb.g, fgRgb.b);
-      const bgL = relativeLuminance(bgRgb.r, bgRgb.g, bgRgb.b);
-      ratio = contrastRatio(fgL, bgL);
-      // WCAG AA normal text threshold: 4.5
-      status = ratio >= 4.5 ? 'pass' : 'fail';
-    }
+  let pass = 0;
+  let fail = 0;
+  let unknown = 0;
+  for (const entry of entries) {
+    if (entry.status === 'pass') pass += entry.elementCount;
+    else if (entry.status === 'fail') fail += entry.elementCount;
+    else unknown += entry.elementCount;
+  }
 
-    const sampleElements = els
-      .slice(0, 3)
-      .map(elementLabel)
-      .filter(Boolean);
+  const measured = pass + fail;
+  if (measured === 0) {
+    return `Contrast: NOT MEASURED — ${unknown} element(s) use colours the checker could not parse`;
+  }
 
-    return {
-      status,
-      ratio: Math.round(ratio * 100) / 100,
-      foreground: fg,
-      background: bg,
-      elementCount: els.length,
-      sampleElements,
-    };
-  });
+  let line = `Contrast: ${pass}/${measured} pass WCAG AA`;
+  if (unknown > 0) {
+    line += `, ${unknown} not measured (unparseable colour)`;
+  }
+  return line;
 }
 
 // ============================================================================
