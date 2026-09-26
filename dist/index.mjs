@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { execFile, exec, spawn, execFileSync } from 'child_process';
-import { existsSync, readFileSync, statSync, writeFileSync, createReadStream, createWriteStream, unlinkSync, constants, lstatSync, mkdtempSync, rmSync, readlinkSync, readdirSync, openSync, writeSync, closeSync } from 'fs';
+import { existsSync, readFileSync, statSync, readdirSync, writeFileSync, createReadStream, createWriteStream, unlinkSync, constants, lstatSync, mkdtempSync, rmSync, readlinkSync, openSync, writeSync, closeSync } from 'fs';
 import * as fs from 'fs/promises';
 import { mkdir, readFile, writeFile, unlink, readdir, copyFile, chmod, rm, access, realpath, lstat, appendFile, stat, open, link } from 'fs/promises';
 import { createServer } from 'net';
@@ -15252,8 +15252,8 @@ function isFileFresh(path2) {
   try {
     const binaryMtime = statSync(path2).mtimeMs;
     const sourceMtime = Math.max(
-      statSync(SWIFT_MAIN_PATH).mtimeMs,
-      statSync(SWIFT_PACKAGE_PATH).mtimeMs
+      statSync(SWIFT_PACKAGE_PATH).mtimeMs,
+      ...readdirSync(SWIFT_SOURCES_DIR).filter((name) => name.endsWith(".swift")).map((name) => statSync(join(SWIFT_SOURCES_DIR, name)).mtimeMs)
     );
     return binaryMtime >= sourceMtime;
   } catch {
@@ -15334,7 +15334,7 @@ function mapToEnhancedElements(nativeElements) {
   flatten2(nativeElements);
   return enhanced;
 }
-var execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_MAIN_PATH, SWIFT_PACKAGE_PATH, SWIFT_BUILD_PATH;
+var execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_SOURCES_DIR, SWIFT_PACKAGE_PATH, SWIFT_BUILD_PATH;
 var init_extract3 = __esm({
   "src/native/extract.ts"() {
     init_role_map();
@@ -15343,7 +15343,7 @@ var init_extract3 = __esm({
     EXTRACTOR_DIR = join(process.cwd(), ".ibr", "bin");
     EXTRACTOR_PATH = join(EXTRACTOR_DIR, "ibr-ax-extract");
     SWIFT_SOURCE_DIR = resolveSwiftSourceDir();
-    SWIFT_MAIN_PATH = join(SWIFT_SOURCE_DIR, "Sources", "main.swift");
+    SWIFT_SOURCES_DIR = join(SWIFT_SOURCE_DIR, "Sources");
     SWIFT_PACKAGE_PATH = join(SWIFT_SOURCE_DIR, "Package.swift");
     SWIFT_BUILD_PATH = join(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
   }

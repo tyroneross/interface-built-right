@@ -15277,8 +15277,8 @@ function isFileFresh(path2) {
   try {
     const binaryMtime = fs$1.statSync(path2).mtimeMs;
     const sourceMtime = Math.max(
-      fs$1.statSync(SWIFT_MAIN_PATH).mtimeMs,
-      fs$1.statSync(SWIFT_PACKAGE_PATH).mtimeMs
+      fs$1.statSync(SWIFT_PACKAGE_PATH).mtimeMs,
+      ...fs$1.readdirSync(SWIFT_SOURCES_DIR).filter((name) => name.endsWith(".swift")).map((name) => fs$1.statSync(path.join(SWIFT_SOURCES_DIR, name)).mtimeMs)
     );
     return binaryMtime >= sourceMtime;
   } catch {
@@ -15359,7 +15359,7 @@ function mapToEnhancedElements(nativeElements) {
   flatten2(nativeElements);
   return enhanced;
 }
-var execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_MAIN_PATH, SWIFT_PACKAGE_PATH, SWIFT_BUILD_PATH;
+var execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_SOURCES_DIR, SWIFT_PACKAGE_PATH, SWIFT_BUILD_PATH;
 var init_extract3 = __esm({
   "src/native/extract.ts"() {
     init_role_map();
@@ -15368,7 +15368,7 @@ var init_extract3 = __esm({
     EXTRACTOR_DIR = path.join(process.cwd(), ".ibr", "bin");
     EXTRACTOR_PATH = path.join(EXTRACTOR_DIR, "ibr-ax-extract");
     SWIFT_SOURCE_DIR = resolveSwiftSourceDir();
-    SWIFT_MAIN_PATH = path.join(SWIFT_SOURCE_DIR, "Sources", "main.swift");
+    SWIFT_SOURCES_DIR = path.join(SWIFT_SOURCE_DIR, "Sources");
     SWIFT_PACKAGE_PATH = path.join(SWIFT_SOURCE_DIR, "Package.swift");
     SWIFT_BUILD_PATH = path.join(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
   }
