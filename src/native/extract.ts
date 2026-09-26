@@ -1,6 +1,6 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { existsSync, statSync } from 'fs';
+import { existsSync, readdirSync, statSync } from 'fs';
 import { copyFile, chmod, mkdir } from 'fs/promises';
 import { join } from 'path';
 import type { NativeElement } from './types.js';
@@ -28,7 +28,7 @@ export function resolveSwiftSourceDir(runtimeModuleDir: string = moduleDir): str
 }
 
 const SWIFT_SOURCE_DIR = resolveSwiftSourceDir();
-const SWIFT_MAIN_PATH = join(SWIFT_SOURCE_DIR, 'Sources', 'main.swift');
+const SWIFT_SOURCES_DIR = join(SWIFT_SOURCE_DIR, 'Sources');
 const SWIFT_PACKAGE_PATH = join(SWIFT_SOURCE_DIR, 'Package.swift');
 const SWIFT_BUILD_PATH = join(SWIFT_SOURCE_DIR, '.build', 'release', 'ibr-ax-extract');
 
@@ -98,9 +98,13 @@ async function buildSwiftExtractor(): Promise<void> {
 function isFileFresh(path: string): boolean {
   try {
     const binaryMtime = statSync(path).mtimeMs;
+    // Every Sources/*.swift file counts: watching only main.swift left cached
+    // binaries stale after edits to Keyboard.swift and the other sources.
     const sourceMtime = Math.max(
-      statSync(SWIFT_MAIN_PATH).mtimeMs,
-      statSync(SWIFT_PACKAGE_PATH).mtimeMs
+      statSync(SWIFT_PACKAGE_PATH).mtimeMs,
+      ...readdirSync(SWIFT_SOURCES_DIR)
+        .filter(name => name.endsWith('.swift'))
+        .map(name => statSync(join(SWIFT_SOURCES_DIR, name)).mtimeMs)
     );
     return binaryMtime >= sourceMtime;
   } catch {
