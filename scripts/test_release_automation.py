@@ -76,9 +76,22 @@ class ReleaseAutomationTests(unittest.TestCase):
     def test_config_package_name_matches_package_json(self) -> None:
         self.assertEqual(package_config()["package-name"], load_json(PACKAGE_JSON)["name"])
 
-    def test_last_release_sha_is_a_full_sha(self) -> None:
-        sha = package_config().get("last-release-sha", "")
-        self.assertRegex(sha, r"^[0-9a-f]{40}$", "last-release-sha must be a full 40-char sha")
+    def test_tags_carry_no_component_prefix(self) -> None:
+        """Existing tags are plain vX.Y.Z. With the default component prefix,
+        release-please looked for interface-built-right-v1.5.0, found no prior
+        release, and put the whole history into the next changelog."""
+        self.assertIs(load_json(RP_CONFIG).get("include-component-in-tag"), False)
+
+    def test_no_pinned_last_release_sha(self) -> None:
+        """last-release-sha is read only at the top level and is never ignored
+        once set, so it would freeze the changelog baseline. Tags find it."""
+        self.assertNotIn("last-release-sha", load_json(RP_CONFIG))
+        self.assertNotIn("last-release-sha", package_config())
+
+    def test_releases_bump_patch_by_default(self) -> None:
+        """Owner policy: small releases by default (1.5.0 -> 1.5.1). A bigger
+        bump is asked for explicitly with a `Release-As: X.Y.Z` commit footer."""
+        self.assertEqual(package_config().get("versioning"), "always-bump-patch")
 
     # -- extra-files: the silent-no-op surface --------------------------------
 

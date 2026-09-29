@@ -6,6 +6,7 @@
   "packages": {
     ".": {
       "package-name": "@tyroneross/interface-built-right",
+      "versioning": "always-bump-patch",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         {
