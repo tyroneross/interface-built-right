@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "End-to-end design tool for Claude Code — guided UI builds, iOS/macOS/web design guidance, Calm Precision principles, visual validation, interaction testing, mockup matching, cross-browser",
-    "version": "1.5.0"
+    "version": "1.6.0"
   },
   "plugins": [
     {
