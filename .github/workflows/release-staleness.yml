@@ -2,13 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 name: Release staleness
 
-# Watches the release automation itself. release-please plus the weekly cut make
-# releases automatic; this makes their ABSENCE loud. The outage that motivated all
-# of this was invisible precisely because no check compared the newest release
-# against what had landed on main — 50 commits over 13 days, and nothing said so.
-#
-# Runs the morning after the weekly cut, so a cut that silently failed to happen is
-# reported within hours rather than a week later.
+# Release reminder. Releases are cut by hand (owner decision 2026-09-29), so this
+# opens or updates an issue when unreleased changes have waited too long: more
+# than 10 days, or 50 commits (limits in scripts/release_staleness.py). It exists
+# because a silent gap once reached 50 commits over 13 days with nothing said.
 #     '0 16 * * 1' = Mondays 16:00 UTC = Mondays 09:00 America/Los_Angeles (PDT).
 #
 # Verdict logic and its tests: scripts/release_staleness.py,
@@ -111,8 +108,8 @@ jobs:
           set -euo pipefail
           BODY=$(printf '%s\n\n%s\n\n%s\n' \
             "$REASON" \
-            "The weekly cut (\`release-weekly-merge.yml\`) either did not run or found no release PR to merge. Check that \`release-please.yml\` is opening a PR labelled \`autorelease: pending\`, and that the last weekly run succeeded." \
-            "Ship now without waiting for the cadence: \`gh workflow run release-weekly-merge.yml\`")
+            "Reminder: consider cutting a release. The open release-please PR (label \`autorelease: pending\`) lists every change since the last release." \
+            "To release: \`gh workflow run release-weekly-merge.yml\`")
           EXISTING=$(gh issue list --state open --search "$ISSUE_TITLE in:title" \
                        --json number,title \
                        --jq "[.[] | select(.title == env.ISSUE_TITLE)][0].number // empty")

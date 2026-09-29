@@ -5,8 +5,8 @@ name: release-please
 # Keeps ONE release pull request continuously current: every push to main adds its
 # Conventional Commit to the pending changelog and recomputes the next version. The
 # PR is the always-visible answer to "what is queued to ship". Nothing publishes
-# here — the weekly cut in release-weekly-merge.yml merges that PR, which is what
-# creates the GitHub Release.
+# here — the owner merges that PR by running release-weekly-merge.yml by hand,
+# which is what creates the GitHub Release.
 #
 # WHY THIS EXISTS. Both publish workflows in this repo trigger on
 # `release: types: [published]`, and nothing in the repo ever created a release.
