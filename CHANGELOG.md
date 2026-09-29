@@ -181,6 +181,91 @@ increment before it is cut into a release.
   against 23 on disk (`obsidian-plugin-ui` undocumented), commands listed 27/30
   against 31 (`/ibr:ibr` undocumented). Both corrected alongside the new entries.
 
+## [1.6.0](https://github.com/tyroneross/interface-built-right/compare/v1.5.0...v1.6.0) (2026-09-29)
+
+
+### Features
+
+* **cli:** distinct exit codes (0 pass, 1 issues, 2 tool error) and a recipes epilog in --help ([8ffd0a7](https://github.com/tyroneross/interface-built-right/commit/8ffd0a7df0c9f3ff9b3cf08880f070b379f297cc))
+* **cli:** machine-clean --json, a zoom-track command, and an agent quickstart ([427c4a0](https://github.com/tyroneross/interface-built-right/commit/427c4a02a77a5367c96085e5ae13d84253169cbf))
+* **dashboard:** grade the standalone-document and agent-readable contract ([f19c265](https://github.com/tyroneross/interface-built-right/commit/f19c2655837dc4faa6a730710810eb63fe683e05))
+* **design:** add measurable UI design specifications ([232a14f](https://github.com/tyroneross/interface-built-right/commit/232a14fe6d8d1f228ecaf1a5e699a0362a688dca))
+* **design:** author and capture precise UI specs without Figma ([a2d989c](https://github.com/tyroneross/interface-built-right/commit/a2d989c1dc92f240d4ee052c52241e18de62aa5a))
+* **engine:** implement IBRSession.mock() via the CDP Fetch domain ([4193eee](https://github.com/tyroneross/interface-built-right/commit/4193eeee1bd3ca1c06d2e36242a60ac1b9074f0c))
+* **evidence:** record external computer-use receipts ([3a95a07](https://github.com/tyroneross/interface-built-right/commit/3a95a073f9b1ce173a805c5d435f2a112751f6e4))
+* **extract:** opt-in content elements and &lt;head&gt; metadata ([1588960](https://github.com/tyroneross/interface-built-right/commit/158896040245c8f30bef697e41e71d0886bb12a0))
+* **mcp:** add a session idle sweep, implemented always and disabled by default ([69a5028](https://github.com/tyroneross/interface-built-right/commit/69a502808cd4071eb9bb052d661dd96b18ec035b))
+* **native:** compact numbered refs, file-out payloads and AX-diff after ref actions ([e791697](https://github.com/tyroneross/interface-built-right/commit/e7916970e59baf7192dafdee4c81508841cdd524))
+* **native:** model-agnostic computer-use verb for simulators (native:cu) ([8d5dd45](https://github.com/tyroneross/interface-built-right/commit/8d5dd45b5fd8c4c6d4f08fb19ecb276d8d9dd804))
+* **native:** record-and-replay with self-healing steps (native:replay) ([e8b38ab](https://github.com/tyroneross/interface-built-right/commit/e8b38abed107b4c69032b28db6610201f7bbf3ea))
+* **release:** detect a release that was cut but never reached npm ([4390303](https://github.com/tyroneross/interface-built-right/commit/4390303240f6edd73abe0c6684a0151f8952b9c7))
+* **scan:** report clipped and spilled text in web scan ([be7715b](https://github.com/tyroneross/interface-built-right/commit/be7715b3af6e526a1340f35bf59976e573b1f93b))
+* **session:** add session:select for native &lt;select&gt; elements ([9dedd92](https://github.com/tyroneross/interface-built-right/commit/9dedd924313b30cfe592a25f4a37351b671cec6c))
+* **zoom-track:** carry text and resolved colours, and rank targets by importance ([c71cdd4](https://github.com/tyroneross/interface-built-right/commit/c71cdd4af9f8195ecffa9cecc954c2d2aa7cde77))
+* **zoom-track:** headings as targets, ranked by level; scan --content on the CLI ([97cb2ea](https://github.com/tyroneross/interface-built-right/commit/97cb2ea8a529ac2255af323da8758388a613d9fd))
+* **zoom-track:** reach the whole page via scrollY, and accept real event times ([0e24a32](https://github.com/tyroneross/interface-built-right/commit/0e24a328bf6e6c5852df5617124a93350c952a0f))
+
+
+### Bug Fixes
+
+* address independent-audit findings on the trust fixes ([b7fbf60](https://github.com/tyroneross/interface-built-right/commit/b7fbf60dfa9836e616ee47d9fca0e158bd40bf4d))
+* **browser:** reap abandoned IBR Chrome sessions ([2672ec4](https://github.com/tyroneross/interface-built-right/commit/2672ec47374bc81171a56b626762bb2c727a06d1))
+* **calm-precision:** stop false positives on compliant pages in grouping, status, cognitive-load, chrome and collision checks ([e843a1f](https://github.com/tyroneross/interface-built-right/commit/e843a1f63172db2ba8731384bd235775a56b4590))
+* **ci:** run the publish gate unit-only, matching ci.yml's ubuntu contract ([b15964f](https://github.com/tyroneross/interface-built-right/commit/b15964f2e23cf329a733c10bbb7c12dbd06186a6))
+* **ci:** same unit-only gate on the GitHub Packages publish, plus a guard ([5311d7c](https://github.com/tyroneross/interface-built-right/commit/5311d7cfcca1e4449b6d523d0a36a357444e2813))
+* **cli:** make the documented first run actually run ([ac6263a](https://github.com/tyroneross/interface-built-right/commit/ac6263a4e5ac1a422ef2871f6638711a999b6460))
+* **codex:** use CLI and ignore hidden choices ([3a95330](https://github.com/tyroneross/interface-built-right/commit/3a95330115e0f896da076a5ea31e030f108c49df))
+* **dist:** make the shipped CLI and MCP server runnable without node_modules ([ea7d148](https://github.com/tyroneross/interface-built-right/commit/ea7d14819845eecb938cc4f9969edec3d7033021))
+* **engine:** atomic shared-profile lock for concurrent launches; correct node-id kind for element geometry ([c05d0c8](https://github.com/tyroneross/interface-built-right/commit/c05d0c8015e1e720e4caa9dba8347ca7463799ff))
+* **engine:** bound every connect and spawn path, and say what it waited on ([1eba66e](https://github.com/tyroneross/interface-built-right/commit/1eba66e26b8e21ef2fb50468482818d756e6efe2))
+* **engine:** keep find() from dropping an element that re-rendered between AX reads ([f8edd39](https://github.com/tyroneross/interface-built-right/commit/f8edd39c4e3c3ed086bc6a19e4c2a7eb555c9853))
+* **evidence:** bound external evidence ingestion ([1a55da3](https://github.com/tyroneross/interface-built-right/commit/1a55da3dcb613c89d1ec8481af2c61c1079aa463))
+* **evidence:** enforce receipt provenance ([97c572a](https://github.com/tyroneross/interface-built-right/commit/97c572a0b6b26c489a777ce6251b3cca94fa0ccf))
+* **evidence:** harden receipt privacy invariants ([f5f74bd](https://github.com/tyroneross/interface-built-right/commit/f5f74bd6956ccf52b7c6fa06c06c219ef5c07f6c))
+* **evidence:** preserve local receipt validity ([0423315](https://github.com/tyroneross/interface-built-right/commit/042331599e4f0641430ce8425fc7eb85107d0b33))
+* **extract:** credit document/body click delegation only when the handler source names the control ([f0ccd64](https://github.com/tyroneross/interface-built-right/commit/f0ccd64936a24fcd1f059997826af609861f5411))
+* **extract:** credit natively-activated buttons in NO_HANDLER and fake-interactive ([250700e](https://github.com/tyroneross/interface-built-right/commit/250700e7e20da836199578c94d384fa76ca6da97))
+* **extract:** detect addEventListener handlers before flagging controls ([e4104b0](https://github.com/tyroneross/interface-built-right/commit/e4104b0f5930f4c6492ecca60a85ddd5c5a4839e))
+* **extract:** judge delegation selectivity per selector-list part; trust jQuery registrations ([7930d3d](https://github.com/tyroneross/interface-built-right/commit/7930d3d24413c645d6327e6d89940a77a50c3779))
+* **interactivity:** detect handlers set as properties, not just attributes ([b404e14](https://github.com/tyroneross/interface-built-right/commit/b404e149f24a13409087aea0016b5f4d651177c4))
+* **mcp:** close sessions at shutdown, and reuse the warm pool for screenshots ([de842d3](https://github.com/tyroneross/interface-built-right/commit/de842d392e7c89001b2609248112c0b0418064ad))
+* **native:** detect same-count AX reorders in action validators ([030d394](https://github.com/tyroneross/interface-built-right/commit/030d394f638803ba2565ae8341a8202017453ebd))
+* **native:** emit each AX element once and only walk from a real AXWindow ([1f3b278](https://github.com/tyroneross/interface-built-right/commit/1f3b278771be04800cd9092a1fca027fbdadfbf9))
+* **native:** exclude AppKit-owned chrome from macOS scan findings ([0afcdb5](https://github.com/tyroneross/interface-built-right/commit/0afcdb534b7eb8472de8e6133b32499f62f10764))
+* **native:** open the Accessibility prompt whenever it is explicitly requested ([50fbf96](https://github.com/tyroneross/interface-built-right/commit/50fbf9654e86d74a3c7952a0314f769f22381bf6))
+* **native:** reach sheet/dialog content and placeholder-only fields when driving macOS apps ([9f660a1](https://github.com/tyroneross/interface-built-right/commit/9f660a1b1ea435b83c8e78f07fc37336b957521d))
+* **native:** rebuild the cached extractor when any Swift source changes ([96318f6](https://github.com/tyroneross/interface-built-right/commit/96318f6c64b4f03892ab644a1b62a4a50e44d14a))
+* **native:** refuse foreground keystrokes unless the target app has focus ([fba2470](https://github.com/tyroneross/interface-built-right/commit/fba24704841c508c0049bdb59e4e232a2383eff0))
+* **native:** report simulator AX as unavailable when only host chrome comes back ([d088626](https://github.com/tyroneross/interface-built-right/commit/d088626deb60d2b14de6760a81cdb0f22406eeec))
+* **native:** restrict modal-window preference to focused/main dialogs ([23cc4ac](https://github.com/tyroneross/interface-built-right/commit/23cc4ac3ad65b4019a26a826e383ca4c04500d50))
+* **native:** route native-hid simulator preference to headless idb instead of a not-implemented stub ([dfcd0df](https://github.com/tyroneross/interface-built-right/commit/dfcd0dfa95cad77e34be0b0e64a9f8d6f07c5db8))
+* **native:** show the macOS Accessibility prompt at most once per user ([770057d](https://github.com/tyroneross/interface-built-right/commit/770057d7ec048d19e3f302c8f5768be9ff134108))
+* **native:** stable refs, refuse ambiguous targets, unique-match healing ([bbc8d1c](https://github.com/tyroneross/interface-built-right/commit/bbc8d1c8c446a2f66c732e44e2e1abcf39358001))
+* **obsidian:** stop reporting clipped descendants as layout collisions ([814a046](https://github.com/tyroneross/interface-built-right/commit/814a0461b41b99c57e8ae9870bf1a6f3ff408a21))
+* **obsidian:** stop the test suite grading itself on what is installed ([d06d1c7](https://github.com/tyroneross/interface-built-right/commit/d06d1c7db894df2d0df4f794af47bedd7557354b))
+* **release:** unblock validate:release, and test the dormancy we actually ship ([f457f64](https://github.com/tyroneross/interface-built-right/commit/f457f645dcc356134d15fe0bc7a135858c1a74b7))
+* **router:** point /ibr router and preserved commands at surviving surfaces ([d4f1c84](https://github.com/tyroneross/interface-built-right/commit/d4f1c84a88f4232e0cbaa6f68280dbf5dad6f9cb))
+* **rules:** stop fake-interactive from flagging natively interactive elements ([5d3580a](https://github.com/tyroneross/interface-built-right/commit/5d3580a0409d8faa3aad5bb80cb034b4ab1f0208))
+* **rules:** stop grading disabled controls, which WCAG exempts ([6c482a8](https://github.com/tyroneross/interface-built-right/commit/6c482a845ce11bba7774f01c5fb9c52b72108d91))
+* **scan:** an unreachable URL is a tool error, not a PASS on Chrome's error page ([7983d36](https://github.com/tyroneross/interface-built-right/commit/7983d3633c6523eac3261b89b096d84fd39f93e0))
+* **semantic:** read rendered text, not innerText, when detecting error state ([cce62e5](https://github.com/tyroneross/interface-built-right/commit/cce62e57bb112a682b35bddf27ff4c6f32d2cd66))
+* **sensors:** match focus rules against real elements ([d888526](https://github.com/tyroneross/interface-built-right/commit/d88852614cfb19b0ce5155f013860fc14a2831ab))
+* **session:** stop leaving stale manifests, and say plainly when the CLI blocks ([a4306a4](https://github.com/tyroneross/interface-built-right/commit/a4306a461d7c7fb3f1c66d7a561fe82e453513e6))
+* **summary:** stop counting unparseable-colour contrast rows as passes ([847d78f](https://github.com/tyroneross/interface-built-right/commit/847d78fab6ad582d39b3ae56d03a1ec39b40d46a))
+* **types:** read sibling sources via __dirname, not import.meta (TS1470) ([9cb21de](https://github.com/tyroneross/interface-built-right/commit/9cb21de425839b656c99d3f9e4d712a6b140100d))
+* **web-ui:** derive the muted text colour instead of picking one ([ce77e27](https://github.com/tyroneross/interface-built-right/commit/ce77e27ec9a9b3c285f8d6d95f0cf2aec00870e3))
+* **zoom-track:** drop off-screen targets instead of aiming outside the frame ([e85d540](https://github.com/tyroneross/interface-built-right/commit/e85d54025d62a89f03c0fc502759306b5f07576c))
+
+
+### Performance Improvements
+
+* **session:** batch the per-start hard-wall scan; document the blocking start ([04b86a4](https://github.com/tyroneross/interface-built-right/commit/04b86a4ea4cfd2a2db715ed45caef2177d51c952))
+
+
+### Continuous Integration
+
+* **release:** small patch releases by default; test the real tag baseline ([8c7ed17](https://github.com/tyroneross/interface-built-right/commit/8c7ed175b126bb12d7398361123a72144864486d))
+
 ## [1.5.0] — 2026-07-06 — Increment 1: native session API/MCP/CLI parity + driving foundation
 
 **Version bumped to `1.5.0` in `package.json`; awaiting release cut.** The git tag
