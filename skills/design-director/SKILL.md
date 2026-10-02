@@ -11,6 +11,11 @@ Primary design-agent layer for IBR. Use before implementation when the work is l
 
 The Design Director does not replace platform skills, Calm Precision, or component patterns. It chooses which guidance matters for this build, records the design intent, then hands implementation a tighter target.
 
+Read [design lessons](../../references/design-lessons.md) for material design
+choices and the validation plan: expose assumptions, compare like-for-like
+alternatives, label whether a decision is needed, and include design-quality
+and narrow-container evidence alongside functional checks.
+
 ## Activation
 
 Activate when:

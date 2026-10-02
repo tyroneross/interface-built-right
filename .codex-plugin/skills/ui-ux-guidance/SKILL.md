@@ -1,6 +1,6 @@
 ---
 name: ui-ux-guidance
-description: Use when planning, designing, implementing, or auditing UI/UX with IBR in Codex. Provides the latest compact IBR guidance for Calm Precision, web archetypes, interaction states, mobile, content states, data visualization, Mockup Gallery targets, and imagegen approval gates.
+description: Use when planning, designing, implementing, or auditing UI/UX with IBR in Codex. Provides compact guidance for design assumptions, comparable alternatives, design-quality audits, Calm Precision, platform conventions, states, data visualization, and visual targets.
 ---
 
 # IBR UI/UX Guidance
@@ -21,6 +21,18 @@ Apply guidance in this order:
 8. Data visualization guidance when charts, KPIs, dashboards, rankings, trends, or analytical search responses are present.
 
 Do not let style references override functional integrity, accessibility, real data constraints, or platform conventions unless the user explicitly chooses that tradeoff.
+
+## Decisions and Alternatives
+
+Read [design lessons](../../../references/design-lessons.md) from the bundle.
+Distinguish requirements, agent-chosen defaults, and tentative choices in the
+existing design intent or plan; explain material choices without blocking
+routine reversible defaults. Compare alternatives using the same task, content,
+state, and viewport, and name each layout or treatment difference and tradeoff.
+Use most/least fitting feedback when a real preference choice remains. Label
+mockups as examples, optional feedback, or decision requests; examples require
+no decision. The bundled reference includes optional links to the broader
+design source map and historical UI Guidance corpus.
 
 ## Web Archetypes
 
@@ -118,6 +130,14 @@ Use a chart only when it reveals a pattern, comparison, trend, distribution, cor
 Every chart needs an insight title, context line, visual, focal annotation when useful, and source attribution.
 
 ## Validation Contract
+
+Include a design-quality pass for sibling controls, cross-screen typography,
+element purpose, and established control patterns. Report that judgment
+separately from functional checks and the scan verdict. For mobile-capable
+changes, follow `references/container-fit.md`: capture the actual narrow parent
+with realistic long content, inspect its pixels and bounds, and name the
+measured size, evidence path, and any device-verification gap. A desktop scan
+does not establish mobile fit or physical-device behavior.
 
 Before calling UI work done, choose the narrowest proof. CLI commands are the default in Codex because IBR's MCP server is dormant/opt-in. Resolve `IBR_BIN` from this installed `SKILL.md` by moving up three directories to the plugin root and appending `dist/bin/ibr.js`; verify it with `node "$IBR_BIN" --version`. Do not use the unrelated unscoped `npx ibr` package.
 

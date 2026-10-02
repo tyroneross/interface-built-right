@@ -22,6 +22,19 @@ Use for:
 
 For page, flow, app, dashboard, or reference-heavy work, load `design-director` first. For a small isolated component, use this skill directly.
 
+## Decisions and Alternatives
+
+Read [design lessons](../../references/design-lessons.md) before choosing a
+material direction. In the existing plan or design intent, distinguish user
+requirements, agent-chosen defaults, and tentative choices, with a reason for
+each material choice. Continue with reversible defaults within the task.
+
+When preference feedback would resolve a real choice, compare the same task,
+content, state, and viewport; name the layout or treatment differences and
+their tradeoffs. Offer most/least fitting feedback when useful. State whether
+the mockup is an example, optional feedback, or a decision request; examples
+do not require a user decision.
+
 ## Guidance Selection
 
 Resolve guidance in this order:
@@ -115,6 +128,7 @@ Run `ibr scan` on the rendered component or page. Check:
 - Handler/destination coverage
 - Mobile/touch sizing
 - Layout and content hierarchy against `design-intent.json`, when present
+- Sibling-control consistency, cross-screen typography, element purpose, and established control patterns; report this design-quality judgment separately from the scan verdict
 
 Load `design-validation` for a full post-build audit.
 

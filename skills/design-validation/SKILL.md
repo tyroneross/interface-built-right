@@ -14,6 +14,7 @@ Run structured post-build audits against live pages and native simulators. Valid
 A full validation pass covers:
 
 - **Design contract** — implementation matches `design-intent.json`, platform archetype, target roles, and validation plan
+- **Design quality** — sibling controls, same-role typography across screens, element purpose, and established control patterns match the accepted direction
 - **Interactivity** — all buttons, links, and forms have wired handlers and real targets
 - **Accessibility** — all interactive elements have labels, touch targets meet size minimums, keyboard access works
 - **Semantic state** — page intent is correct, no stuck loading or error states, available actions match expectations
@@ -28,6 +29,20 @@ size with representative long content. Inspect pixels and AX/DOM bounds for
 clipping, unexpected wrapping, overlap, and scroll reachability. Record the
 measured container and evidence path; a generic `PASS` from a wider scan is
 insufficient for a container-fit claim.
+
+## Design-Quality Pass
+
+Read [design lessons](../../references/design-lessons.md). Inspect the rendered
+impact surface for sibling-control dimensions, alignment, and typography;
+same-role styling across affected screens; clear element purpose; and accepted
+filter, sort, toggle, and navigation patterns. Equal widths are required only
+where the established pattern calls for them. Record intentional differences
+with their reasons. These checks contribute to the audit verdict even when
+flows work and the scan finds no issues.
+
+Keep functional results, scan findings, and design-quality judgment distinct.
+Name any device-verification gap; narrow browser, simulator, and physical-device
+captures provide different evidence.
 
 ## Primary Tool: `ibr scan`
 
@@ -47,7 +62,7 @@ Call `ibr scan` to read the full state of a live page.
 
 | Verdict | Meaning |
 |---------|---------|
-| `PASS` | No issues found — implementation is clean |
+| `PASS` | No issues found by the scan — design-quality judgment still required |
 | `ISSUES` | Issues detected — review by severity and decide whether to fix or accept |
 | `FAIL` | Critical issues — broken handlers, console errors, inaccessible elements — must fix |
 
@@ -210,14 +225,20 @@ When reporting audit results, use this structure:
 ```
 Route: /example
   Design contract: PASS | ISSUES | not available
+  Design quality: PASS | ISSUES | unverified; [findings or accepted exceptions]
   Scan verdict: PASS | ISSUES | FAIL
   Issues: [count] ([high] high, [med] medium, [low] low)
   Regression: MATCH | EXPECTED_CHANGE | UNEXPECTED_CHANGE | LAYOUT_BROKEN | no baseline
   References: wireframe PASS|ISSUES|n/a; visual MATCH|ISSUES|n/a
+  Container/device evidence: [measured size, platform, path, and relevant gaps]
   Blockers: [list high-severity issues or "none"]
 ```
 
-Provide one block per route. Summarize total blocker count at the end. A build is ready to ship when all routes return `PASS` or `ISSUES` with zero high-severity items and regression status is `MATCH` or `EXPECTED_CHANGE`.
+Provide one block per selected route. Summarize total blocker count at the end.
+Close the audit only after the relevant functional and design-quality passes
+are complete, high-severity findings are resolved or explicitly accepted with
+rationale, and remaining exceptions or evidence gaps are named. Report missing
+baselines or device proof as limitations rather than inferred passes.
 
 ## IBR vs Screenshot vs Interactive Session
 

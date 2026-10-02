@@ -27,7 +27,7 @@ Resolve `IBR_BIN` from this installed `SKILL.md`: move up three directories to t
 2. Map the specified change to affected components, routes, states, and shared dependencies.
 3. Select the smallest set of scans, flows, viewports, and regression checks that covers that impact surface. Do not run every route or every test by default.
 4. Expand scope only when a shared dependency changed, the impact map is uncertain, or a targeted check exposes broader breakage.
-5. Sort failures by severity: console errors, broken handlers, inaccessible controls, semantic/state errors, then visual polish.
+5. Include the design-quality pass below, then prioritize findings by user impact. Fix console errors, broken handlers, inaccessible controls, and misleading states before cosmetic polish; do not dismiss consistency or purpose defects as cosmetic by default.
 6. Fix high-severity issues before treating a design as complete.
 7. Re-scan or re-run the selected interaction to prove the issue moved.
 
@@ -37,6 +37,18 @@ render of the actual parent container with realistic long content, not only
 the default viewport. Inspect the screenshot and AX/DOM bounds for wrapping,
 clipping, overlap, and scroll reachability. Report the measured size and
 artifact path, or say the case is unverified if capture fails.
+
+## Design-Quality Pass
+
+Read [design lessons](../../../references/design-lessons.md) from the bundle.
+Inspect sibling-control dimensions, alignment, and typography against the
+accepted pattern; compare same-role typography across affected screens; check
+each element's purpose; and check filters, sorts, toggles, and navigation
+against established controls. Equal widths apply when the pattern requires
+them, not to every group. Report findings or deliberate exceptions separately
+from functional results. A clean scan does not complete this judgment pass.
+State any relevant physical-device gap alongside narrow browser or simulator
+evidence; never substitute one for the other.
 
 ## Evidence Standard
 
