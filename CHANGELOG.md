@@ -181,6 +181,13 @@ increment before it is cut into a release.
   against 23 on disk (`obsidian-plugin-ui` undocumented), commands listed 27/30
   against 31 (`/ibr:ibr` undocumented). Both corrected alongside the new entries.
 
+## [1.6.1](https://github.com/tyroneross/interface-built-right/compare/v1.6.0...v1.6.1) (2026-10-02)
+
+
+### Features
+
+* **design:** add reviewed design and audit lessons ([46daf17](https://github.com/tyroneross/interface-built-right/commit/46daf171c4fd039af833d702daf72f49d06c9496))
+
 ## [1.6.0](https://github.com/tyroneross/interface-built-right/compare/v1.5.0...v1.6.0) (2026-09-29)
 
 
