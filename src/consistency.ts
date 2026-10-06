@@ -69,18 +69,76 @@ function relativeLuminance(r: number, g: number, b: number): number {
   return 0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b);
 }
 
+/** Alpha channel of a CSS color; 1 when the color carries no alpha. */
+function colorAlpha(color: string): number {
+  if (!color || color === 'transparent') return 0;
+  const m = color.match(/rgba\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*,\s*([\d.]+)\s*\)/i);
+  return m ? Number(m[1]) : 1;
+}
+
+/** Luminance of a color composited over an opaque backdrop. Null when the color cannot be parsed. */
+function compositeLuminance(color: string, backdrop: { r: number; g: number; b: number }): number | null {
+  const parsed = parseColor(color);
+  if (!parsed) return null;
+  const a = colorAlpha(color);
+  const mix = (c: number, d: number) => c * a + d * (1 - a);
+  return relativeLuminance(mix(parsed.r, backdrop.r), mix(parsed.g, backdrop.g), mix(parsed.b, backdrop.b));
+}
+
+export interface PageBackgroundInput {
+  bodyColor: string;
+  htmlColor: string;
+  bodyImage: string;
+  htmlImage: string;
+  /** Computed value of the system `Canvas` color — what shows when nothing paints. */
+  canvas: string;
+}
+
+/**
+ * Resolve the color a reader actually sees behind page content.
+ *
+ * A fully transparent background is not black: the canvas shows through. A gradient
+ * background-image paints its stops, so its luminance is the mean of those stops
+ * composited over the canvas. A url() image cannot be measured from styles, so the
+ * result is unknown (null) and callers must not report a theme mismatch from it.
+ */
+export function resolvePageBackground(input: PageBackgroundInput): { color: string; luminance: number | null } {
+  const canvas = parseColor(input.canvas) ?? { r: 255, g: 255, b: 255 };
+  for (const [color, image] of [[input.bodyColor, input.bodyImage], [input.htmlColor, input.htmlImage]] as const) {
+    if (colorAlpha(color) >= 1) return { color, luminance: compositeLuminance(color, canvas) };
+    if (image && image !== 'none') {
+      if (/url\(/i.test(image)) return { color: image, luminance: null };
+      const stops = image.match(/rgba?\([^)]*\)|#[0-9a-f]{3,8}\b/gi) ?? [];
+      const values = stops.map((stop) => compositeLuminance(stop, canvas)).filter((v): v is number => v !== null);
+      if (values.length) return { color: image, luminance: values.reduce((sum, v) => sum + v, 0) / values.length };
+      return { color: image, luminance: null };
+    }
+    if (colorAlpha(color) > 0) return { color, luminance: compositeLuminance(color, canvas) };
+  }
+  return { color: input.canvas, luminance: compositeLuminance(input.canvas, canvas) };
+}
+
 /**
  * Detect light-on-dark or dark-on-light theme mismatch between the page background
  * and primary content containers (cards, forms, modals, panels, dialogs).
  */
 export async function analyzeThemeConsistency(page: PageLike): Promise<ThemeAnalysis> {
   const data = await page.evaluate(() => {
-    // Page background
-    const bodyBg = window.getComputedStyle(document.body).backgroundColor;
-    const htmlBg = window.getComputedStyle(document.documentElement).backgroundColor;
-    const pageBg = (bodyBg && bodyBg !== 'rgba(0, 0, 0, 0)' && bodyBg !== 'transparent')
-      ? bodyBg
-      : htmlBg;
+    // Page background inputs: solid colors, background images, and the system canvas
+    const bodyStyle = window.getComputedStyle(document.body);
+    const htmlStyle = window.getComputedStyle(document.documentElement);
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:absolute;width:0;height:0;background-color:Canvas';
+    document.documentElement.appendChild(probe);
+    const canvas = window.getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    const background = {
+      bodyColor: bodyStyle.backgroundColor,
+      htmlColor: htmlStyle.backgroundColor,
+      bodyImage: bodyStyle.backgroundImage,
+      htmlImage: htmlStyle.backgroundImage,
+      canvas,
+    };
 
     // Content container selectors
     const containerSelectors = [
@@ -117,16 +175,15 @@ export async function analyzeThemeConsistency(page: PageLike): Promise<ThemeAnal
       if (cards.length >= 10) break;
     }
 
-    return { pageBg, cards };
+    return { background, cards };
   });
 
   // Compute page background luminance
-  const pageParsed = parseColor(data.pageBg);
-  const pageLuminance = pageParsed
-    ? relativeLuminance(pageParsed.r, pageParsed.g, pageParsed.b)
-    : 0.5; // unknown — assume mid
+  const resolved = resolvePageBackground(data.background);
+  // Unknown (e.g. a url() image) — treat as mid so neither mismatch branch fires.
+  const pageLuminance = resolved.luminance ?? 0.5;
 
-  const pageBackground = { color: data.pageBg, luminance: pageLuminance };
+  const pageBackground = { color: resolved.color, luminance: pageLuminance };
 
   // Compute content card luminances
   const contentCards = data.cards.map((c: { selector: string; color: string }) => {
