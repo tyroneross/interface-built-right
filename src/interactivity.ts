@@ -95,6 +95,49 @@ export interface InteractivityResult {
 /**
  * Test interactivity of all interactive elements on a page
  */
+/**
+ * Real submit-listener detection for forms the in-page check could not prove.
+ *
+ * A form wired with `form.addEventListener('submit', fn)` sets no attribute and
+ * no `onsubmit` property, so page JS cannot see it. DevTools' getEventListeners
+ * can (CDP `includeCommandLineAPI`, same mechanism as src/extract.ts). Submit
+ * bubbles, so a listener on an ancestor, the document or the window handles the
+ * form too. Feature-detected: a PageLike without the API keeps the old result.
+ * `data.forms` is built from document.querySelectorAll('form') in order, so the
+ * index identifies the same form.
+ */
+async function enrichFormSubmitListeners(page: Page, forms: FormInfo[]): Promise<void> {
+  const pending = forms.map((f, i) => (f.hasSubmitHandler ? -1 : i)).filter((i) => i >= 0);
+  const evalWithApi = (page as unknown as { evaluateWithCommandLineAPI?: (e: string) => Promise<unknown> })
+    .evaluateWithCommandLineAPI;
+  if (pending.length === 0 || typeof evalWithApi !== 'function') return;
+  const expression = `
+    (function () {
+      const forms = Array.from(document.querySelectorAll('form'));
+      const hasSubmit = (node) => {
+        try {
+          const l = getEventListeners(node);
+          return !!(l && Array.isArray(l.submit) && l.submit.length > 0);
+        } catch (e) { return false; }
+      };
+      return ${JSON.stringify(pending)}.map((i) => {
+        let node = forms[i];
+        if (!node) return false;
+        while (node) { if (hasSubmit(node)) return true; node = node.parentNode; }
+        return hasSubmit(window);
+      });
+    })()`;
+  try {
+    const found = await evalWithApi.call(page, expression);
+    if (!Array.isArray(found)) return;
+    pending.forEach((formIndex, k) => {
+      if (found[k] === true) forms[formIndex].hasSubmitHandler = true;
+    });
+  } catch {
+    // Listener API unavailable or failed: keep the in-page result.
+  }
+}
+
 export async function testInteractivity(page: Page): Promise<InteractivityResult> {
   const data = await page.evaluate(() => {
     const results: {
@@ -282,6 +325,8 @@ export async function testInteractivity(page: Page): Promise<InteractivityResult
 
       // Check for submit handler on form
       const hasSubmitHandler = hasEventHandler(el) ||
+                               typeof (el as HTMLFormElement).onsubmit === 'function' ||
+                               el.getAttribute('onsubmit') !== null ||
                                el.getAttribute('action') !== null ||
                                submitBtn !== null;
 
@@ -298,6 +343,8 @@ export async function testInteractivity(page: Page): Promise<InteractivityResult
 
     return results;
   });
+
+  await enrichFormSubmitListeners(page, data.forms);
 
   // Analyze for issues
   const issues: InteractivityIssue[] = [];
