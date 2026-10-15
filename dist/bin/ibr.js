@@ -106,12 +106,3736 @@ var init_net_timeout = __esm({
   }
 });
 
+// node_modules/ws/lib/constants.js
+var require_constants = __commonJS({
+  "node_modules/ws/lib/constants.js"(exports2, module2) {
+    "use strict";
+    var BINARY_TYPES = ["nodebuffer", "arraybuffer", "fragments"];
+    var hasBlob = typeof Blob !== "undefined";
+    if (hasBlob) BINARY_TYPES.push("blob");
+    module2.exports = {
+      BINARY_TYPES,
+      CLOSE_TIMEOUT: 3e4,
+      EMPTY_BUFFER: Buffer.alloc(0),
+      GUID: "258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
+      hasBlob,
+      kForOnEventAttribute: /* @__PURE__ */ Symbol("kIsForOnEventAttribute"),
+      kListener: /* @__PURE__ */ Symbol("kListener"),
+      kStatusCode: /* @__PURE__ */ Symbol("status-code"),
+      kWebSocket: /* @__PURE__ */ Symbol("websocket"),
+      NOOP: () => {
+      }
+    };
+  }
+});
+
+// node_modules/ws/lib/buffer-util.js
+var require_buffer_util = __commonJS({
+  "node_modules/ws/lib/buffer-util.js"(exports2, module2) {
+    "use strict";
+    var { EMPTY_BUFFER } = require_constants();
+    var FastBuffer = Buffer[Symbol.species];
+    function concat(list, totalLength) {
+      if (list.length === 0) return EMPTY_BUFFER;
+      if (list.length === 1) return list[0];
+      const target = Buffer.allocUnsafe(totalLength);
+      let offset = 0;
+      for (let i = 0; i < list.length; i++) {
+        const buf = list[i];
+        target.set(buf, offset);
+        offset += buf.length;
+      }
+      if (offset < totalLength) {
+        return new FastBuffer(target.buffer, target.byteOffset, offset);
+      }
+      return target;
+    }
+    function _mask(source, mask, output, offset, length) {
+      for (let i = 0; i < length; i++) {
+        output[offset + i] = source[i] ^ mask[i & 3];
+      }
+    }
+    function _unmask(buffer, mask) {
+      for (let i = 0; i < buffer.length; i++) {
+        buffer[i] ^= mask[i & 3];
+      }
+    }
+    function toArrayBuffer(buf) {
+      if (buf.length === buf.buffer.byteLength) {
+        return buf.buffer;
+      }
+      return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.length);
+    }
+    function toBuffer(data) {
+      toBuffer.readOnly = true;
+      if (Buffer.isBuffer(data)) return data;
+      let buf;
+      if (data instanceof ArrayBuffer) {
+        buf = new FastBuffer(data);
+      } else if (ArrayBuffer.isView(data)) {
+        buf = new FastBuffer(data.buffer, data.byteOffset, data.byteLength);
+      } else {
+        buf = Buffer.from(data);
+        toBuffer.readOnly = false;
+      }
+      return buf;
+    }
+    module2.exports = {
+      concat,
+      mask: _mask,
+      toArrayBuffer,
+      toBuffer,
+      unmask: _unmask
+    };
+    if (!process.env.WS_NO_BUFFER_UTIL) {
+      try {
+        const bufferUtil = require("bufferutil");
+        module2.exports.mask = function(source, mask, output, offset, length) {
+          if (length < 48) _mask(source, mask, output, offset, length);
+          else bufferUtil.mask(source, mask, output, offset, length);
+        };
+        module2.exports.unmask = function(buffer, mask) {
+          if (buffer.length < 32) _unmask(buffer, mask);
+          else bufferUtil.unmask(buffer, mask);
+        };
+      } catch (e) {
+      }
+    }
+  }
+});
+
+// node_modules/ws/lib/limiter.js
+var require_limiter = __commonJS({
+  "node_modules/ws/lib/limiter.js"(exports2, module2) {
+    "use strict";
+    var kDone = /* @__PURE__ */ Symbol("kDone");
+    var kRun = /* @__PURE__ */ Symbol("kRun");
+    var Limiter = class {
+      /**
+       * Creates a new `Limiter`.
+       *
+       * @param {Number} [concurrency=Infinity] The maximum number of jobs allowed
+       *     to run concurrently
+       */
+      constructor(concurrency) {
+        this[kDone] = () => {
+          this.pending--;
+          this[kRun]();
+        };
+        this.concurrency = concurrency || Infinity;
+        this.jobs = [];
+        this.pending = 0;
+      }
+      /**
+       * Adds a job to the queue.
+       *
+       * @param {Function} job The job to run
+       * @public
+       */
+      add(job) {
+        this.jobs.push(job);
+        this[kRun]();
+      }
+      /**
+       * Removes a job from the queue and runs it if possible.
+       *
+       * @private
+       */
+      [kRun]() {
+        if (this.pending === this.concurrency) return;
+        if (this.jobs.length) {
+          const job = this.jobs.shift();
+          this.pending++;
+          job(this[kDone]);
+        }
+      }
+    };
+    module2.exports = Limiter;
+  }
+});
+
+// node_modules/ws/lib/permessage-deflate.js
+var require_permessage_deflate = __commonJS({
+  "node_modules/ws/lib/permessage-deflate.js"(exports2, module2) {
+    "use strict";
+    var zlib = require("zlib");
+    var bufferUtil = require_buffer_util();
+    var Limiter = require_limiter();
+    var { kStatusCode } = require_constants();
+    var FastBuffer = Buffer[Symbol.species];
+    var TRAILER = Buffer.from([0, 0, 255, 255]);
+    var kPerMessageDeflate = /* @__PURE__ */ Symbol("permessage-deflate");
+    var kTotalLength = /* @__PURE__ */ Symbol("total-length");
+    var kCallback = /* @__PURE__ */ Symbol("callback");
+    var kBuffers = /* @__PURE__ */ Symbol("buffers");
+    var kError = /* @__PURE__ */ Symbol("error");
+    var zlibLimiter;
+    var PerMessageDeflate2 = class {
+      /**
+       * Creates a PerMessageDeflate instance.
+       *
+       * @param {Object} [options] Configuration options
+       * @param {(Boolean|Number)} [options.clientMaxWindowBits] Advertise support
+       *     for, or request, a custom client window size
+       * @param {Boolean} [options.clientNoContextTakeover=false] Advertise/
+       *     acknowledge disabling of client context takeover
+       * @param {Number} [options.concurrencyLimit=10] The number of concurrent
+       *     calls to zlib
+       * @param {Boolean} [options.isServer=false] Create the instance in either
+       *     server or client mode
+       * @param {Number} [options.maxPayload=0] The maximum allowed message length
+       * @param {(Boolean|Number)} [options.serverMaxWindowBits] Request/confirm the
+       *     use of a custom server window size
+       * @param {Boolean} [options.serverNoContextTakeover=false] Request/accept
+       *     disabling of server context takeover
+       * @param {Number} [options.threshold=1024] Size (in bytes) below which
+       *     messages should not be compressed if context takeover is disabled
+       * @param {Object} [options.zlibDeflateOptions] Options to pass to zlib on
+       *     deflate
+       * @param {Object} [options.zlibInflateOptions] Options to pass to zlib on
+       *     inflate
+       */
+      constructor(options) {
+        this._options = options || {};
+        this._threshold = this._options.threshold !== void 0 ? this._options.threshold : 1024;
+        this._maxPayload = this._options.maxPayload | 0;
+        this._isServer = !!this._options.isServer;
+        this._deflate = null;
+        this._inflate = null;
+        this.params = null;
+        if (!zlibLimiter) {
+          const concurrency = this._options.concurrencyLimit !== void 0 ? this._options.concurrencyLimit : 10;
+          zlibLimiter = new Limiter(concurrency);
+        }
+      }
+      /**
+       * @type {String}
+       */
+      static get extensionName() {
+        return "permessage-deflate";
+      }
+      /**
+       * Create an extension negotiation offer.
+       *
+       * @return {Object} Extension parameters
+       * @public
+       */
+      offer() {
+        const params = {};
+        if (this._options.serverNoContextTakeover) {
+          params.server_no_context_takeover = true;
+        }
+        if (this._options.clientNoContextTakeover) {
+          params.client_no_context_takeover = true;
+        }
+        if (this._options.serverMaxWindowBits) {
+          params.server_max_window_bits = this._options.serverMaxWindowBits;
+        }
+        if (this._options.clientMaxWindowBits) {
+          params.client_max_window_bits = this._options.clientMaxWindowBits;
+        } else if (this._options.clientMaxWindowBits == null) {
+          params.client_max_window_bits = true;
+        }
+        return params;
+      }
+      /**
+       * Accept an extension negotiation offer/response.
+       *
+       * @param {Array} configurations The extension negotiation offers/reponse
+       * @return {Object} Accepted configuration
+       * @public
+       */
+      accept(configurations) {
+        configurations = this.normalizeParams(configurations);
+        this.params = this._isServer ? this.acceptAsServer(configurations) : this.acceptAsClient(configurations);
+        return this.params;
+      }
+      /**
+       * Releases all resources used by the extension.
+       *
+       * @public
+       */
+      cleanup() {
+        if (this._inflate) {
+          this._inflate.close();
+          this._inflate = null;
+        }
+        if (this._deflate) {
+          const callback = this._deflate[kCallback];
+          this._deflate.close();
+          this._deflate = null;
+          if (callback) {
+            callback(
+              new Error(
+                "The deflate stream was closed while data was being processed"
+              )
+            );
+          }
+        }
+      }
+      /**
+       *  Accept an extension negotiation offer.
+       *
+       * @param {Array} offers The extension negotiation offers
+       * @return {Object} Accepted configuration
+       * @private
+       */
+      acceptAsServer(offers) {
+        const opts = this._options;
+        const accepted = offers.find((params) => {
+          if (opts.serverNoContextTakeover === false && params.server_no_context_takeover || params.server_max_window_bits && (opts.serverMaxWindowBits === false || typeof opts.serverMaxWindowBits === "number" && opts.serverMaxWindowBits > params.server_max_window_bits) || typeof opts.clientMaxWindowBits === "number" && (typeof params.client_max_window_bits === "number" ? opts.clientMaxWindowBits > params.client_max_window_bits : !params.client_max_window_bits)) {
+            return false;
+          }
+          return true;
+        });
+        if (!accepted) {
+          throw new Error("None of the extension offers can be accepted");
+        }
+        if (opts.serverNoContextTakeover) {
+          accepted.server_no_context_takeover = true;
+        }
+        if (opts.clientNoContextTakeover) {
+          accepted.client_no_context_takeover = true;
+        }
+        if (typeof opts.serverMaxWindowBits === "number") {
+          accepted.server_max_window_bits = opts.serverMaxWindowBits;
+        }
+        if (typeof opts.clientMaxWindowBits === "number") {
+          accepted.client_max_window_bits = opts.clientMaxWindowBits;
+        } else if (accepted.client_max_window_bits === true || opts.clientMaxWindowBits === false) {
+          delete accepted.client_max_window_bits;
+        }
+        return accepted;
+      }
+      /**
+       * Accept the extension negotiation response.
+       *
+       * @param {Array} response The extension negotiation response
+       * @return {Object} Accepted configuration
+       * @private
+       */
+      acceptAsClient(response) {
+        const params = response[0];
+        if (this._options.clientNoContextTakeover === false && params.client_no_context_takeover) {
+          throw new Error('Unexpected parameter "client_no_context_takeover"');
+        }
+        if (!params.client_max_window_bits) {
+          if (typeof this._options.clientMaxWindowBits === "number") {
+            params.client_max_window_bits = this._options.clientMaxWindowBits;
+          }
+        } else if (this._options.clientMaxWindowBits === false || typeof this._options.clientMaxWindowBits === "number" && params.client_max_window_bits > this._options.clientMaxWindowBits) {
+          throw new Error(
+            'Unexpected or invalid parameter "client_max_window_bits"'
+          );
+        }
+        return params;
+      }
+      /**
+       * Normalize parameters.
+       *
+       * @param {Array} configurations The extension negotiation offers/reponse
+       * @return {Array} The offers/response with normalized parameters
+       * @private
+       */
+      normalizeParams(configurations) {
+        configurations.forEach((params) => {
+          Object.keys(params).forEach((key) => {
+            let value = params[key];
+            if (value.length > 1) {
+              throw new Error(`Parameter "${key}" must have only a single value`);
+            }
+            value = value[0];
+            if (key === "client_max_window_bits") {
+              if (value !== true) {
+                const num3 = +value;
+                if (!Number.isInteger(num3) || num3 < 8 || num3 > 15) {
+                  throw new TypeError(
+                    `Invalid value for parameter "${key}": ${value}`
+                  );
+                }
+                value = num3;
+              } else if (!this._isServer) {
+                throw new TypeError(
+                  `Invalid value for parameter "${key}": ${value}`
+                );
+              }
+            } else if (key === "server_max_window_bits") {
+              const num3 = +value;
+              if (!Number.isInteger(num3) || num3 < 8 || num3 > 15) {
+                throw new TypeError(
+                  `Invalid value for parameter "${key}": ${value}`
+                );
+              }
+              value = num3;
+            } else if (key === "client_no_context_takeover" || key === "server_no_context_takeover") {
+              if (value !== true) {
+                throw new TypeError(
+                  `Invalid value for parameter "${key}": ${value}`
+                );
+              }
+            } else {
+              throw new Error(`Unknown parameter "${key}"`);
+            }
+            params[key] = value;
+          });
+        });
+        return configurations;
+      }
+      /**
+       * Decompress data. Concurrency limited.
+       *
+       * @param {Buffer} data Compressed data
+       * @param {Boolean} fin Specifies whether or not this is the last fragment
+       * @param {Function} callback Callback
+       * @public
+       */
+      decompress(data, fin, callback) {
+        zlibLimiter.add((done) => {
+          this._decompress(data, fin, (err, result) => {
+            done();
+            callback(err, result);
+          });
+        });
+      }
+      /**
+       * Compress data. Concurrency limited.
+       *
+       * @param {(Buffer|String)} data Data to compress
+       * @param {Boolean} fin Specifies whether or not this is the last fragment
+       * @param {Function} callback Callback
+       * @public
+       */
+      compress(data, fin, callback) {
+        zlibLimiter.add((done) => {
+          this._compress(data, fin, (err, result) => {
+            done();
+            callback(err, result);
+          });
+        });
+      }
+      /**
+       * Decompress data.
+       *
+       * @param {Buffer} data Compressed data
+       * @param {Boolean} fin Specifies whether or not this is the last fragment
+       * @param {Function} callback Callback
+       * @private
+       */
+      _decompress(data, fin, callback) {
+        const endpoint = this._isServer ? "client" : "server";
+        if (!this._inflate) {
+          const key = `${endpoint}_max_window_bits`;
+          const windowBits = typeof this.params[key] !== "number" ? zlib.Z_DEFAULT_WINDOWBITS : this.params[key];
+          this._inflate = zlib.createInflateRaw({
+            ...this._options.zlibInflateOptions,
+            windowBits
+          });
+          this._inflate[kPerMessageDeflate] = this;
+          this._inflate[kTotalLength] = 0;
+          this._inflate[kBuffers] = [];
+          this._inflate.on("error", inflateOnError);
+          this._inflate.on("data", inflateOnData);
+        }
+        this._inflate[kCallback] = callback;
+        this._inflate.write(data);
+        if (fin) this._inflate.write(TRAILER);
+        this._inflate.flush(() => {
+          const err = this._inflate[kError];
+          if (err) {
+            this._inflate.close();
+            this._inflate = null;
+            callback(err);
+            return;
+          }
+          const data2 = bufferUtil.concat(
+            this._inflate[kBuffers],
+            this._inflate[kTotalLength]
+          );
+          if (this._inflate._readableState.endEmitted) {
+            this._inflate.close();
+            this._inflate = null;
+          } else {
+            this._inflate[kTotalLength] = 0;
+            this._inflate[kBuffers] = [];
+            if (fin && this.params[`${endpoint}_no_context_takeover`]) {
+              this._inflate.reset();
+            }
+          }
+          callback(null, data2);
+        });
+      }
+      /**
+       * Compress data.
+       *
+       * @param {(Buffer|String)} data Data to compress
+       * @param {Boolean} fin Specifies whether or not this is the last fragment
+       * @param {Function} callback Callback
+       * @private
+       */
+      _compress(data, fin, callback) {
+        const endpoint = this._isServer ? "server" : "client";
+        if (!this._deflate) {
+          const key = `${endpoint}_max_window_bits`;
+          const windowBits = typeof this.params[key] !== "number" ? zlib.Z_DEFAULT_WINDOWBITS : this.params[key];
+          this._deflate = zlib.createDeflateRaw({
+            ...this._options.zlibDeflateOptions,
+            windowBits
+          });
+          this._deflate[kTotalLength] = 0;
+          this._deflate[kBuffers] = [];
+          this._deflate.on("data", deflateOnData);
+        }
+        this._deflate[kCallback] = callback;
+        this._deflate.write(data);
+        this._deflate.flush(zlib.Z_SYNC_FLUSH, () => {
+          if (!this._deflate) {
+            return;
+          }
+          let data2 = bufferUtil.concat(
+            this._deflate[kBuffers],
+            this._deflate[kTotalLength]
+          );
+          if (fin) {
+            data2 = new FastBuffer(data2.buffer, data2.byteOffset, data2.length - 4);
+          }
+          this._deflate[kCallback] = null;
+          this._deflate[kTotalLength] = 0;
+          this._deflate[kBuffers] = [];
+          if (fin && this.params[`${endpoint}_no_context_takeover`]) {
+            this._deflate.reset();
+          }
+          callback(null, data2);
+        });
+      }
+    };
+    module2.exports = PerMessageDeflate2;
+    function deflateOnData(chunk) {
+      this[kBuffers].push(chunk);
+      this[kTotalLength] += chunk.length;
+    }
+    function inflateOnData(chunk) {
+      this[kTotalLength] += chunk.length;
+      if (this[kPerMessageDeflate]._maxPayload < 1 || this[kTotalLength] <= this[kPerMessageDeflate]._maxPayload) {
+        this[kBuffers].push(chunk);
+        return;
+      }
+      this[kError] = new RangeError("Max payload size exceeded");
+      this[kError].code = "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH";
+      this[kError][kStatusCode] = 1009;
+      this.removeListener("data", inflateOnData);
+      this.reset();
+    }
+    function inflateOnError(err) {
+      this[kPerMessageDeflate]._inflate = null;
+      if (this[kError]) {
+        this[kCallback](this[kError]);
+        return;
+      }
+      err[kStatusCode] = 1007;
+      this[kCallback](err);
+    }
+  }
+});
+
+// node_modules/ws/lib/validation.js
+var require_validation = __commonJS({
+  "node_modules/ws/lib/validation.js"(exports2, module2) {
+    "use strict";
+    var { isUtf8 } = require("buffer");
+    var { hasBlob } = require_constants();
+    var tokenChars = [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      // 0 - 15
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      // 16 - 31
+      0,
+      1,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      1,
+      1,
+      0,
+      1,
+      1,
+      0,
+      // 32 - 47
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      // 48 - 63
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      // 64 - 79
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      // 80 - 95
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      // 96 - 111
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0
+      // 112 - 127
+    ];
+    function isValidStatusCode(code) {
+      return code >= 1e3 && code <= 1014 && code !== 1004 && code !== 1005 && code !== 1006 || code >= 3e3 && code <= 4999;
+    }
+    function _isValidUTF8(buf) {
+      const len = buf.length;
+      let i = 0;
+      while (i < len) {
+        if ((buf[i] & 128) === 0) {
+          i++;
+        } else if ((buf[i] & 224) === 192) {
+          if (i + 1 === len || (buf[i + 1] & 192) !== 128 || (buf[i] & 254) === 192) {
+            return false;
+          }
+          i += 2;
+        } else if ((buf[i] & 240) === 224) {
+          if (i + 2 >= len || (buf[i + 1] & 192) !== 128 || (buf[i + 2] & 192) !== 128 || buf[i] === 224 && (buf[i + 1] & 224) === 128 || // Overlong
+          buf[i] === 237 && (buf[i + 1] & 224) === 160) {
+            return false;
+          }
+          i += 3;
+        } else if ((buf[i] & 248) === 240) {
+          if (i + 3 >= len || (buf[i + 1] & 192) !== 128 || (buf[i + 2] & 192) !== 128 || (buf[i + 3] & 192) !== 128 || buf[i] === 240 && (buf[i + 1] & 240) === 128 || // Overlong
+          buf[i] === 244 && buf[i + 1] > 143 || buf[i] > 244) {
+            return false;
+          }
+          i += 4;
+        } else {
+          return false;
+        }
+      }
+      return true;
+    }
+    function isBlob(value) {
+      return hasBlob && typeof value === "object" && typeof value.arrayBuffer === "function" && typeof value.type === "string" && typeof value.stream === "function" && (value[Symbol.toStringTag] === "Blob" || value[Symbol.toStringTag] === "File");
+    }
+    module2.exports = {
+      isBlob,
+      isValidStatusCode,
+      isValidUTF8: _isValidUTF8,
+      tokenChars
+    };
+    if (isUtf8) {
+      module2.exports.isValidUTF8 = function(buf) {
+        return buf.length < 24 ? _isValidUTF8(buf) : isUtf8(buf);
+      };
+    } else if (!process.env.WS_NO_UTF_8_VALIDATE) {
+      try {
+        const isValidUTF8 = require("utf-8-validate");
+        module2.exports.isValidUTF8 = function(buf) {
+          return buf.length < 32 ? _isValidUTF8(buf) : isValidUTF8(buf);
+        };
+      } catch (e) {
+      }
+    }
+  }
+});
+
+// node_modules/ws/lib/receiver.js
+var require_receiver = __commonJS({
+  "node_modules/ws/lib/receiver.js"(exports2, module2) {
+    "use strict";
+    var { Writable } = require("stream");
+    var PerMessageDeflate2 = require_permessage_deflate();
+    var {
+      BINARY_TYPES,
+      EMPTY_BUFFER,
+      kStatusCode,
+      kWebSocket
+    } = require_constants();
+    var { concat, toArrayBuffer, unmask } = require_buffer_util();
+    var { isValidStatusCode, isValidUTF8 } = require_validation();
+    var FastBuffer = Buffer[Symbol.species];
+    var GET_INFO = 0;
+    var GET_PAYLOAD_LENGTH_16 = 1;
+    var GET_PAYLOAD_LENGTH_64 = 2;
+    var GET_MASK = 3;
+    var GET_DATA = 4;
+    var INFLATING = 5;
+    var DEFER_EVENT = 6;
+    var Receiver2 = class extends Writable {
+      /**
+       * Creates a Receiver instance.
+       *
+       * @param {Object} [options] Options object
+       * @param {Boolean} [options.allowSynchronousEvents=true] Specifies whether
+       *     any of the `'message'`, `'ping'`, and `'pong'` events can be emitted
+       *     multiple times in the same tick
+       * @param {String} [options.binaryType=nodebuffer] The type for binary data
+       * @param {Object} [options.extensions] An object containing the negotiated
+       *     extensions
+       * @param {Boolean} [options.isServer=false] Specifies whether to operate in
+       *     client or server mode
+       * @param {Number} [options.maxBufferedChunks=0] The maximum number of
+       *     buffered data chunks
+       * @param {Number} [options.maxFragments=0] The maximum number of message
+       *     fragments
+       * @param {Number} [options.maxPayload=0] The maximum allowed message length
+       * @param {Boolean} [options.skipUTF8Validation=false] Specifies whether or
+       *     not to skip UTF-8 validation for text and close messages
+       */
+      constructor(options = {}) {
+        super();
+        this._allowSynchronousEvents = options.allowSynchronousEvents !== void 0 ? options.allowSynchronousEvents : true;
+        this._binaryType = options.binaryType || BINARY_TYPES[0];
+        this._extensions = options.extensions || {};
+        this._isServer = !!options.isServer;
+        this._maxBufferedChunks = options.maxBufferedChunks | 0;
+        this._maxFragments = options.maxFragments | 0;
+        this._maxPayload = options.maxPayload | 0;
+        this._skipUTF8Validation = !!options.skipUTF8Validation;
+        this[kWebSocket] = void 0;
+        this._bufferedBytes = 0;
+        this._buffers = [];
+        this._compressed = false;
+        this._payloadLength = 0;
+        this._mask = void 0;
+        this._fragmented = 0;
+        this._masked = false;
+        this._fin = false;
+        this._opcode = 0;
+        this._totalPayloadLength = 0;
+        this._messageLength = 0;
+        this._numFragments = 0;
+        this._fragments = [];
+        this._errored = false;
+        this._loop = false;
+        this._state = GET_INFO;
+      }
+      /**
+       * Implements `Writable.prototype._write()`.
+       *
+       * @param {Buffer} chunk The chunk of data to write
+       * @param {String} encoding The character encoding of `chunk`
+       * @param {Function} cb Callback
+       * @private
+       */
+      _write(chunk, encoding, cb) {
+        if (this._opcode === 8 && this._state == GET_INFO) return cb();
+        if (this._maxBufferedChunks > 0 && this._buffers.length >= this._maxBufferedChunks) {
+          cb(
+            this.createError(
+              RangeError,
+              "Too many buffered chunks",
+              false,
+              1008,
+              "WS_ERR_TOO_MANY_BUFFERED_PARTS"
+            )
+          );
+          return;
+        }
+        this._bufferedBytes += chunk.length;
+        this._buffers.push(chunk);
+        this.startLoop(cb);
+      }
+      /**
+       * Consumes `n` bytes from the buffered data.
+       *
+       * @param {Number} n The number of bytes to consume
+       * @return {Buffer} The consumed bytes
+       * @private
+       */
+      consume(n) {
+        this._bufferedBytes -= n;
+        if (n === this._buffers[0].length) return this._buffers.shift();
+        if (n < this._buffers[0].length) {
+          const buf = this._buffers[0];
+          this._buffers[0] = new FastBuffer(
+            buf.buffer,
+            buf.byteOffset + n,
+            buf.length - n
+          );
+          return new FastBuffer(buf.buffer, buf.byteOffset, n);
+        }
+        const dst = Buffer.allocUnsafe(n);
+        do {
+          const buf = this._buffers[0];
+          const offset = dst.length - n;
+          if (n >= buf.length) {
+            dst.set(this._buffers.shift(), offset);
+          } else {
+            dst.set(new Uint8Array(buf.buffer, buf.byteOffset, n), offset);
+            this._buffers[0] = new FastBuffer(
+              buf.buffer,
+              buf.byteOffset + n,
+              buf.length - n
+            );
+          }
+          n -= buf.length;
+        } while (n > 0);
+        return dst;
+      }
+      /**
+       * Starts the parsing loop.
+       *
+       * @param {Function} cb Callback
+       * @private
+       */
+      startLoop(cb) {
+        this._loop = true;
+        do {
+          switch (this._state) {
+            case GET_INFO:
+              this.getInfo(cb);
+              break;
+            case GET_PAYLOAD_LENGTH_16:
+              this.getPayloadLength16(cb);
+              break;
+            case GET_PAYLOAD_LENGTH_64:
+              this.getPayloadLength64(cb);
+              break;
+            case GET_MASK:
+              this.getMask();
+              break;
+            case GET_DATA:
+              this.getData(cb);
+              break;
+            case INFLATING:
+            case DEFER_EVENT:
+              this._loop = false;
+              return;
+          }
+        } while (this._loop);
+        if (!this._errored) cb();
+      }
+      /**
+       * Reads the first two bytes of a frame.
+       *
+       * @param {Function} cb Callback
+       * @private
+       */
+      getInfo(cb) {
+        if (this._bufferedBytes < 2) {
+          this._loop = false;
+          return;
+        }
+        const buf = this.consume(2);
+        if ((buf[0] & 48) !== 0) {
+          const error51 = this.createError(
+            RangeError,
+            "RSV2 and RSV3 must be clear",
+            true,
+            1002,
+            "WS_ERR_UNEXPECTED_RSV_2_3"
+          );
+          cb(error51);
+          return;
+        }
+        const compressed = (buf[0] & 64) === 64;
+        if (compressed && !this._extensions[PerMessageDeflate2.extensionName]) {
+          const error51 = this.createError(
+            RangeError,
+            "RSV1 must be clear",
+            true,
+            1002,
+            "WS_ERR_UNEXPECTED_RSV_1"
+          );
+          cb(error51);
+          return;
+        }
+        this._fin = (buf[0] & 128) === 128;
+        this._opcode = buf[0] & 15;
+        this._payloadLength = buf[1] & 127;
+        if (this._opcode === 0) {
+          if (compressed) {
+            const error51 = this.createError(
+              RangeError,
+              "RSV1 must be clear",
+              true,
+              1002,
+              "WS_ERR_UNEXPECTED_RSV_1"
+            );
+            cb(error51);
+            return;
+          }
+          if (!this._fragmented) {
+            const error51 = this.createError(
+              RangeError,
+              "invalid opcode 0",
+              true,
+              1002,
+              "WS_ERR_INVALID_OPCODE"
+            );
+            cb(error51);
+            return;
+          }
+          this._opcode = this._fragmented;
+        } else if (this._opcode === 1 || this._opcode === 2) {
+          if (this._fragmented) {
+            const error51 = this.createError(
+              RangeError,
+              `invalid opcode ${this._opcode}`,
+              true,
+              1002,
+              "WS_ERR_INVALID_OPCODE"
+            );
+            cb(error51);
+            return;
+          }
+          this._compressed = compressed;
+        } else if (this._opcode > 7 && this._opcode < 11) {
+          if (!this._fin) {
+            const error51 = this.createError(
+              RangeError,
+              "FIN must be set",
+              true,
+              1002,
+              "WS_ERR_EXPECTED_FIN"
+            );
+            cb(error51);
+            return;
+          }
+          if (compressed) {
+            const error51 = this.createError(
+              RangeError,
+              "RSV1 must be clear",
+              true,
+              1002,
+              "WS_ERR_UNEXPECTED_RSV_1"
+            );
+            cb(error51);
+            return;
+          }
+          if (this._payloadLength > 125 || this._opcode === 8 && this._payloadLength === 1) {
+            const error51 = this.createError(
+              RangeError,
+              `invalid payload length ${this._payloadLength}`,
+              true,
+              1002,
+              "WS_ERR_INVALID_CONTROL_PAYLOAD_LENGTH"
+            );
+            cb(error51);
+            return;
+          }
+        } else {
+          const error51 = this.createError(
+            RangeError,
+            `invalid opcode ${this._opcode}`,
+            true,
+            1002,
+            "WS_ERR_INVALID_OPCODE"
+          );
+          cb(error51);
+          return;
+        }
+        if (!this._fin && !this._fragmented) this._fragmented = this._opcode;
+        this._masked = (buf[1] & 128) === 128;
+        if (this._isServer) {
+          if (!this._masked) {
+            const error51 = this.createError(
+              RangeError,
+              "MASK must be set",
+              true,
+              1002,
+              "WS_ERR_EXPECTED_MASK"
+            );
+            cb(error51);
+            return;
+          }
+        } else if (this._masked) {
+          const error51 = this.createError(
+            RangeError,
+            "MASK must be clear",
+            true,
+            1002,
+            "WS_ERR_UNEXPECTED_MASK"
+          );
+          cb(error51);
+          return;
+        }
+        if (this._payloadLength === 126) this._state = GET_PAYLOAD_LENGTH_16;
+        else if (this._payloadLength === 127) this._state = GET_PAYLOAD_LENGTH_64;
+        else this.haveLength(cb);
+      }
+      /**
+       * Gets extended payload length (7+16).
+       *
+       * @param {Function} cb Callback
+       * @private
+       */
+      getPayloadLength16(cb) {
+        if (this._bufferedBytes < 2) {
+          this._loop = false;
+          return;
+        }
+        this._payloadLength = this.consume(2).readUInt16BE(0);
+        this.haveLength(cb);
+      }
+      /**
+       * Gets extended payload length (7+64).
+       *
+       * @param {Function} cb Callback
+       * @private
+       */
+      getPayloadLength64(cb) {
+        if (this._bufferedBytes < 8) {
+          this._loop = false;
+          return;
+        }
+        const buf = this.consume(8);
+        const num3 = buf.readUInt32BE(0);
+        if (num3 > Math.pow(2, 53 - 32) - 1) {
+          const error51 = this.createError(
+            RangeError,
+            "Unsupported WebSocket frame: payload length > 2^53 - 1",
+            false,
+            1009,
+            "WS_ERR_UNSUPPORTED_DATA_PAYLOAD_LENGTH"
+          );
+          cb(error51);
+          return;
+        }
+        this._payloadLength = num3 * Math.pow(2, 32) + buf.readUInt32BE(4);
+        this.haveLength(cb);
+      }
+      /**
+       * Payload length has been read.
+       *
+       * @param {Function} cb Callback
+       * @private
+       */
+      haveLength(cb) {
+        if (this._payloadLength && this._opcode < 8) {
+          this._totalPayloadLength += this._payloadLength;
+          if (this._totalPayloadLength > this._maxPayload && this._maxPayload > 0) {
+            const error51 = this.createError(
+              RangeError,
+              "Max payload size exceeded",
+              false,
+              1009,
+              "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH"
+            );
+            cb(error51);
+            return;
+          }
+        }
+        if (this._masked) this._state = GET_MASK;
+        else this._state = GET_DATA;
+      }
+      /**
+       * Reads mask bytes.
+       *
+       * @private
+       */
+      getMask() {
+        if (this._bufferedBytes < 4) {
+          this._loop = false;
+          return;
+        }
+        this._mask = this.consume(4);
+        this._state = GET_DATA;
+      }
+      /**
+       * Reads data bytes.
+       *
+       * @param {Function} cb Callback
+       * @private
+       */
+      getData(cb) {
+        let data = EMPTY_BUFFER;
+        if (this._payloadLength) {
+          if (this._bufferedBytes < this._payloadLength) {
+            this._loop = false;
+            return;
+          }
+          data = this.consume(this._payloadLength);
+          if (this._masked && (this._mask[0] | this._mask[1] | this._mask[2] | this._mask[3]) !== 0) {
+            unmask(data, this._mask);
+          }
+        }
+        if (this._opcode > 7) {
+          this.controlMessage(data, cb);
+          return;
+        }
+        if (this._maxFragments > 0 && ++this._numFragments > this._maxFragments) {
+          const error51 = this.createError(
+            RangeError,
+            "Too many message fragments",
+            false,
+            1008,
+            "WS_ERR_TOO_MANY_BUFFERED_PARTS"
+          );
+          cb(error51);
+          return;
+        }
+        if (this._compressed) {
+          this._state = INFLATING;
+          this.decompress(data, cb);
+          return;
+        }
+        if (data.length) {
+          this._messageLength = this._totalPayloadLength;
+          this._fragments.push(data);
+        }
+        this.dataMessage(cb);
+      }
+      /**
+       * Decompresses data.
+       *
+       * @param {Buffer} data Compressed data
+       * @param {Function} cb Callback
+       * @private
+       */
+      decompress(data, cb) {
+        const perMessageDeflate = this._extensions[PerMessageDeflate2.extensionName];
+        perMessageDeflate.decompress(data, this._fin, (err, buf) => {
+          if (err) return cb(err);
+          if (buf.length) {
+            this._messageLength += buf.length;
+            if (this._messageLength > this._maxPayload && this._maxPayload > 0) {
+              const error51 = this.createError(
+                RangeError,
+                "Max payload size exceeded",
+                false,
+                1009,
+                "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH"
+              );
+              cb(error51);
+              return;
+            }
+            this._fragments.push(buf);
+          }
+          this.dataMessage(cb);
+          if (this._state === GET_INFO) this.startLoop(cb);
+        });
+      }
+      /**
+       * Handles a data message.
+       *
+       * @param {Function} cb Callback
+       * @private
+       */
+      dataMessage(cb) {
+        if (!this._fin) {
+          this._state = GET_INFO;
+          return;
+        }
+        const messageLength = this._messageLength;
+        const fragments = this._fragments;
+        this._totalPayloadLength = 0;
+        this._messageLength = 0;
+        this._fragmented = 0;
+        this._numFragments = 0;
+        this._fragments = [];
+        if (this._opcode === 2) {
+          let data;
+          if (this._binaryType === "nodebuffer") {
+            data = concat(fragments, messageLength);
+          } else if (this._binaryType === "arraybuffer") {
+            data = toArrayBuffer(concat(fragments, messageLength));
+          } else if (this._binaryType === "blob") {
+            data = new Blob(fragments);
+          } else {
+            data = fragments;
+          }
+          if (this._allowSynchronousEvents) {
+            this.emit("message", data, true);
+            this._state = GET_INFO;
+          } else {
+            this._state = DEFER_EVENT;
+            setImmediate(() => {
+              this.emit("message", data, true);
+              this._state = GET_INFO;
+              this.startLoop(cb);
+            });
+          }
+        } else {
+          const buf = concat(fragments, messageLength);
+          if (!this._skipUTF8Validation && !isValidUTF8(buf)) {
+            const error51 = this.createError(
+              Error,
+              "invalid UTF-8 sequence",
+              true,
+              1007,
+              "WS_ERR_INVALID_UTF8"
+            );
+            cb(error51);
+            return;
+          }
+          if (this._state === INFLATING || this._allowSynchronousEvents) {
+            this.emit("message", buf, false);
+            this._state = GET_INFO;
+          } else {
+            this._state = DEFER_EVENT;
+            setImmediate(() => {
+              this.emit("message", buf, false);
+              this._state = GET_INFO;
+              this.startLoop(cb);
+            });
+          }
+        }
+      }
+      /**
+       * Handles a control message.
+       *
+       * @param {Buffer} data Data to handle
+       * @return {(Error|RangeError|undefined)} A possible error
+       * @private
+       */
+      controlMessage(data, cb) {
+        if (this._opcode === 8) {
+          if (data.length === 0) {
+            this._loop = false;
+            this.emit("conclude", 1005, EMPTY_BUFFER);
+            this.end();
+          } else {
+            const code = data.readUInt16BE(0);
+            if (!isValidStatusCode(code)) {
+              const error51 = this.createError(
+                RangeError,
+                `invalid status code ${code}`,
+                true,
+                1002,
+                "WS_ERR_INVALID_CLOSE_CODE"
+              );
+              cb(error51);
+              return;
+            }
+            const buf = new FastBuffer(
+              data.buffer,
+              data.byteOffset + 2,
+              data.length - 2
+            );
+            if (!this._skipUTF8Validation && !isValidUTF8(buf)) {
+              const error51 = this.createError(
+                Error,
+                "invalid UTF-8 sequence",
+                true,
+                1007,
+                "WS_ERR_INVALID_UTF8"
+              );
+              cb(error51);
+              return;
+            }
+            this._loop = false;
+            this.emit("conclude", code, buf);
+            this.end();
+          }
+          this._state = GET_INFO;
+          return;
+        }
+        if (this._allowSynchronousEvents) {
+          this.emit(this._opcode === 9 ? "ping" : "pong", data);
+          this._state = GET_INFO;
+        } else {
+          this._state = DEFER_EVENT;
+          setImmediate(() => {
+            this.emit(this._opcode === 9 ? "ping" : "pong", data);
+            this._state = GET_INFO;
+            this.startLoop(cb);
+          });
+        }
+      }
+      /**
+       * Builds an error object.
+       *
+       * @param {function(new:Error|RangeError)} ErrorCtor The error constructor
+       * @param {String} message The error message
+       * @param {Boolean} prefix Specifies whether or not to add a default prefix to
+       *     `message`
+       * @param {Number} statusCode The status code
+       * @param {String} errorCode The exposed error code
+       * @return {(Error|RangeError)} The error
+       * @private
+       */
+      createError(ErrorCtor, message2, prefix, statusCode, errorCode) {
+        this._loop = false;
+        this._errored = true;
+        const err = new ErrorCtor(
+          prefix ? `Invalid WebSocket frame: ${message2}` : message2
+        );
+        Error.captureStackTrace(err, this.createError);
+        err.code = errorCode;
+        err[kStatusCode] = statusCode;
+        return err;
+      }
+    };
+    module2.exports = Receiver2;
+  }
+});
+
+// node_modules/ws/lib/sender.js
+var require_sender = __commonJS({
+  "node_modules/ws/lib/sender.js"(exports2, module2) {
+    "use strict";
+    var { Duplex } = require("stream");
+    var { randomFillSync } = require("crypto");
+    var {
+      types: { isUint8Array }
+    } = require("util");
+    var PerMessageDeflate2 = require_permessage_deflate();
+    var { EMPTY_BUFFER, kWebSocket, NOOP } = require_constants();
+    var { isBlob, isValidStatusCode } = require_validation();
+    var { mask: applyMask, toBuffer } = require_buffer_util();
+    var kByteLength = /* @__PURE__ */ Symbol("kByteLength");
+    var maskBuffer = Buffer.alloc(4);
+    var RANDOM_POOL_SIZE = 8 * 1024;
+    var randomPool;
+    var randomPoolPointer = RANDOM_POOL_SIZE;
+    var DEFAULT = 0;
+    var DEFLATING = 1;
+    var GET_BLOB_DATA = 2;
+    var Sender2 = class _Sender {
+      /**
+       * Creates a Sender instance.
+       *
+       * @param {Duplex} socket The connection socket
+       * @param {Object} [extensions] An object containing the negotiated extensions
+       * @param {Function} [generateMask] The function used to generate the masking
+       *     key
+       */
+      constructor(socket, extensions, generateMask) {
+        this._extensions = extensions || {};
+        if (generateMask) {
+          this._generateMask = generateMask;
+          this._maskBuffer = Buffer.alloc(4);
+        }
+        this._socket = socket;
+        this._firstFragment = true;
+        this._compress = false;
+        this._bufferedBytes = 0;
+        this._queue = [];
+        this._state = DEFAULT;
+        this.onerror = NOOP;
+        this[kWebSocket] = void 0;
+      }
+      /**
+       * Frames a piece of data according to the HyBi WebSocket protocol.
+       *
+       * @param {(Buffer|String)} data The data to frame
+       * @param {Object} options Options object
+       * @param {Boolean} [options.fin=false] Specifies whether or not to set the
+       *     FIN bit
+       * @param {Function} [options.generateMask] The function used to generate the
+       *     masking key
+       * @param {Boolean} [options.mask=false] Specifies whether or not to mask
+       *     `data`
+       * @param {Buffer} [options.maskBuffer] The buffer used to store the masking
+       *     key
+       * @param {Number} options.opcode The opcode
+       * @param {Boolean} [options.readOnly=false] Specifies whether `data` can be
+       *     modified
+       * @param {Boolean} [options.rsv1=false] Specifies whether or not to set the
+       *     RSV1 bit
+       * @return {(Buffer|String)[]} The framed data
+       * @public
+       */
+      static frame(data, options) {
+        let mask;
+        let merge2 = false;
+        let offset = 2;
+        let skipMasking = false;
+        if (options.mask) {
+          mask = options.maskBuffer || maskBuffer;
+          if (options.generateMask) {
+            options.generateMask(mask);
+          } else {
+            if (randomPoolPointer === RANDOM_POOL_SIZE) {
+              if (randomPool === void 0) {
+                randomPool = Buffer.alloc(RANDOM_POOL_SIZE);
+              }
+              randomFillSync(randomPool, 0, RANDOM_POOL_SIZE);
+              randomPoolPointer = 0;
+            }
+            mask[0] = randomPool[randomPoolPointer++];
+            mask[1] = randomPool[randomPoolPointer++];
+            mask[2] = randomPool[randomPoolPointer++];
+            mask[3] = randomPool[randomPoolPointer++];
+          }
+          skipMasking = (mask[0] | mask[1] | mask[2] | mask[3]) === 0;
+          offset = 6;
+        }
+        let dataLength;
+        if (typeof data === "string") {
+          if ((!options.mask || skipMasking) && options[kByteLength] !== void 0) {
+            dataLength = options[kByteLength];
+          } else {
+            data = Buffer.from(data);
+            dataLength = data.length;
+          }
+        } else {
+          dataLength = data.length;
+          merge2 = options.mask && options.readOnly && !skipMasking;
+        }
+        let payloadLength = dataLength;
+        if (dataLength >= 65536) {
+          offset += 8;
+          payloadLength = 127;
+        } else if (dataLength > 125) {
+          offset += 2;
+          payloadLength = 126;
+        }
+        const target = Buffer.allocUnsafe(merge2 ? dataLength + offset : offset);
+        target[0] = options.fin ? options.opcode | 128 : options.opcode;
+        if (options.rsv1) target[0] |= 64;
+        target[1] = payloadLength;
+        if (payloadLength === 126) {
+          target.writeUInt16BE(dataLength, 2);
+        } else if (payloadLength === 127) {
+          target[2] = target[3] = 0;
+          target.writeUIntBE(dataLength, 4, 6);
+        }
+        if (!options.mask) return [target, data];
+        target[1] |= 128;
+        target[offset - 4] = mask[0];
+        target[offset - 3] = mask[1];
+        target[offset - 2] = mask[2];
+        target[offset - 1] = mask[3];
+        if (skipMasking) return [target, data];
+        if (merge2) {
+          applyMask(data, mask, target, offset, dataLength);
+          return [target];
+        }
+        applyMask(data, mask, data, 0, dataLength);
+        return [target, data];
+      }
+      /**
+       * Sends a close message to the other peer.
+       *
+       * @param {Number} [code] The status code component of the body
+       * @param {(String|Buffer)} [data] The message component of the body
+       * @param {Boolean} [mask=false] Specifies whether or not to mask the message
+       * @param {Function} [cb] Callback
+       * @public
+       */
+      close(code, data, mask, cb) {
+        let buf;
+        if (code === void 0) {
+          buf = EMPTY_BUFFER;
+        } else if (typeof code !== "number" || !isValidStatusCode(code)) {
+          throw new TypeError("First argument must be a valid error code number");
+        } else if (data === void 0 || !data.length) {
+          buf = Buffer.allocUnsafe(2);
+          buf.writeUInt16BE(code, 0);
+        } else {
+          const length = Buffer.byteLength(data);
+          if (length > 123) {
+            throw new RangeError("The message must not be greater than 123 bytes");
+          }
+          buf = Buffer.allocUnsafe(2 + length);
+          buf.writeUInt16BE(code, 0);
+          if (typeof data === "string") {
+            buf.write(data, 2);
+          } else if (isUint8Array(data)) {
+            buf.set(data, 2);
+          } else {
+            throw new TypeError("Second argument must be a string or a Uint8Array");
+          }
+        }
+        const options = {
+          [kByteLength]: buf.length,
+          fin: true,
+          generateMask: this._generateMask,
+          mask,
+          maskBuffer: this._maskBuffer,
+          opcode: 8,
+          readOnly: false,
+          rsv1: false
+        };
+        if (this._state !== DEFAULT) {
+          this.enqueue([this.dispatch, buf, false, options, cb]);
+        } else {
+          this.sendFrame(_Sender.frame(buf, options), cb);
+        }
+      }
+      /**
+       * Sends a ping message to the other peer.
+       *
+       * @param {*} data The message to send
+       * @param {Boolean} [mask=false] Specifies whether or not to mask `data`
+       * @param {Function} [cb] Callback
+       * @public
+       */
+      ping(data, mask, cb) {
+        let byteLength;
+        let readOnly;
+        if (typeof data === "string") {
+          byteLength = Buffer.byteLength(data);
+          readOnly = false;
+        } else if (isBlob(data)) {
+          byteLength = data.size;
+          readOnly = false;
+        } else {
+          data = toBuffer(data);
+          byteLength = data.length;
+          readOnly = toBuffer.readOnly;
+        }
+        if (byteLength > 125) {
+          throw new RangeError("The data size must not be greater than 125 bytes");
+        }
+        const options = {
+          [kByteLength]: byteLength,
+          fin: true,
+          generateMask: this._generateMask,
+          mask,
+          maskBuffer: this._maskBuffer,
+          opcode: 9,
+          readOnly,
+          rsv1: false
+        };
+        if (isBlob(data)) {
+          if (this._state !== DEFAULT) {
+            this.enqueue([this.getBlobData, data, false, options, cb]);
+          } else {
+            this.getBlobData(data, false, options, cb);
+          }
+        } else if (this._state !== DEFAULT) {
+          this.enqueue([this.dispatch, data, false, options, cb]);
+        } else {
+          this.sendFrame(_Sender.frame(data, options), cb);
+        }
+      }
+      /**
+       * Sends a pong message to the other peer.
+       *
+       * @param {*} data The message to send
+       * @param {Boolean} [mask=false] Specifies whether or not to mask `data`
+       * @param {Function} [cb] Callback
+       * @public
+       */
+      pong(data, mask, cb) {
+        let byteLength;
+        let readOnly;
+        if (typeof data === "string") {
+          byteLength = Buffer.byteLength(data);
+          readOnly = false;
+        } else if (isBlob(data)) {
+          byteLength = data.size;
+          readOnly = false;
+        } else {
+          data = toBuffer(data);
+          byteLength = data.length;
+          readOnly = toBuffer.readOnly;
+        }
+        if (byteLength > 125) {
+          throw new RangeError("The data size must not be greater than 125 bytes");
+        }
+        const options = {
+          [kByteLength]: byteLength,
+          fin: true,
+          generateMask: this._generateMask,
+          mask,
+          maskBuffer: this._maskBuffer,
+          opcode: 10,
+          readOnly,
+          rsv1: false
+        };
+        if (isBlob(data)) {
+          if (this._state !== DEFAULT) {
+            this.enqueue([this.getBlobData, data, false, options, cb]);
+          } else {
+            this.getBlobData(data, false, options, cb);
+          }
+        } else if (this._state !== DEFAULT) {
+          this.enqueue([this.dispatch, data, false, options, cb]);
+        } else {
+          this.sendFrame(_Sender.frame(data, options), cb);
+        }
+      }
+      /**
+       * Sends a data message to the other peer.
+       *
+       * @param {*} data The message to send
+       * @param {Object} options Options object
+       * @param {Boolean} [options.binary=false] Specifies whether `data` is binary
+       *     or text
+       * @param {Boolean} [options.compress=false] Specifies whether or not to
+       *     compress `data`
+       * @param {Boolean} [options.fin=false] Specifies whether the fragment is the
+       *     last one
+       * @param {Boolean} [options.mask=false] Specifies whether or not to mask
+       *     `data`
+       * @param {Function} [cb] Callback
+       * @public
+       */
+      send(data, options, cb) {
+        const perMessageDeflate = this._extensions[PerMessageDeflate2.extensionName];
+        let opcode = options.binary ? 2 : 1;
+        let rsv1 = options.compress;
+        let byteLength;
+        let readOnly;
+        if (typeof data === "string") {
+          byteLength = Buffer.byteLength(data);
+          readOnly = false;
+        } else if (isBlob(data)) {
+          byteLength = data.size;
+          readOnly = false;
+        } else {
+          data = toBuffer(data);
+          byteLength = data.length;
+          readOnly = toBuffer.readOnly;
+        }
+        if (this._firstFragment) {
+          this._firstFragment = false;
+          if (rsv1 && perMessageDeflate && perMessageDeflate.params[perMessageDeflate._isServer ? "server_no_context_takeover" : "client_no_context_takeover"]) {
+            rsv1 = byteLength >= perMessageDeflate._threshold;
+          }
+          this._compress = rsv1;
+        } else {
+          rsv1 = false;
+          opcode = 0;
+        }
+        if (options.fin) this._firstFragment = true;
+        const opts = {
+          [kByteLength]: byteLength,
+          fin: options.fin,
+          generateMask: this._generateMask,
+          mask: options.mask,
+          maskBuffer: this._maskBuffer,
+          opcode,
+          readOnly,
+          rsv1
+        };
+        if (isBlob(data)) {
+          if (this._state !== DEFAULT) {
+            this.enqueue([this.getBlobData, data, this._compress, opts, cb]);
+          } else {
+            this.getBlobData(data, this._compress, opts, cb);
+          }
+        } else if (this._state !== DEFAULT) {
+          this.enqueue([this.dispatch, data, this._compress, opts, cb]);
+        } else {
+          this.dispatch(data, this._compress, opts, cb);
+        }
+      }
+      /**
+       * Gets the contents of a blob as binary data.
+       *
+       * @param {Blob} blob The blob
+       * @param {Boolean} [compress=false] Specifies whether or not to compress
+       *     the data
+       * @param {Object} options Options object
+       * @param {Boolean} [options.fin=false] Specifies whether or not to set the
+       *     FIN bit
+       * @param {Function} [options.generateMask] The function used to generate the
+       *     masking key
+       * @param {Boolean} [options.mask=false] Specifies whether or not to mask
+       *     `data`
+       * @param {Buffer} [options.maskBuffer] The buffer used to store the masking
+       *     key
+       * @param {Number} options.opcode The opcode
+       * @param {Boolean} [options.readOnly=false] Specifies whether `data` can be
+       *     modified
+       * @param {Boolean} [options.rsv1=false] Specifies whether or not to set the
+       *     RSV1 bit
+       * @param {Function} [cb] Callback
+       * @private
+       */
+      getBlobData(blob, compress, options, cb) {
+        this._bufferedBytes += options[kByteLength];
+        this._state = GET_BLOB_DATA;
+        blob.arrayBuffer().then((arrayBuffer) => {
+          if (this._socket.destroyed) {
+            const err = new Error(
+              "The socket was closed while the blob was being read"
+            );
+            process.nextTick(callCallbacks, this, err, cb);
+            return;
+          }
+          this._bufferedBytes -= options[kByteLength];
+          const data = toBuffer(arrayBuffer);
+          if (!compress) {
+            this._state = DEFAULT;
+            this.sendFrame(_Sender.frame(data, options), cb);
+            this.dequeue();
+          } else {
+            this.dispatch(data, compress, options, cb);
+          }
+        }).catch((err) => {
+          process.nextTick(onError, this, err, cb);
+        });
+      }
+      /**
+       * Dispatches a message.
+       *
+       * @param {(Buffer|String)} data The message to send
+       * @param {Boolean} [compress=false] Specifies whether or not to compress
+       *     `data`
+       * @param {Object} options Options object
+       * @param {Boolean} [options.fin=false] Specifies whether or not to set the
+       *     FIN bit
+       * @param {Function} [options.generateMask] The function used to generate the
+       *     masking key
+       * @param {Boolean} [options.mask=false] Specifies whether or not to mask
+       *     `data`
+       * @param {Buffer} [options.maskBuffer] The buffer used to store the masking
+       *     key
+       * @param {Number} options.opcode The opcode
+       * @param {Boolean} [options.readOnly=false] Specifies whether `data` can be
+       *     modified
+       * @param {Boolean} [options.rsv1=false] Specifies whether or not to set the
+       *     RSV1 bit
+       * @param {Function} [cb] Callback
+       * @private
+       */
+      dispatch(data, compress, options, cb) {
+        if (!compress) {
+          this.sendFrame(_Sender.frame(data, options), cb);
+          return;
+        }
+        const perMessageDeflate = this._extensions[PerMessageDeflate2.extensionName];
+        this._bufferedBytes += options[kByteLength];
+        this._state = DEFLATING;
+        perMessageDeflate.compress(data, options.fin, (_, buf) => {
+          if (this._socket.destroyed) {
+            const err = new Error(
+              "The socket was closed while data was being compressed"
+            );
+            callCallbacks(this, err, cb);
+            return;
+          }
+          this._bufferedBytes -= options[kByteLength];
+          this._state = DEFAULT;
+          options.readOnly = false;
+          this.sendFrame(_Sender.frame(buf, options), cb);
+          this.dequeue();
+        });
+      }
+      /**
+       * Executes queued send operations.
+       *
+       * @private
+       */
+      dequeue() {
+        while (this._state === DEFAULT && this._queue.length) {
+          const params = this._queue.shift();
+          this._bufferedBytes -= params[3][kByteLength];
+          Reflect.apply(params[0], this, params.slice(1));
+        }
+      }
+      /**
+       * Enqueues a send operation.
+       *
+       * @param {Array} params Send operation parameters.
+       * @private
+       */
+      enqueue(params) {
+        this._bufferedBytes += params[3][kByteLength];
+        this._queue.push(params);
+      }
+      /**
+       * Sends a frame.
+       *
+       * @param {(Buffer | String)[]} list The frame to send
+       * @param {Function} [cb] Callback
+       * @private
+       */
+      sendFrame(list, cb) {
+        if (list.length === 2) {
+          this._socket.cork();
+          this._socket.write(list[0]);
+          this._socket.write(list[1], cb);
+          this._socket.uncork();
+        } else {
+          this._socket.write(list[0], cb);
+        }
+      }
+    };
+    module2.exports = Sender2;
+    function callCallbacks(sender, err, cb) {
+      if (typeof cb === "function") cb(err);
+      for (let i = 0; i < sender._queue.length; i++) {
+        const params = sender._queue[i];
+        const callback = params[params.length - 1];
+        if (typeof callback === "function") callback(err);
+      }
+    }
+    function onError(sender, err, cb) {
+      callCallbacks(sender, err, cb);
+      sender.onerror(err);
+    }
+  }
+});
+
+// node_modules/ws/lib/event-target.js
+var require_event_target = __commonJS({
+  "node_modules/ws/lib/event-target.js"(exports2, module2) {
+    "use strict";
+    var { kForOnEventAttribute, kListener } = require_constants();
+    var kCode = /* @__PURE__ */ Symbol("kCode");
+    var kData = /* @__PURE__ */ Symbol("kData");
+    var kError = /* @__PURE__ */ Symbol("kError");
+    var kMessage = /* @__PURE__ */ Symbol("kMessage");
+    var kReason = /* @__PURE__ */ Symbol("kReason");
+    var kTarget = /* @__PURE__ */ Symbol("kTarget");
+    var kType = /* @__PURE__ */ Symbol("kType");
+    var kWasClean = /* @__PURE__ */ Symbol("kWasClean");
+    var Event = class {
+      /**
+       * Create a new `Event`.
+       *
+       * @param {String} type The name of the event
+       * @throws {TypeError} If the `type` argument is not specified
+       */
+      constructor(type) {
+        this[kTarget] = null;
+        this[kType] = type;
+      }
+      /**
+       * @type {*}
+       */
+      get target() {
+        return this[kTarget];
+      }
+      /**
+       * @type {String}
+       */
+      get type() {
+        return this[kType];
+      }
+    };
+    Object.defineProperty(Event.prototype, "target", { enumerable: true });
+    Object.defineProperty(Event.prototype, "type", { enumerable: true });
+    var CloseEvent = class extends Event {
+      /**
+       * Create a new `CloseEvent`.
+       *
+       * @param {String} type The name of the event
+       * @param {Object} [options] A dictionary object that allows for setting
+       *     attributes via object members of the same name
+       * @param {Number} [options.code=0] The status code explaining why the
+       *     connection was closed
+       * @param {String} [options.reason=''] A human-readable string explaining why
+       *     the connection was closed
+       * @param {Boolean} [options.wasClean=false] Indicates whether or not the
+       *     connection was cleanly closed
+       */
+      constructor(type, options = {}) {
+        super(type);
+        this[kCode] = options.code === void 0 ? 0 : options.code;
+        this[kReason] = options.reason === void 0 ? "" : options.reason;
+        this[kWasClean] = options.wasClean === void 0 ? false : options.wasClean;
+      }
+      /**
+       * @type {Number}
+       */
+      get code() {
+        return this[kCode];
+      }
+      /**
+       * @type {String}
+       */
+      get reason() {
+        return this[kReason];
+      }
+      /**
+       * @type {Boolean}
+       */
+      get wasClean() {
+        return this[kWasClean];
+      }
+    };
+    Object.defineProperty(CloseEvent.prototype, "code", { enumerable: true });
+    Object.defineProperty(CloseEvent.prototype, "reason", { enumerable: true });
+    Object.defineProperty(CloseEvent.prototype, "wasClean", { enumerable: true });
+    var ErrorEvent = class extends Event {
+      /**
+       * Create a new `ErrorEvent`.
+       *
+       * @param {String} type The name of the event
+       * @param {Object} [options] A dictionary object that allows for setting
+       *     attributes via object members of the same name
+       * @param {*} [options.error=null] The error that generated this event
+       * @param {String} [options.message=''] The error message
+       */
+      constructor(type, options = {}) {
+        super(type);
+        this[kError] = options.error === void 0 ? null : options.error;
+        this[kMessage] = options.message === void 0 ? "" : options.message;
+      }
+      /**
+       * @type {*}
+       */
+      get error() {
+        return this[kError];
+      }
+      /**
+       * @type {String}
+       */
+      get message() {
+        return this[kMessage];
+      }
+    };
+    Object.defineProperty(ErrorEvent.prototype, "error", { enumerable: true });
+    Object.defineProperty(ErrorEvent.prototype, "message", { enumerable: true });
+    var MessageEvent = class extends Event {
+      /**
+       * Create a new `MessageEvent`.
+       *
+       * @param {String} type The name of the event
+       * @param {Object} [options] A dictionary object that allows for setting
+       *     attributes via object members of the same name
+       * @param {*} [options.data=null] The message content
+       */
+      constructor(type, options = {}) {
+        super(type);
+        this[kData] = options.data === void 0 ? null : options.data;
+      }
+      /**
+       * @type {*}
+       */
+      get data() {
+        return this[kData];
+      }
+    };
+    Object.defineProperty(MessageEvent.prototype, "data", { enumerable: true });
+    var EventTarget = {
+      /**
+       * Register an event listener.
+       *
+       * @param {String} type A string representing the event type to listen for
+       * @param {(Function|Object)} handler The listener to add
+       * @param {Object} [options] An options object specifies characteristics about
+       *     the event listener
+       * @param {Boolean} [options.once=false] A `Boolean` indicating that the
+       *     listener should be invoked at most once after being added. If `true`,
+       *     the listener would be automatically removed when invoked.
+       * @public
+       */
+      addEventListener(type, handler, options = {}) {
+        for (const listener of this.listeners(type)) {
+          if (!options[kForOnEventAttribute] && listener[kListener] === handler && !listener[kForOnEventAttribute]) {
+            return;
+          }
+        }
+        let wrapper;
+        if (type === "message") {
+          wrapper = function onMessage(data, isBinary) {
+            const event = new MessageEvent("message", {
+              data: isBinary ? data : data.toString()
+            });
+            event[kTarget] = this;
+            callListener(handler, this, event);
+          };
+        } else if (type === "close") {
+          wrapper = function onClose(code, message2) {
+            const event = new CloseEvent("close", {
+              code,
+              reason: message2.toString(),
+              wasClean: this._closeFrameReceived && this._closeFrameSent
+            });
+            event[kTarget] = this;
+            callListener(handler, this, event);
+          };
+        } else if (type === "error") {
+          wrapper = function onError(error51) {
+            const event = new ErrorEvent("error", {
+              error: error51,
+              message: error51.message
+            });
+            event[kTarget] = this;
+            callListener(handler, this, event);
+          };
+        } else if (type === "open") {
+          wrapper = function onOpen() {
+            const event = new Event("open");
+            event[kTarget] = this;
+            callListener(handler, this, event);
+          };
+        } else {
+          return;
+        }
+        wrapper[kForOnEventAttribute] = !!options[kForOnEventAttribute];
+        wrapper[kListener] = handler;
+        if (options.once) {
+          this.once(type, wrapper);
+        } else {
+          this.on(type, wrapper);
+        }
+      },
+      /**
+       * Remove an event listener.
+       *
+       * @param {String} type A string representing the event type to remove
+       * @param {(Function|Object)} handler The listener to remove
+       * @public
+       */
+      removeEventListener(type, handler) {
+        for (const listener of this.listeners(type)) {
+          if (listener[kListener] === handler && !listener[kForOnEventAttribute]) {
+            this.removeListener(type, listener);
+            break;
+          }
+        }
+      }
+    };
+    module2.exports = {
+      CloseEvent,
+      ErrorEvent,
+      Event,
+      EventTarget,
+      MessageEvent
+    };
+    function callListener(listener, thisArg, event) {
+      if (typeof listener === "object" && listener.handleEvent) {
+        listener.handleEvent.call(listener, event);
+      } else {
+        listener.call(thisArg, event);
+      }
+    }
+  }
+});
+
+// node_modules/ws/lib/extension.js
+var require_extension = __commonJS({
+  "node_modules/ws/lib/extension.js"(exports2, module2) {
+    "use strict";
+    var { tokenChars } = require_validation();
+    function push(dest, name, elem) {
+      if (dest[name] === void 0) dest[name] = [elem];
+      else dest[name].push(elem);
+    }
+    function parse3(header) {
+      const offers = /* @__PURE__ */ Object.create(null);
+      let params = /* @__PURE__ */ Object.create(null);
+      let mustUnescape = false;
+      let isEscaping = false;
+      let inQuotes = false;
+      let extensionName;
+      let paramName;
+      let start = -1;
+      let code = -1;
+      let end = -1;
+      let i = 0;
+      for (; i < header.length; i++) {
+        code = header.charCodeAt(i);
+        if (extensionName === void 0) {
+          if (end === -1 && tokenChars[code] === 1) {
+            if (start === -1) start = i;
+          } else if (i !== 0 && (code === 32 || code === 9)) {
+            if (end === -1 && start !== -1) end = i;
+          } else if (code === 59 || code === 44) {
+            if (start === -1) {
+              throw new SyntaxError(`Unexpected character at index ${i}`);
+            }
+            if (end === -1) end = i;
+            const name = header.slice(start, end);
+            if (code === 44) {
+              push(offers, name, params);
+              params = /* @__PURE__ */ Object.create(null);
+            } else {
+              extensionName = name;
+            }
+            start = end = -1;
+          } else {
+            throw new SyntaxError(`Unexpected character at index ${i}`);
+          }
+        } else if (paramName === void 0) {
+          if (end === -1 && tokenChars[code] === 1) {
+            if (start === -1) start = i;
+          } else if (code === 32 || code === 9) {
+            if (end === -1 && start !== -1) end = i;
+          } else if (code === 59 || code === 44) {
+            if (start === -1) {
+              throw new SyntaxError(`Unexpected character at index ${i}`);
+            }
+            if (end === -1) end = i;
+            push(params, header.slice(start, end), true);
+            if (code === 44) {
+              push(offers, extensionName, params);
+              params = /* @__PURE__ */ Object.create(null);
+              extensionName = void 0;
+            }
+            start = end = -1;
+          } else if (code === 61 && start !== -1 && end === -1) {
+            paramName = header.slice(start, i);
+            start = end = -1;
+          } else {
+            throw new SyntaxError(`Unexpected character at index ${i}`);
+          }
+        } else {
+          if (isEscaping) {
+            if (tokenChars[code] !== 1) {
+              throw new SyntaxError(`Unexpected character at index ${i}`);
+            }
+            if (start === -1) start = i;
+            else if (!mustUnescape) mustUnescape = true;
+            isEscaping = false;
+          } else if (inQuotes) {
+            if (tokenChars[code] === 1) {
+              if (start === -1) start = i;
+            } else if (code === 34 && start !== -1) {
+              inQuotes = false;
+              end = i;
+            } else if (code === 92) {
+              isEscaping = true;
+            } else {
+              throw new SyntaxError(`Unexpected character at index ${i}`);
+            }
+          } else if (code === 34 && header.charCodeAt(i - 1) === 61) {
+            inQuotes = true;
+          } else if (end === -1 && tokenChars[code] === 1) {
+            if (start === -1) start = i;
+          } else if (start !== -1 && (code === 32 || code === 9)) {
+            if (end === -1) end = i;
+          } else if (code === 59 || code === 44) {
+            if (start === -1) {
+              throw new SyntaxError(`Unexpected character at index ${i}`);
+            }
+            if (end === -1) end = i;
+            let value = header.slice(start, end);
+            if (mustUnescape) {
+              value = value.replace(/\\/g, "");
+              mustUnescape = false;
+            }
+            push(params, paramName, value);
+            if (code === 44) {
+              push(offers, extensionName, params);
+              params = /* @__PURE__ */ Object.create(null);
+              extensionName = void 0;
+            }
+            paramName = void 0;
+            start = end = -1;
+          } else {
+            throw new SyntaxError(`Unexpected character at index ${i}`);
+          }
+        }
+      }
+      if (start === -1 || inQuotes || code === 32 || code === 9) {
+        throw new SyntaxError("Unexpected end of input");
+      }
+      if (end === -1) end = i;
+      const token = header.slice(start, end);
+      if (extensionName === void 0) {
+        push(offers, token, params);
+      } else {
+        if (paramName === void 0) {
+          push(params, token, true);
+        } else if (mustUnescape) {
+          push(params, paramName, token.replace(/\\/g, ""));
+        } else {
+          push(params, paramName, token);
+        }
+        push(offers, extensionName, params);
+      }
+      return offers;
+    }
+    function format(extensions) {
+      return Object.keys(extensions).map((extension2) => {
+        let configurations = extensions[extension2];
+        if (!Array.isArray(configurations)) configurations = [configurations];
+        return configurations.map((params) => {
+          return [extension2].concat(
+            Object.keys(params).map((k) => {
+              let values = params[k];
+              if (!Array.isArray(values)) values = [values];
+              return values.map((v) => v === true ? k : `${k}=${v}`).join("; ");
+            })
+          ).join("; ");
+        }).join(", ");
+      }).join(", ");
+    }
+    module2.exports = { format, parse: parse3 };
+  }
+});
+
+// node_modules/ws/lib/websocket.js
+var require_websocket = __commonJS({
+  "node_modules/ws/lib/websocket.js"(exports2, module2) {
+    "use strict";
+    var EventEmitter2 = require("events");
+    var https = require("https");
+    var http = require("http");
+    var net = require("net");
+    var tls = require("tls");
+    var { randomBytes: randomBytes5, createHash: createHash6 } = require("crypto");
+    var { Duplex, Readable } = require("stream");
+    var { URL: URL3 } = require("url");
+    var PerMessageDeflate2 = require_permessage_deflate();
+    var Receiver2 = require_receiver();
+    var Sender2 = require_sender();
+    var { isBlob } = require_validation();
+    var {
+      BINARY_TYPES,
+      CLOSE_TIMEOUT,
+      EMPTY_BUFFER,
+      GUID,
+      kForOnEventAttribute,
+      kListener,
+      kStatusCode,
+      kWebSocket,
+      NOOP
+    } = require_constants();
+    var {
+      EventTarget: { addEventListener, removeEventListener }
+    } = require_event_target();
+    var { format, parse: parse3 } = require_extension();
+    var { toBuffer } = require_buffer_util();
+    var kAborted = /* @__PURE__ */ Symbol("kAborted");
+    var protocolVersions = [8, 13];
+    var readyStates = ["CONNECTING", "OPEN", "CLOSING", "CLOSED"];
+    var subprotocolRegex = /^[!#$%&'*+\-.0-9A-Z^_`|a-z~]+$/;
+    var WebSocket2 = class _WebSocket extends EventEmitter2 {
+      /**
+       * Create a new `WebSocket`.
+       *
+       * @param {(String|URL)} address The URL to which to connect
+       * @param {(String|String[])} [protocols] The subprotocols
+       * @param {Object} [options] Connection options
+       */
+      constructor(address, protocols, options) {
+        super();
+        this._binaryType = BINARY_TYPES[0];
+        this._closeCode = 1006;
+        this._closeFrameReceived = false;
+        this._closeFrameSent = false;
+        this._closeMessage = EMPTY_BUFFER;
+        this._closeTimer = null;
+        this._errorEmitted = false;
+        this._extensions = {};
+        this._paused = false;
+        this._protocol = "";
+        this._readyState = _WebSocket.CONNECTING;
+        this._receiver = null;
+        this._sender = null;
+        this._socket = null;
+        if (address !== null) {
+          this._bufferedAmount = 0;
+          this._isServer = false;
+          this._redirects = 0;
+          if (protocols === void 0) {
+            if (!options || options.protocols === void 0) {
+              protocols = [];
+            } else if (Array.isArray(options.protocols)) {
+              protocols = options.protocols;
+            } else {
+              protocols = [options.protocols];
+            }
+          } else if (!Array.isArray(protocols)) {
+            if (typeof protocols === "object" && protocols !== null) {
+              options = protocols;
+              if (options.protocols === void 0) {
+                protocols = [];
+              } else if (Array.isArray(options.protocols)) {
+                protocols = options.protocols;
+              } else {
+                protocols = [options.protocols];
+              }
+            } else {
+              protocols = [protocols];
+            }
+          }
+          initAsClient(this, address, protocols, options);
+        } else {
+          this._autoPong = options.autoPong;
+          this._closeTimeout = options.closeTimeout;
+          this._isServer = true;
+        }
+      }
+      /**
+       * For historical reasons, the custom "nodebuffer" type is used by the default
+       * instead of "blob".
+       *
+       * @type {String}
+       */
+      get binaryType() {
+        return this._binaryType;
+      }
+      set binaryType(type) {
+        if (!BINARY_TYPES.includes(type)) return;
+        this._binaryType = type;
+        if (this._receiver) this._receiver._binaryType = type;
+      }
+      /**
+       * @type {Number}
+       */
+      get bufferedAmount() {
+        if (!this._socket) return this._bufferedAmount;
+        return this._socket._writableState.length + this._sender._bufferedBytes;
+      }
+      /**
+       * @type {String}
+       */
+      get extensions() {
+        return Object.keys(this._extensions).join();
+      }
+      /**
+       * @type {Boolean}
+       */
+      get isPaused() {
+        return this._paused;
+      }
+      /**
+       * @type {Function}
+       */
+      /* istanbul ignore next */
+      get onclose() {
+        return null;
+      }
+      /**
+       * @type {Function}
+       */
+      /* istanbul ignore next */
+      get onerror() {
+        return null;
+      }
+      /**
+       * @type {Function}
+       */
+      /* istanbul ignore next */
+      get onopen() {
+        return null;
+      }
+      /**
+       * @type {Function}
+       */
+      /* istanbul ignore next */
+      get onmessage() {
+        return null;
+      }
+      /**
+       * @type {String}
+       */
+      get protocol() {
+        return this._protocol;
+      }
+      /**
+       * @type {Number}
+       */
+      get readyState() {
+        return this._readyState;
+      }
+      /**
+       * @type {String}
+       */
+      get url() {
+        return this._url;
+      }
+      /**
+       * Set up the socket and the internal resources.
+       *
+       * @param {Duplex} socket The network socket between the server and client
+       * @param {Buffer} head The first packet of the upgraded stream
+       * @param {Object} options Options object
+       * @param {Boolean} [options.allowSynchronousEvents=false] Specifies whether
+       *     any of the `'message'`, `'ping'`, and `'pong'` events can be emitted
+       *     multiple times in the same tick
+       * @param {Function} [options.generateMask] The function used to generate the
+       *     masking key
+       * @param {Number} [options.maxBufferedChunks=0] The maximum number of
+       *     buffered data chunks
+       * @param {Number} [options.maxFragments=0] The maximum number of message
+       *     fragments
+       * @param {Number} [options.maxPayload=0] The maximum allowed message size
+       * @param {Boolean} [options.skipUTF8Validation=false] Specifies whether or
+       *     not to skip UTF-8 validation for text and close messages
+       * @private
+       */
+      setSocket(socket, head, options) {
+        const receiver = new Receiver2({
+          allowSynchronousEvents: options.allowSynchronousEvents,
+          binaryType: this.binaryType,
+          extensions: this._extensions,
+          isServer: this._isServer,
+          maxBufferedChunks: options.maxBufferedChunks,
+          maxFragments: options.maxFragments,
+          maxPayload: options.maxPayload,
+          skipUTF8Validation: options.skipUTF8Validation
+        });
+        const sender = new Sender2(socket, this._extensions, options.generateMask);
+        this._receiver = receiver;
+        this._sender = sender;
+        this._socket = socket;
+        receiver[kWebSocket] = this;
+        sender[kWebSocket] = this;
+        socket[kWebSocket] = this;
+        receiver.on("conclude", receiverOnConclude);
+        receiver.on("drain", receiverOnDrain);
+        receiver.on("error", receiverOnError);
+        receiver.on("message", receiverOnMessage);
+        receiver.on("ping", receiverOnPing);
+        receiver.on("pong", receiverOnPong);
+        sender.onerror = senderOnError;
+        if (socket.setTimeout) socket.setTimeout(0);
+        if (socket.setNoDelay) socket.setNoDelay();
+        if (head.length > 0) socket.unshift(head);
+        socket.on("close", socketOnClose);
+        socket.on("data", socketOnData);
+        socket.on("end", socketOnEnd);
+        socket.on("error", socketOnError);
+        this._readyState = _WebSocket.OPEN;
+        this.emit("open");
+      }
+      /**
+       * Emit the `'close'` event.
+       *
+       * @private
+       */
+      emitClose() {
+        if (!this._socket) {
+          this._readyState = _WebSocket.CLOSED;
+          this.emit("close", this._closeCode, this._closeMessage);
+          return;
+        }
+        if (this._extensions[PerMessageDeflate2.extensionName]) {
+          this._extensions[PerMessageDeflate2.extensionName].cleanup();
+        }
+        this._receiver.removeAllListeners();
+        this._readyState = _WebSocket.CLOSED;
+        this.emit("close", this._closeCode, this._closeMessage);
+      }
+      /**
+       * Start a closing handshake.
+       *
+       *          +----------+   +-----------+   +----------+
+       *     - - -|ws.close()|-->|close frame|-->|ws.close()|- - -
+       *    |     +----------+   +-----------+   +----------+     |
+       *          +----------+   +-----------+         |
+       * CLOSING  |ws.close()|<--|close frame|<--+-----+       CLOSING
+       *          +----------+   +-----------+   |
+       *    |           |                        |   +---+        |
+       *                +------------------------+-->|fin| - - - -
+       *    |         +---+                      |   +---+
+       *     - - - - -|fin|<---------------------+
+       *              +---+
+       *
+       * @param {Number} [code] Status code explaining why the connection is closing
+       * @param {(String|Buffer)} [data] The reason why the connection is
+       *     closing
+       * @public
+       */
+      close(code, data) {
+        if (this.readyState === _WebSocket.CLOSED) return;
+        if (this.readyState === _WebSocket.CONNECTING) {
+          const msg = "WebSocket was closed before the connection was established";
+          abortHandshake(this, this._req, msg);
+          return;
+        }
+        if (this.readyState === _WebSocket.CLOSING) {
+          if (this._closeFrameSent && (this._closeFrameReceived || this._receiver._writableState.errorEmitted)) {
+            this._socket.end();
+          }
+          return;
+        }
+        this._sender.close(code, data, !this._isServer, (err) => {
+          if (err) return;
+          this._closeFrameSent = true;
+          if (this._closeFrameReceived || this._receiver._writableState.errorEmitted) {
+            this._socket.end();
+          }
+        });
+        this._readyState = _WebSocket.CLOSING;
+        setCloseTimer(this);
+      }
+      /**
+       * Pause the socket.
+       *
+       * @public
+       */
+      pause() {
+        if (this.readyState === _WebSocket.CONNECTING || this.readyState === _WebSocket.CLOSED) {
+          return;
+        }
+        this._paused = true;
+        this._socket.pause();
+      }
+      /**
+       * Send a ping.
+       *
+       * @param {*} [data] The data to send
+       * @param {Boolean} [mask] Indicates whether or not to mask `data`
+       * @param {Function} [cb] Callback which is executed when the ping is sent
+       * @public
+       */
+      ping(data, mask, cb) {
+        if (this.readyState === _WebSocket.CONNECTING) {
+          throw new Error("WebSocket is not open: readyState 0 (CONNECTING)");
+        }
+        if (typeof data === "function") {
+          cb = data;
+          data = mask = void 0;
+        } else if (typeof mask === "function") {
+          cb = mask;
+          mask = void 0;
+        }
+        if (typeof data === "number") data = data.toString();
+        if (this.readyState !== _WebSocket.OPEN) {
+          sendAfterClose(this, data, cb);
+          return;
+        }
+        if (mask === void 0) mask = !this._isServer;
+        this._sender.ping(data || EMPTY_BUFFER, mask, cb);
+      }
+      /**
+       * Send a pong.
+       *
+       * @param {*} [data] The data to send
+       * @param {Boolean} [mask] Indicates whether or not to mask `data`
+       * @param {Function} [cb] Callback which is executed when the pong is sent
+       * @public
+       */
+      pong(data, mask, cb) {
+        if (this.readyState === _WebSocket.CONNECTING) {
+          throw new Error("WebSocket is not open: readyState 0 (CONNECTING)");
+        }
+        if (typeof data === "function") {
+          cb = data;
+          data = mask = void 0;
+        } else if (typeof mask === "function") {
+          cb = mask;
+          mask = void 0;
+        }
+        if (typeof data === "number") data = data.toString();
+        if (this.readyState !== _WebSocket.OPEN) {
+          sendAfterClose(this, data, cb);
+          return;
+        }
+        if (mask === void 0) mask = !this._isServer;
+        this._sender.pong(data || EMPTY_BUFFER, mask, cb);
+      }
+      /**
+       * Resume the socket.
+       *
+       * @public
+       */
+      resume() {
+        if (this.readyState === _WebSocket.CONNECTING || this.readyState === _WebSocket.CLOSED) {
+          return;
+        }
+        this._paused = false;
+        if (!this._receiver._writableState.needDrain) this._socket.resume();
+      }
+      /**
+       * Send a data message.
+       *
+       * @param {*} data The message to send
+       * @param {Object} [options] Options object
+       * @param {Boolean} [options.binary] Specifies whether `data` is binary or
+       *     text
+       * @param {Boolean} [options.compress] Specifies whether or not to compress
+       *     `data`
+       * @param {Boolean} [options.fin=true] Specifies whether the fragment is the
+       *     last one
+       * @param {Boolean} [options.mask] Specifies whether or not to mask `data`
+       * @param {Function} [cb] Callback which is executed when data is written out
+       * @public
+       */
+      send(data, options, cb) {
+        if (this.readyState === _WebSocket.CONNECTING) {
+          throw new Error("WebSocket is not open: readyState 0 (CONNECTING)");
+        }
+        if (typeof options === "function") {
+          cb = options;
+          options = {};
+        }
+        if (typeof data === "number") data = data.toString();
+        if (this.readyState !== _WebSocket.OPEN) {
+          sendAfterClose(this, data, cb);
+          return;
+        }
+        const opts = {
+          binary: typeof data !== "string",
+          mask: !this._isServer,
+          compress: true,
+          fin: true,
+          ...options
+        };
+        if (!this._extensions[PerMessageDeflate2.extensionName]) {
+          opts.compress = false;
+        }
+        this._sender.send(data || EMPTY_BUFFER, opts, cb);
+      }
+      /**
+       * Forcibly close the connection.
+       *
+       * @public
+       */
+      terminate() {
+        if (this.readyState === _WebSocket.CLOSED) return;
+        if (this.readyState === _WebSocket.CONNECTING) {
+          const msg = "WebSocket was closed before the connection was established";
+          abortHandshake(this, this._req, msg);
+          return;
+        }
+        if (this._socket) {
+          this._readyState = _WebSocket.CLOSING;
+          this._socket.destroy();
+        }
+      }
+    };
+    Object.defineProperty(WebSocket2, "CONNECTING", {
+      enumerable: true,
+      value: readyStates.indexOf("CONNECTING")
+    });
+    Object.defineProperty(WebSocket2.prototype, "CONNECTING", {
+      enumerable: true,
+      value: readyStates.indexOf("CONNECTING")
+    });
+    Object.defineProperty(WebSocket2, "OPEN", {
+      enumerable: true,
+      value: readyStates.indexOf("OPEN")
+    });
+    Object.defineProperty(WebSocket2.prototype, "OPEN", {
+      enumerable: true,
+      value: readyStates.indexOf("OPEN")
+    });
+    Object.defineProperty(WebSocket2, "CLOSING", {
+      enumerable: true,
+      value: readyStates.indexOf("CLOSING")
+    });
+    Object.defineProperty(WebSocket2.prototype, "CLOSING", {
+      enumerable: true,
+      value: readyStates.indexOf("CLOSING")
+    });
+    Object.defineProperty(WebSocket2, "CLOSED", {
+      enumerable: true,
+      value: readyStates.indexOf("CLOSED")
+    });
+    Object.defineProperty(WebSocket2.prototype, "CLOSED", {
+      enumerable: true,
+      value: readyStates.indexOf("CLOSED")
+    });
+    [
+      "binaryType",
+      "bufferedAmount",
+      "extensions",
+      "isPaused",
+      "protocol",
+      "readyState",
+      "url"
+    ].forEach((property) => {
+      Object.defineProperty(WebSocket2.prototype, property, { enumerable: true });
+    });
+    ["open", "error", "close", "message"].forEach((method) => {
+      Object.defineProperty(WebSocket2.prototype, `on${method}`, {
+        enumerable: true,
+        get() {
+          for (const listener of this.listeners(method)) {
+            if (listener[kForOnEventAttribute]) return listener[kListener];
+          }
+          return null;
+        },
+        set(handler) {
+          for (const listener of this.listeners(method)) {
+            if (listener[kForOnEventAttribute]) {
+              this.removeListener(method, listener);
+              break;
+            }
+          }
+          if (typeof handler !== "function") return;
+          this.addEventListener(method, handler, {
+            [kForOnEventAttribute]: true
+          });
+        }
+      });
+    });
+    WebSocket2.prototype.addEventListener = addEventListener;
+    WebSocket2.prototype.removeEventListener = removeEventListener;
+    module2.exports = WebSocket2;
+    function initAsClient(websocket, address, protocols, options) {
+      const opts = {
+        allowSynchronousEvents: true,
+        autoPong: true,
+        closeTimeout: CLOSE_TIMEOUT,
+        protocolVersion: protocolVersions[1],
+        maxBufferedChunks: 256 * 1024,
+        maxFragments: 16 * 1024,
+        maxPayload: 100 * 1024 * 1024,
+        skipUTF8Validation: false,
+        perMessageDeflate: true,
+        followRedirects: false,
+        maxRedirects: 10,
+        ...options,
+        socketPath: void 0,
+        hostname: void 0,
+        protocol: void 0,
+        protocols: void 0,
+        timeout: void 0,
+        method: "GET",
+        host: void 0,
+        path: void 0,
+        port: void 0
+      };
+      websocket._autoPong = opts.autoPong;
+      websocket._closeTimeout = opts.closeTimeout;
+      if (!protocolVersions.includes(opts.protocolVersion)) {
+        throw new RangeError(
+          `Unsupported protocol version: ${opts.protocolVersion} (supported versions: ${protocolVersions.join(", ")})`
+        );
+      }
+      let parsedUrl;
+      if (address instanceof URL3) {
+        parsedUrl = address;
+      } else {
+        try {
+          parsedUrl = new URL3(address);
+        } catch {
+          throw new SyntaxError(`Invalid URL: ${address}`);
+        }
+      }
+      if (parsedUrl.protocol === "http:") {
+        parsedUrl.protocol = "ws:";
+      } else if (parsedUrl.protocol === "https:") {
+        parsedUrl.protocol = "wss:";
+      }
+      websocket._url = parsedUrl.href;
+      const isSecure = parsedUrl.protocol === "wss:";
+      const isIpcUrl = parsedUrl.protocol === "ws+unix:";
+      let invalidUrlMessage;
+      if (parsedUrl.protocol !== "ws:" && !isSecure && !isIpcUrl) {
+        invalidUrlMessage = `The URL's protocol must be one of "ws:", "wss:", "http:", "https:", or "ws+unix:"`;
+      } else if (isIpcUrl && !parsedUrl.pathname) {
+        invalidUrlMessage = "The URL's pathname is empty";
+      } else if (parsedUrl.hash) {
+        invalidUrlMessage = "The URL contains a fragment identifier";
+      }
+      if (invalidUrlMessage) {
+        const err = new SyntaxError(invalidUrlMessage);
+        if (websocket._redirects === 0) {
+          throw err;
+        } else {
+          emitErrorAndClose(websocket, err);
+          return;
+        }
+      }
+      const defaultPort = isSecure ? 443 : 80;
+      const key = randomBytes5(16).toString("base64");
+      const request = isSecure ? https.request : http.request;
+      const protocolSet = /* @__PURE__ */ new Set();
+      let perMessageDeflate;
+      opts.createConnection = opts.createConnection || (isSecure ? tlsConnect : netConnect);
+      opts.defaultPort = opts.defaultPort || defaultPort;
+      opts.port = parsedUrl.port || defaultPort;
+      opts.host = parsedUrl.hostname.startsWith("[") ? parsedUrl.hostname.slice(1, -1) : parsedUrl.hostname;
+      opts.headers = {
+        ...opts.headers,
+        "Sec-WebSocket-Version": opts.protocolVersion,
+        "Sec-WebSocket-Key": key,
+        Connection: "Upgrade",
+        Upgrade: "websocket"
+      };
+      opts.path = parsedUrl.pathname + parsedUrl.search;
+      opts.timeout = opts.handshakeTimeout;
+      if (opts.perMessageDeflate) {
+        perMessageDeflate = new PerMessageDeflate2({
+          ...opts.perMessageDeflate,
+          isServer: false,
+          maxPayload: opts.maxPayload
+        });
+        opts.headers["Sec-WebSocket-Extensions"] = format({
+          [PerMessageDeflate2.extensionName]: perMessageDeflate.offer()
+        });
+      }
+      if (protocols.length) {
+        for (const protocol of protocols) {
+          if (typeof protocol !== "string" || !subprotocolRegex.test(protocol) || protocolSet.has(protocol)) {
+            throw new SyntaxError(
+              "An invalid or duplicated subprotocol was specified"
+            );
+          }
+          protocolSet.add(protocol);
+        }
+        opts.headers["Sec-WebSocket-Protocol"] = protocols.join(",");
+      }
+      if (opts.origin) {
+        if (opts.protocolVersion < 13) {
+          opts.headers["Sec-WebSocket-Origin"] = opts.origin;
+        } else {
+          opts.headers.Origin = opts.origin;
+        }
+      }
+      if (parsedUrl.username || parsedUrl.password) {
+        opts.auth = `${parsedUrl.username}:${parsedUrl.password}`;
+      }
+      if (isIpcUrl) {
+        const parts = opts.path.split(":");
+        opts.socketPath = parts[0];
+        opts.path = parts[1];
+      }
+      let req;
+      if (opts.followRedirects) {
+        if (websocket._redirects === 0) {
+          websocket._originalIpc = isIpcUrl;
+          websocket._originalSecure = isSecure;
+          websocket._originalHostOrSocketPath = isIpcUrl ? opts.socketPath : parsedUrl.host;
+          const headers = options && options.headers;
+          options = { ...options, headers: {} };
+          if (headers) {
+            for (const [key2, value] of Object.entries(headers)) {
+              options.headers[key2.toLowerCase()] = value;
+            }
+          }
+        } else if (websocket.listenerCount("redirect") === 0) {
+          const isSameHost = isIpcUrl ? websocket._originalIpc ? opts.socketPath === websocket._originalHostOrSocketPath : false : websocket._originalIpc ? false : parsedUrl.host === websocket._originalHostOrSocketPath;
+          if (!isSameHost || websocket._originalSecure && !isSecure) {
+            delete opts.headers.authorization;
+            delete opts.headers.cookie;
+            if (!isSameHost) delete opts.headers.host;
+            opts.auth = void 0;
+          }
+        }
+        if (opts.auth && !options.headers.authorization) {
+          options.headers.authorization = "Basic " + Buffer.from(opts.auth).toString("base64");
+        }
+        req = websocket._req = request(opts);
+        if (websocket._redirects) {
+          websocket.emit("redirect", websocket.url, req);
+        }
+      } else {
+        req = websocket._req = request(opts);
+      }
+      if (opts.timeout) {
+        req.on("timeout", () => {
+          abortHandshake(websocket, req, "Opening handshake has timed out");
+        });
+      }
+      req.on("error", (err) => {
+        if (req === null || req[kAborted]) return;
+        req = websocket._req = null;
+        emitErrorAndClose(websocket, err);
+      });
+      req.on("response", (res) => {
+        const location = res.headers.location;
+        const statusCode = res.statusCode;
+        if (location && opts.followRedirects && statusCode >= 300 && statusCode < 400) {
+          if (++websocket._redirects > opts.maxRedirects) {
+            abortHandshake(websocket, req, "Maximum redirects exceeded");
+            return;
+          }
+          req.abort();
+          let addr;
+          try {
+            addr = new URL3(location, address);
+          } catch (e) {
+            const err = new SyntaxError(`Invalid URL: ${location}`);
+            emitErrorAndClose(websocket, err);
+            return;
+          }
+          initAsClient(websocket, addr, protocols, options);
+        } else if (!websocket.emit("unexpected-response", req, res)) {
+          abortHandshake(
+            websocket,
+            req,
+            `Unexpected server response: ${res.statusCode}`
+          );
+        }
+      });
+      req.on("upgrade", (res, socket, head) => {
+        websocket.emit("upgrade", res);
+        if (websocket.readyState !== WebSocket2.CONNECTING) return;
+        req = websocket._req = null;
+        const upgrade = res.headers.upgrade;
+        if (upgrade === void 0 || upgrade.toLowerCase() !== "websocket") {
+          abortHandshake(websocket, socket, "Invalid Upgrade header");
+          return;
+        }
+        const digest = createHash6("sha1").update(key + GUID).digest("base64");
+        if (res.headers["sec-websocket-accept"] !== digest) {
+          abortHandshake(websocket, socket, "Invalid Sec-WebSocket-Accept header");
+          return;
+        }
+        const serverProt = res.headers["sec-websocket-protocol"];
+        let protError;
+        if (serverProt !== void 0) {
+          if (!protocolSet.size) {
+            protError = "Server sent a subprotocol but none was requested";
+          } else if (!protocolSet.has(serverProt)) {
+            protError = "Server sent an invalid subprotocol";
+          }
+        } else if (protocolSet.size) {
+          protError = "Server sent no subprotocol";
+        }
+        if (protError) {
+          abortHandshake(websocket, socket, protError);
+          return;
+        }
+        if (serverProt) websocket._protocol = serverProt;
+        const secWebSocketExtensions = res.headers["sec-websocket-extensions"];
+        if (secWebSocketExtensions !== void 0) {
+          if (!perMessageDeflate) {
+            const message2 = "Server sent a Sec-WebSocket-Extensions header but no extension was requested";
+            abortHandshake(websocket, socket, message2);
+            return;
+          }
+          let extensions;
+          try {
+            extensions = parse3(secWebSocketExtensions);
+          } catch (err) {
+            const message2 = "Invalid Sec-WebSocket-Extensions header";
+            abortHandshake(websocket, socket, message2);
+            return;
+          }
+          const extensionNames = Object.keys(extensions);
+          if (extensionNames.length !== 1 || extensionNames[0] !== PerMessageDeflate2.extensionName) {
+            const message2 = "Server indicated an extension that was not requested";
+            abortHandshake(websocket, socket, message2);
+            return;
+          }
+          try {
+            perMessageDeflate.accept(extensions[PerMessageDeflate2.extensionName]);
+          } catch (err) {
+            const message2 = "Invalid Sec-WebSocket-Extensions header";
+            abortHandshake(websocket, socket, message2);
+            return;
+          }
+          websocket._extensions[PerMessageDeflate2.extensionName] = perMessageDeflate;
+        }
+        websocket.setSocket(socket, head, {
+          allowSynchronousEvents: opts.allowSynchronousEvents,
+          generateMask: opts.generateMask,
+          maxBufferedChunks: opts.maxBufferedChunks,
+          maxFragments: opts.maxFragments,
+          maxPayload: opts.maxPayload,
+          skipUTF8Validation: opts.skipUTF8Validation
+        });
+      });
+      if (opts.finishRequest) {
+        opts.finishRequest(req, websocket);
+      } else {
+        req.end();
+      }
+    }
+    function emitErrorAndClose(websocket, err) {
+      websocket._readyState = WebSocket2.CLOSING;
+      websocket._errorEmitted = true;
+      websocket.emit("error", err);
+      websocket.emitClose();
+    }
+    function netConnect(options) {
+      options.path = options.socketPath;
+      return net.connect(options);
+    }
+    function tlsConnect(options) {
+      options.path = void 0;
+      if (!options.servername && options.servername !== "") {
+        options.servername = net.isIP(options.host) ? "" : options.host;
+      }
+      return tls.connect(options);
+    }
+    function abortHandshake(websocket, stream, message2) {
+      websocket._readyState = WebSocket2.CLOSING;
+      const err = new Error(message2);
+      Error.captureStackTrace(err, abortHandshake);
+      if (stream.setHeader) {
+        stream[kAborted] = true;
+        stream.abort();
+        if (stream.socket && !stream.socket.destroyed) {
+          stream.socket.destroy();
+        }
+        process.nextTick(emitErrorAndClose, websocket, err);
+      } else {
+        stream.destroy(err);
+        stream.once("error", websocket.emit.bind(websocket, "error"));
+        stream.once("close", websocket.emitClose.bind(websocket));
+      }
+    }
+    function sendAfterClose(websocket, data, cb) {
+      if (data) {
+        const length = isBlob(data) ? data.size : toBuffer(data).length;
+        if (websocket._socket) websocket._sender._bufferedBytes += length;
+        else websocket._bufferedAmount += length;
+      }
+      if (cb) {
+        const err = new Error(
+          `WebSocket is not open: readyState ${websocket.readyState} (${readyStates[websocket.readyState]})`
+        );
+        process.nextTick(cb, err);
+      }
+    }
+    function receiverOnConclude(code, reason) {
+      const websocket = this[kWebSocket];
+      websocket._closeFrameReceived = true;
+      websocket._closeMessage = reason;
+      websocket._closeCode = code;
+      if (websocket._socket[kWebSocket] === void 0) return;
+      websocket._socket.removeListener("data", socketOnData);
+      process.nextTick(resume, websocket._socket);
+      if (code === 1005) websocket.close();
+      else websocket.close(code, reason);
+    }
+    function receiverOnDrain() {
+      const websocket = this[kWebSocket];
+      if (!websocket.isPaused) websocket._socket.resume();
+    }
+    function receiverOnError(err) {
+      const websocket = this[kWebSocket];
+      if (websocket._socket[kWebSocket] !== void 0) {
+        websocket._socket.removeListener("data", socketOnData);
+        process.nextTick(resume, websocket._socket);
+        websocket.close(err[kStatusCode]);
+      }
+      if (!websocket._errorEmitted) {
+        websocket._errorEmitted = true;
+        websocket.emit("error", err);
+      }
+    }
+    function receiverOnFinish() {
+      this[kWebSocket].emitClose();
+    }
+    function receiverOnMessage(data, isBinary) {
+      this[kWebSocket].emit("message", data, isBinary);
+    }
+    function receiverOnPing(data) {
+      const websocket = this[kWebSocket];
+      if (websocket._autoPong) websocket.pong(data, !this._isServer, NOOP);
+      websocket.emit("ping", data);
+    }
+    function receiverOnPong(data) {
+      this[kWebSocket].emit("pong", data);
+    }
+    function resume(stream) {
+      stream.resume();
+    }
+    function senderOnError(err) {
+      const websocket = this[kWebSocket];
+      if (websocket.readyState === WebSocket2.CLOSED) return;
+      if (websocket.readyState === WebSocket2.OPEN) {
+        websocket._readyState = WebSocket2.CLOSING;
+        setCloseTimer(websocket);
+      }
+      this._socket.end();
+      if (!websocket._errorEmitted) {
+        websocket._errorEmitted = true;
+        websocket.emit("error", err);
+      }
+    }
+    function setCloseTimer(websocket) {
+      websocket._closeTimer = setTimeout(
+        websocket._socket.destroy.bind(websocket._socket),
+        websocket._closeTimeout
+      );
+    }
+    function socketOnClose() {
+      const websocket = this[kWebSocket];
+      this.removeListener("close", socketOnClose);
+      this.removeListener("data", socketOnData);
+      this.removeListener("end", socketOnEnd);
+      websocket._readyState = WebSocket2.CLOSING;
+      if (!this._readableState.endEmitted && !websocket._closeFrameReceived && !websocket._receiver._writableState.errorEmitted && this._readableState.length !== 0) {
+        const chunk = this.read(this._readableState.length);
+        websocket._receiver.write(chunk);
+      }
+      websocket._receiver.end();
+      this[kWebSocket] = void 0;
+      clearTimeout(websocket._closeTimer);
+      if (websocket._receiver._writableState.finished || websocket._receiver._writableState.errorEmitted) {
+        websocket.emitClose();
+      } else {
+        websocket._receiver.on("error", receiverOnFinish);
+        websocket._receiver.on("finish", receiverOnFinish);
+      }
+    }
+    function socketOnData(chunk) {
+      if (!this[kWebSocket]._receiver.write(chunk)) {
+        this.pause();
+      }
+    }
+    function socketOnEnd() {
+      const websocket = this[kWebSocket];
+      websocket._readyState = WebSocket2.CLOSING;
+      websocket._receiver.end();
+      this.end();
+    }
+    function socketOnError() {
+      const websocket = this[kWebSocket];
+      this.removeListener("error", socketOnError);
+      this.on("error", NOOP);
+      if (websocket) {
+        websocket._readyState = WebSocket2.CLOSING;
+        this.destroy();
+      }
+    }
+  }
+});
+
+// node_modules/ws/lib/stream.js
+var require_stream = __commonJS({
+  "node_modules/ws/lib/stream.js"(exports2, module2) {
+    "use strict";
+    var WebSocket2 = require_websocket();
+    var { Duplex } = require("stream");
+    function emitClose(stream) {
+      stream.emit("close");
+    }
+    function duplexOnEnd() {
+      if (!this.destroyed && this._writableState.finished) {
+        this.destroy();
+      }
+    }
+    function duplexOnError(err) {
+      this.removeListener("error", duplexOnError);
+      this.destroy();
+      if (this.listenerCount("error") === 0) {
+        this.emit("error", err);
+      }
+    }
+    function createWebSocketStream2(ws, options) {
+      let terminateOnDestroy = true;
+      const duplex = new Duplex({
+        ...options,
+        autoDestroy: false,
+        emitClose: false,
+        objectMode: false,
+        writableObjectMode: false
+      });
+      ws.on("message", function message2(msg, isBinary) {
+        const data = !isBinary && duplex._readableState.objectMode ? msg.toString() : msg;
+        if (!duplex.push(data)) ws.pause();
+      });
+      ws.once("error", function error51(err) {
+        if (duplex.destroyed) return;
+        terminateOnDestroy = false;
+        duplex.destroy(err);
+      });
+      ws.once("close", function close() {
+        if (duplex.destroyed) return;
+        duplex.push(null);
+      });
+      duplex._destroy = function(err, callback) {
+        if (ws.readyState === ws.CLOSED) {
+          callback(err);
+          process.nextTick(emitClose, duplex);
+          return;
+        }
+        let called = false;
+        ws.once("error", function error51(err2) {
+          called = true;
+          callback(err2);
+        });
+        ws.once("close", function close() {
+          if (!called) callback(err);
+          process.nextTick(emitClose, duplex);
+        });
+        if (terminateOnDestroy) ws.terminate();
+      };
+      duplex._final = function(callback) {
+        if (ws.readyState === ws.CONNECTING) {
+          ws.once("open", function open3() {
+            duplex._final(callback);
+          });
+          return;
+        }
+        if (ws._socket === null) return;
+        if (ws._socket._writableState.finished) {
+          callback();
+          if (duplex._readableState.endEmitted) duplex.destroy();
+        } else {
+          ws._socket.once("finish", function finish() {
+            callback();
+          });
+          ws.close();
+        }
+      };
+      duplex._read = function() {
+        if (ws.isPaused) ws.resume();
+      };
+      duplex._write = function(chunk, encoding, callback) {
+        if (ws.readyState === ws.CONNECTING) {
+          ws.once("open", function open3() {
+            duplex._write(chunk, encoding, callback);
+          });
+          return;
+        }
+        ws.send(chunk, callback);
+      };
+      duplex.on("end", duplexOnEnd);
+      duplex.on("error", duplexOnError);
+      return duplex;
+    }
+    module2.exports = createWebSocketStream2;
+  }
+});
+
+// node_modules/ws/lib/subprotocol.js
+var require_subprotocol = __commonJS({
+  "node_modules/ws/lib/subprotocol.js"(exports2, module2) {
+    "use strict";
+    var { tokenChars } = require_validation();
+    function parse3(header) {
+      const protocols = /* @__PURE__ */ new Set();
+      let start = -1;
+      let end = -1;
+      let i = 0;
+      for (i; i < header.length; i++) {
+        const code = header.charCodeAt(i);
+        if (end === -1 && tokenChars[code] === 1) {
+          if (start === -1) start = i;
+        } else if (i !== 0 && (code === 32 || code === 9)) {
+          if (end === -1 && start !== -1) end = i;
+        } else if (code === 44) {
+          if (start === -1) {
+            throw new SyntaxError(`Unexpected character at index ${i}`);
+          }
+          if (end === -1) end = i;
+          const protocol2 = header.slice(start, end);
+          if (protocols.has(protocol2)) {
+            throw new SyntaxError(`The "${protocol2}" subprotocol is duplicated`);
+          }
+          protocols.add(protocol2);
+          start = end = -1;
+        } else {
+          throw new SyntaxError(`Unexpected character at index ${i}`);
+        }
+      }
+      if (start === -1 || end !== -1) {
+        throw new SyntaxError("Unexpected end of input");
+      }
+      const protocol = header.slice(start, i);
+      if (protocols.has(protocol)) {
+        throw new SyntaxError(`The "${protocol}" subprotocol is duplicated`);
+      }
+      protocols.add(protocol);
+      return protocols;
+    }
+    module2.exports = { parse: parse3 };
+  }
+});
+
+// node_modules/ws/lib/websocket-server.js
+var require_websocket_server = __commonJS({
+  "node_modules/ws/lib/websocket-server.js"(exports2, module2) {
+    "use strict";
+    var EventEmitter2 = require("events");
+    var http = require("http");
+    var { Duplex } = require("stream");
+    var { createHash: createHash6 } = require("crypto");
+    var extension2 = require_extension();
+    var PerMessageDeflate2 = require_permessage_deflate();
+    var subprotocol2 = require_subprotocol();
+    var WebSocket2 = require_websocket();
+    var { CLOSE_TIMEOUT, GUID, kWebSocket } = require_constants();
+    var keyRegex = /^[+/0-9A-Za-z]{22}==$/;
+    var RUNNING = 0;
+    var CLOSING = 1;
+    var CLOSED = 2;
+    var WebSocketServer2 = class extends EventEmitter2 {
+      /**
+       * Create a `WebSocketServer` instance.
+       *
+       * @param {Object} options Configuration options
+       * @param {Boolean} [options.allowSynchronousEvents=true] Specifies whether
+       *     any of the `'message'`, `'ping'`, and `'pong'` events can be emitted
+       *     multiple times in the same tick
+       * @param {Boolean} [options.autoPong=true] Specifies whether or not to
+       *     automatically send a pong in response to a ping
+       * @param {Number} [options.backlog=511] The maximum length of the queue of
+       *     pending connections
+       * @param {Boolean} [options.clientTracking=true] Specifies whether or not to
+       *     track clients
+       * @param {Number} [options.closeTimeout=30000] Duration in milliseconds to
+       *     wait for the closing handshake to finish after `websocket.close()` is
+       *     called
+       * @param {Function} [options.handleProtocols] A hook to handle protocols
+       * @param {String} [options.host] The hostname where to bind the server
+       * @param {Number} [options.maxBufferedChunks=262144] The maximum number of
+       *     buffered data chunks
+       * @param {Number} [options.maxFragments=16384] The maximum number of message
+       *     fragments
+       * @param {Number} [options.maxPayload=104857600] The maximum allowed message
+       *     size
+       * @param {Boolean} [options.noServer=false] Enable no server mode
+       * @param {String} [options.path] Accept only connections matching this path
+       * @param {(Boolean|Object)} [options.perMessageDeflate=false] Enable/disable
+       *     permessage-deflate
+       * @param {Number} [options.port] The port where to bind the server
+       * @param {(http.Server|https.Server)} [options.server] A pre-created HTTP/S
+       *     server to use
+       * @param {Boolean} [options.skipUTF8Validation=false] Specifies whether or
+       *     not to skip UTF-8 validation for text and close messages
+       * @param {Function} [options.verifyClient] A hook to reject connections
+       * @param {Function} [options.WebSocket=WebSocket] Specifies the `WebSocket`
+       *     class to use. It must be the `WebSocket` class or class that extends it
+       * @param {Function} [callback] A listener for the `listening` event
+       */
+      constructor(options, callback) {
+        super();
+        options = {
+          allowSynchronousEvents: true,
+          autoPong: true,
+          maxBufferedChunks: 256 * 1024,
+          maxFragments: 16 * 1024,
+          maxPayload: 100 * 1024 * 1024,
+          skipUTF8Validation: false,
+          perMessageDeflate: false,
+          handleProtocols: null,
+          clientTracking: true,
+          closeTimeout: CLOSE_TIMEOUT,
+          verifyClient: null,
+          noServer: false,
+          backlog: null,
+          // use default (511 as implemented in net.js)
+          server: null,
+          host: null,
+          path: null,
+          port: null,
+          WebSocket: WebSocket2,
+          ...options
+        };
+        if (options.port == null && !options.server && !options.noServer || options.port != null && (options.server || options.noServer) || options.server && options.noServer) {
+          throw new TypeError(
+            'One and only one of the "port", "server", or "noServer" options must be specified'
+          );
+        }
+        if (options.port != null) {
+          this._server = http.createServer((req, res) => {
+            const body = http.STATUS_CODES[426];
+            res.writeHead(426, {
+              "Content-Length": body.length,
+              "Content-Type": "text/plain"
+            });
+            res.end(body);
+          });
+          this._server.listen(
+            options.port,
+            options.host,
+            options.backlog,
+            callback
+          );
+        } else if (options.server) {
+          this._server = options.server;
+        }
+        if (this._server) {
+          const emitConnection = this.emit.bind(this, "connection");
+          this._removeListeners = addListeners(this._server, {
+            listening: this.emit.bind(this, "listening"),
+            error: this.emit.bind(this, "error"),
+            upgrade: (req, socket, head) => {
+              this.handleUpgrade(req, socket, head, emitConnection);
+            }
+          });
+        }
+        if (options.perMessageDeflate === true) options.perMessageDeflate = {};
+        if (options.clientTracking) {
+          this.clients = /* @__PURE__ */ new Set();
+          this._shouldEmitClose = false;
+        }
+        this.options = options;
+        this._state = RUNNING;
+      }
+      /**
+       * Returns the bound address, the address family name, and port of the server
+       * as reported by the operating system if listening on an IP socket.
+       * If the server is listening on a pipe or UNIX domain socket, the name is
+       * returned as a string.
+       *
+       * @return {(Object|String|null)} The address of the server
+       * @public
+       */
+      address() {
+        if (this.options.noServer) {
+          throw new Error('The server is operating in "noServer" mode');
+        }
+        if (!this._server) return null;
+        return this._server.address();
+      }
+      /**
+       * Stop the server from accepting new connections and emit the `'close'` event
+       * when all existing connections are closed.
+       *
+       * @param {Function} [cb] A one-time listener for the `'close'` event
+       * @public
+       */
+      close(cb) {
+        if (this._state === CLOSED) {
+          if (cb) {
+            this.once("close", () => {
+              cb(new Error("The server is not running"));
+            });
+          }
+          process.nextTick(emitClose, this);
+          return;
+        }
+        if (cb) this.once("close", cb);
+        if (this._state === CLOSING) return;
+        this._state = CLOSING;
+        if (this.options.noServer || this.options.server) {
+          if (this._server) {
+            this._removeListeners();
+            this._removeListeners = this._server = null;
+          }
+          if (this.clients) {
+            if (!this.clients.size) {
+              process.nextTick(emitClose, this);
+            } else {
+              this._shouldEmitClose = true;
+            }
+          } else {
+            process.nextTick(emitClose, this);
+          }
+        } else {
+          const server = this._server;
+          this._removeListeners();
+          this._removeListeners = this._server = null;
+          server.close(() => {
+            emitClose(this);
+          });
+        }
+      }
+      /**
+       * See if a given request should be handled by this server instance.
+       *
+       * @param {http.IncomingMessage} req Request object to inspect
+       * @return {Boolean} `true` if the request is valid, else `false`
+       * @public
+       */
+      shouldHandle(req) {
+        if (this.options.path) {
+          const index = req.url.indexOf("?");
+          const pathname = index !== -1 ? req.url.slice(0, index) : req.url;
+          if (pathname !== this.options.path) return false;
+        }
+        return true;
+      }
+      /**
+       * Handle a HTTP Upgrade request.
+       *
+       * @param {http.IncomingMessage} req The request object
+       * @param {Duplex} socket The network socket between the server and client
+       * @param {Buffer} head The first packet of the upgraded stream
+       * @param {Function} cb Callback
+       * @public
+       */
+      handleUpgrade(req, socket, head, cb) {
+        socket.on("error", socketOnError);
+        const key = req.headers["sec-websocket-key"];
+        const upgrade = req.headers.upgrade;
+        const version2 = +req.headers["sec-websocket-version"];
+        if (req.method !== "GET") {
+          const message2 = "Invalid HTTP method";
+          abortHandshakeOrEmitwsClientError(this, req, socket, 405, message2);
+          return;
+        }
+        if (upgrade === void 0 || upgrade.toLowerCase() !== "websocket") {
+          const message2 = "Invalid Upgrade header";
+          abortHandshakeOrEmitwsClientError(this, req, socket, 400, message2);
+          return;
+        }
+        if (key === void 0 || !keyRegex.test(key)) {
+          const message2 = "Missing or invalid Sec-WebSocket-Key header";
+          abortHandshakeOrEmitwsClientError(this, req, socket, 400, message2);
+          return;
+        }
+        if (version2 !== 13 && version2 !== 8) {
+          const message2 = "Missing or invalid Sec-WebSocket-Version header";
+          abortHandshakeOrEmitwsClientError(this, req, socket, 400, message2, {
+            "Sec-WebSocket-Version": "13, 8"
+          });
+          return;
+        }
+        if (!this.shouldHandle(req)) {
+          abortHandshake(socket, 400);
+          return;
+        }
+        const secWebSocketProtocol = req.headers["sec-websocket-protocol"];
+        let protocols = /* @__PURE__ */ new Set();
+        if (secWebSocketProtocol !== void 0) {
+          try {
+            protocols = subprotocol2.parse(secWebSocketProtocol);
+          } catch (err) {
+            const message2 = "Invalid Sec-WebSocket-Protocol header";
+            abortHandshakeOrEmitwsClientError(this, req, socket, 400, message2);
+            return;
+          }
+        }
+        const secWebSocketExtensions = req.headers["sec-websocket-extensions"];
+        const extensions = {};
+        if (this.options.perMessageDeflate && secWebSocketExtensions !== void 0) {
+          const perMessageDeflate = new PerMessageDeflate2({
+            ...this.options.perMessageDeflate,
+            isServer: true,
+            maxPayload: this.options.maxPayload
+          });
+          try {
+            const offers = extension2.parse(secWebSocketExtensions);
+            if (offers[PerMessageDeflate2.extensionName]) {
+              perMessageDeflate.accept(offers[PerMessageDeflate2.extensionName]);
+              extensions[PerMessageDeflate2.extensionName] = perMessageDeflate;
+            }
+          } catch (err) {
+            const message2 = "Invalid or unacceptable Sec-WebSocket-Extensions header";
+            abortHandshakeOrEmitwsClientError(this, req, socket, 400, message2);
+            return;
+          }
+        }
+        if (this.options.verifyClient) {
+          const info = {
+            origin: req.headers[`${version2 === 8 ? "sec-websocket-origin" : "origin"}`],
+            secure: !!(req.socket.authorized || req.socket.encrypted),
+            req
+          };
+          if (this.options.verifyClient.length === 2) {
+            this.options.verifyClient(info, (verified, code, message2, headers) => {
+              if (!verified) {
+                return abortHandshake(socket, code || 401, message2, headers);
+              }
+              this.completeUpgrade(
+                extensions,
+                key,
+                protocols,
+                req,
+                socket,
+                head,
+                cb
+              );
+            });
+            return;
+          }
+          if (!this.options.verifyClient(info)) return abortHandshake(socket, 401);
+        }
+        this.completeUpgrade(extensions, key, protocols, req, socket, head, cb);
+      }
+      /**
+       * Upgrade the connection to WebSocket.
+       *
+       * @param {Object} extensions The accepted extensions
+       * @param {String} key The value of the `Sec-WebSocket-Key` header
+       * @param {Set} protocols The subprotocols
+       * @param {http.IncomingMessage} req The request object
+       * @param {Duplex} socket The network socket between the server and client
+       * @param {Buffer} head The first packet of the upgraded stream
+       * @param {Function} cb Callback
+       * @throws {Error} If called more than once with the same socket
+       * @private
+       */
+      completeUpgrade(extensions, key, protocols, req, socket, head, cb) {
+        if (!socket.readable || !socket.writable) return socket.destroy();
+        if (socket[kWebSocket]) {
+          throw new Error(
+            "server.handleUpgrade() was called more than once with the same socket, possibly due to a misconfiguration"
+          );
+        }
+        if (this._state > RUNNING) return abortHandshake(socket, 503);
+        const digest = createHash6("sha1").update(key + GUID).digest("base64");
+        const headers = [
+          "HTTP/1.1 101 Switching Protocols",
+          "Upgrade: websocket",
+          "Connection: Upgrade",
+          `Sec-WebSocket-Accept: ${digest}`
+        ];
+        const ws = new this.options.WebSocket(null, void 0, this.options);
+        if (protocols.size) {
+          const protocol = this.options.handleProtocols ? this.options.handleProtocols(protocols, req) : protocols.values().next().value;
+          if (protocol) {
+            headers.push(`Sec-WebSocket-Protocol: ${protocol}`);
+            ws._protocol = protocol;
+          }
+        }
+        if (extensions[PerMessageDeflate2.extensionName]) {
+          const params = extensions[PerMessageDeflate2.extensionName].params;
+          const value = extension2.format({
+            [PerMessageDeflate2.extensionName]: [params]
+          });
+          headers.push(`Sec-WebSocket-Extensions: ${value}`);
+          ws._extensions = extensions;
+        }
+        this.emit("headers", headers, req);
+        socket.write(headers.concat("\r\n").join("\r\n"));
+        socket.removeListener("error", socketOnError);
+        ws.setSocket(socket, head, {
+          allowSynchronousEvents: this.options.allowSynchronousEvents,
+          maxBufferedChunks: this.options.maxBufferedChunks,
+          maxFragments: this.options.maxFragments,
+          maxPayload: this.options.maxPayload,
+          skipUTF8Validation: this.options.skipUTF8Validation
+        });
+        if (this.clients) {
+          this.clients.add(ws);
+          ws.on("close", () => {
+            this.clients.delete(ws);
+            if (this._shouldEmitClose && !this.clients.size) {
+              process.nextTick(emitClose, this);
+            }
+          });
+        }
+        cb(ws, req);
+      }
+    };
+    module2.exports = WebSocketServer2;
+    function addListeners(server, map2) {
+      for (const event of Object.keys(map2)) server.on(event, map2[event]);
+      return function removeListeners() {
+        for (const event of Object.keys(map2)) {
+          server.removeListener(event, map2[event]);
+        }
+      };
+    }
+    function emitClose(server) {
+      server._state = CLOSED;
+      server.emit("close");
+    }
+    function socketOnError() {
+      this.destroy();
+    }
+    function abortHandshake(socket, code, message2, headers) {
+      message2 = message2 || http.STATUS_CODES[code];
+      headers = {
+        Connection: "close",
+        "Content-Type": "text/html",
+        "Content-Length": Buffer.byteLength(message2),
+        ...headers
+      };
+      socket.once("finish", socket.destroy);
+      socket.end(
+        `HTTP/1.1 ${code} ${http.STATUS_CODES[code]}\r
+` + Object.keys(headers).map((h) => `${h}: ${headers[h]}`).join("\r\n") + "\r\n\r\n" + message2
+      );
+    }
+    function abortHandshakeOrEmitwsClientError(server, req, socket, code, message2, headers) {
+      if (server.listenerCount("wsClientError")) {
+        const err = new Error(message2);
+        Error.captureStackTrace(err, abortHandshakeOrEmitwsClientError);
+        server.emit("wsClientError", err, socket, req);
+      } else {
+        abortHandshake(socket, code, message2, headers);
+      }
+    }
+  }
+});
+
+// node_modules/ws/wrapper.mjs
+var wrapper_exports = {};
+__export(wrapper_exports, {
+  PerMessageDeflate: () => import_permessage_deflate.default,
+  Receiver: () => import_receiver.default,
+  Sender: () => import_sender.default,
+  WebSocket: () => import_websocket.default,
+  WebSocketServer: () => import_websocket_server.default,
+  createWebSocketStream: () => import_stream.default,
+  default: () => wrapper_default,
+  extension: () => import_extension.default,
+  subprotocol: () => import_subprotocol.default
+});
+var import_stream, import_extension, import_permessage_deflate, import_receiver, import_sender, import_subprotocol, import_websocket, import_websocket_server, wrapper_default;
+var init_wrapper = __esm({
+  "node_modules/ws/wrapper.mjs"() {
+    "use strict";
+    import_stream = __toESM(require_stream(), 1);
+    import_extension = __toESM(require_extension(), 1);
+    import_permessage_deflate = __toESM(require_permessage_deflate(), 1);
+    import_receiver = __toESM(require_receiver(), 1);
+    import_sender = __toESM(require_sender(), 1);
+    import_subprotocol = __toESM(require_subprotocol(), 1);
+    import_websocket = __toESM(require_websocket(), 1);
+    import_websocket_server = __toESM(require_websocket_server(), 1);
+    wrapper_default = import_websocket.default;
+  }
+});
+
 // src/engine/cdp/connection.ts
-var DEFAULT_TIMEOUT_MS, CdpConnection;
+async function loadWebSocketCtor() {
+  if (cachedCtor) return cachedCtor;
+  if (typeof globalThis.WebSocket !== "undefined") {
+    cachedCtor = globalThis.WebSocket;
+  } else {
+    const mod = await Promise.resolve().then(() => (init_wrapper(), wrapper_exports));
+    cachedCtor = mod.WebSocket;
+  }
+  return cachedCtor;
+}
+var WS_OPEN, cachedCtor, DEFAULT_TIMEOUT_MS, CdpConnection;
 var init_connection = __esm({
   "src/engine/cdp/connection.ts"() {
     "use strict";
     init_net_timeout();
+    WS_OPEN = 1;
+    cachedCtor = null;
     DEFAULT_TIMEOUT_MS = 3e4;
     CdpConnection = class {
       ws = null;
@@ -135,8 +3859,9 @@ var init_connection = __esm({
       async connect(wsUrl, options) {
         const timeoutMs = options?.timeoutMs ?? WS_CONNECT_TIMEOUT_MS;
         const started = Date.now();
+        const WebSocketImpl = await loadWebSocketCtor();
         return new Promise((resolve7, reject) => {
-          const ws = new WebSocket(wsUrl);
+          const ws = new WebSocketImpl(wsUrl);
           let settled2 = false;
           const timer = setTimeout(() => {
             if (settled2) return;
@@ -172,7 +3897,7 @@ var init_connection = __esm({
         });
       }
       async send(method, params, sessionId) {
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        if (!this.ws || this.ws.readyState !== WS_OPEN) {
           throw new Error("Not connected");
         }
         const id = ++this.nextId;
@@ -250,7 +3975,7 @@ var init_connection = __esm({
         this.pending.clear();
       }
       get connected() {
-        return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+        return this.ws !== null && this.ws.readyState === WS_OPEN;
       }
     };
   }
@@ -2201,16 +5926,16 @@ var init_console = __esm({
           const data = params;
           const text = data.args.map((arg) => arg.value !== void 0 ? String(arg.value) : arg.description ?? "").join(" ");
           const frame = data.stackTrace?.callFrames[0];
-          const message = {
+          const message2 = {
             type: data.type,
             text,
             url: frame?.url,
             lineNumber: frame?.lineNumber,
             timestamp: data.timestamp
           };
-          this.messages.push(message);
+          this.messages.push(message2);
           for (const handler of this.handlers) {
-            handler(message);
+            handler(message2);
           }
         });
       }
@@ -3136,7 +6861,7 @@ var require_filter_parse_async = __commonJS({
 });
 
 // node_modules/pngjs/lib/constants.js
-var require_constants = __commonJS({
+var require_constants2 = __commonJS({
   "node_modules/pngjs/lib/constants.js"(exports2, module2) {
     "use strict";
     module2.exports = {
@@ -3214,7 +6939,7 @@ var require_crc = __commonJS({
 var require_parser = __commonJS({
   "node_modules/pngjs/lib/parser.js"(exports2, module2) {
     "use strict";
-    var constants3 = require_constants();
+    var constants3 = require_constants2();
     var CrcCalculator = require_crc();
     var Parser = module2.exports = function(options, dependencies) {
       this._options = options;
@@ -3894,7 +7619,7 @@ var require_parser_async = __commonJS({
 var require_bitpacker = __commonJS({
   "node_modules/pngjs/lib/bitpacker.js"(exports2, module2) {
     "use strict";
-    var constants3 = require_constants();
+    var constants3 = require_constants2();
     module2.exports = function(dataIn, width, height, options) {
       let outHasAlpha = [constants3.COLORTYPE_COLOR_ALPHA, constants3.COLORTYPE_ALPHA].indexOf(
         options.colorType
@@ -4186,7 +7911,7 @@ var require_filter_pack = __commonJS({
 var require_packer = __commonJS({
   "node_modules/pngjs/lib/packer.js"(exports2, module2) {
     "use strict";
-    var constants3 = require_constants();
+    var constants3 = require_constants2();
     var CrcStream = require_crc();
     var bitPacker = require_bitpacker();
     var filter = require_filter_pack();
@@ -4288,7 +8013,7 @@ var require_packer_async = __commonJS({
     "use strict";
     var util = require("util");
     var Stream = require("stream");
-    var constants3 = require_constants();
+    var constants3 = require_constants2();
     var Packer = require_packer();
     var PackerAsync = module2.exports = function(opt) {
       Stream.call(this);
@@ -4627,7 +8352,7 @@ var require_packer_sync = __commonJS({
     if (!zlib.deflateSync) {
       hasSyncZlib = false;
     }
-    var constants3 = require_constants();
+    var constants3 = require_constants2();
     var Packer = require_packer();
     module2.exports = function(metaData, opt) {
       if (!hasSyncZlib) {
@@ -6954,13 +10679,13 @@ function buildFunctionDeclaration(fnStr) {
   }
   return `(function(...__ibrArgs) { ${ESBUILD_NAME_HELPER} return (${fnStr})(...__ibrArgs); })`;
 }
-var import_promises2, import_path, SELECTOR_ACTIONABILITY_PROBE_FN, CompatElementHandle, CompatLocator, ESBUILD_NAME_HELPER, CompatPage;
+var import_promises2, import_path2, SELECTOR_ACTIONABILITY_PROBE_FN, CompatElementHandle, CompatLocator, ESBUILD_NAME_HELPER, CompatPage;
 var init_compat = __esm({
   "src/engine/compat.ts"() {
     "use strict";
     init_actionability();
     import_promises2 = require("fs/promises");
-    import_path = require("path");
+    import_path2 = require("path");
     SELECTOR_ACTIONABILITY_PROBE_FN = `(sel) => {
   const el = document.querySelector(sel);
   if (!el || !el.isConnected) return { present: false, visible: false, enabled: false, rect: null };
@@ -7012,7 +10737,7 @@ var init_compat = __esm({
           clip: { x, y, width: model.width, height: model.height }
         });
         if (options?.path) {
-          await (0, import_promises2.mkdir)((0, import_path.dirname)(options.path), { recursive: true });
+          await (0, import_promises2.mkdir)((0, import_path2.dirname)(options.path), { recursive: true });
           await (0, import_promises2.writeFile)(options.path, buf);
         }
         return buf;
@@ -7221,7 +10946,7 @@ var init_compat = __esm({
           fullPage: options?.fullPage
         });
         if (options?.path) {
-          await (0, import_promises2.mkdir)((0, import_path.dirname)(options.path), { recursive: true });
+          await (0, import_promises2.mkdir)((0, import_path2.dirname)(options.path), { recursive: true });
           await (0, import_promises2.writeFile)(options.path, buf);
         }
         return buf;
@@ -7962,14 +11687,14 @@ function prefixIssues(path3, issues) {
     return iss;
   });
 }
-function unwrapMessage(message) {
-  return typeof message === "string" ? message : message?.message;
+function unwrapMessage(message2) {
+  return typeof message2 === "string" ? message2 : message2?.message;
 }
 function finalizeIssue(iss, ctx, config2) {
-  const message = iss.message ? iss.message : unwrapMessage(iss.inst?._zod.def?.error?.(iss)) ?? unwrapMessage(ctx?.error?.(iss)) ?? unwrapMessage(config2.customError?.(iss)) ?? unwrapMessage(config2.localeError?.(iss)) ?? "Invalid input";
+  const message2 = iss.message ? iss.message : unwrapMessage(iss.inst?._zod.def?.error?.(iss)) ?? unwrapMessage(ctx?.error?.(iss)) ?? unwrapMessage(config2.customError?.(iss)) ?? unwrapMessage(config2.localeError?.(iss)) ?? "Invalid input";
   const { inst: _inst, continue: _continue, input: _input, ...rest } = iss;
   rest.path ?? (rest.path = []);
-  rest.message = message;
+  rest.message = message2;
   if (ctx?.reportInput) {
     rest.input = _input;
   }
@@ -23215,14 +26940,14 @@ function isDeployedEnvironment() {
   return !!(process.env.VERCEL || process.env.NETLIFY || process.env.CI || process.env.GITHUB_ACTIONS || process.env.GITLAB_CI || process.env.CIRCLECI || process.env.JENKINS_URL || process.env.TRAVIS || process.env.HEROKU || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.AZURE_FUNCTIONS_ENVIRONMENT);
 }
 function getAuthStatePath(outputDir) {
-  const username = (0, import_os.userInfo)().username;
-  return (0, import_path2.join)(outputDir, `auth.${username}.json`);
+  const username = (0, import_os2.userInfo)().username;
+  return (0, import_path3.join)(outputDir, `auth.${username}.json`);
 }
 function getSecureAuthPath(projectPath) {
-  const username = (0, import_os.userInfo)().username;
-  const projectHash = (0, import_crypto.createHash)("sha256").update((0, import_path2.resolve)(projectPath)).digest("hex").substring(0, 16);
-  return (0, import_path2.join)(
-    (0, import_os.homedir)(),
+  const username = (0, import_os2.userInfo)().username;
+  const projectHash = (0, import_crypto.createHash)("sha256").update((0, import_path3.resolve)(projectPath)).digest("hex").substring(0, 16);
+  return (0, import_path3.join)(
+    (0, import_os2.homedir)(),
     ".config",
     "ibr",
     "auth",
@@ -23230,9 +26955,9 @@ function getSecureAuthPath(projectPath) {
   );
 }
 function validateGitignore(projectDir) {
-  const gitignorePath = (0, import_path2.join)(projectDir, ".gitignore");
-  if ((0, import_fs2.existsSync)(gitignorePath)) {
-    const gitignore = (0, import_fs2.readFileSync)(gitignorePath, "utf-8");
+  const gitignorePath = (0, import_path3.join)(projectDir, ".gitignore");
+  if ((0, import_fs3.existsSync)(gitignorePath)) {
+    const gitignore = (0, import_fs3.readFileSync)(gitignorePath, "utf-8");
     const lines = gitignore.split("\n").map((l) => l.trim());
     const hasIbrIgnore = lines.some(
       (line) => line === ".ibr/" || line === ".ibr" || line === "**/.ibr/" || line === "**/.ibr"
@@ -23266,7 +26991,7 @@ async function loadAuthState(outputDir) {
       console.warn("\u26A0\uFE0F  Legacy auth format detected. Please re-authenticate with `ibr login`.");
       return null;
     }
-    const currentUser = (0, import_os.userInfo)().username;
+    const currentUser = (0, import_os2.userInfo)().username;
     if (stored.metadata.username !== currentUser) {
       console.warn(`\u26A0\uFE0F  Auth state belongs to different user (${stored.metadata.username}).`);
       return null;
@@ -23308,7 +27033,7 @@ async function performLogin(options) {
   } catch {
   }
   const authStatePath = getAuthStatePath(outputDir);
-  const currentUser = (0, import_os.userInfo)().username;
+  const currentUser = (0, import_os2.userInfo)().username;
   console.log("\n\u{1F510} Opening browser for login...");
   console.log(`   User: ${currentUser}`);
   console.log("   Navigate to your login page and complete authentication.");
@@ -23356,7 +27081,7 @@ async function performLogin(options) {
 async function saveAuthState(driver3, authStatePath, _outputDir) {
   const cookies = await driver3.getCookies();
   const state = { cookies, origins: [] };
-  const currentUser = (0, import_os.userInfo)().username;
+  const currentUser = (0, import_os2.userInfo)().username;
   const storedState = {
     state,
     metadata: {
@@ -23364,7 +27089,7 @@ async function saveAuthState(driver3, authStatePath, _outputDir) {
       expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1e3,
       // 7 days
       username: currentUser,
-      projectPath: (0, import_path2.resolve)(process.cwd())
+      projectPath: (0, import_path3.resolve)(process.cwd())
     }
   };
   await (0, import_promises3.writeFile)(
@@ -23409,16 +27134,16 @@ async function getAuthStateInfo(outputDir) {
     return null;
   }
 }
-var import_promises3, import_path2, import_fs2, import_os, import_crypto;
+var import_promises3, import_path3, import_fs3, import_os2, import_crypto;
 var init_auth = __esm({
   "src/auth.ts"() {
     "use strict";
     init_driver();
     init_compat();
     import_promises3 = require("fs/promises");
-    import_path2 = require("path");
-    import_fs2 = require("fs");
-    import_os = require("os");
+    import_path3 = require("path");
+    import_fs3 = require("fs");
+    import_os2 = require("os");
     import_crypto = require("crypto");
   }
 });
@@ -23917,7 +27642,7 @@ async function captureScreenshot(options) {
     wsEndpoint,
     chromePath
   } = options;
-  await (0, import_promises4.mkdir)((0, import_path3.dirname)(outputPath), { recursive: true });
+  await (0, import_promises4.mkdir)((0, import_path4.dirname)(outputPath), { recursive: true });
   if (outputDir && !isDeployedEnvironment()) {
     const authState = await loadAuthState(outputDir);
     if (authState) {
@@ -23993,7 +27718,7 @@ async function captureWithLandmarks(options) {
     wsEndpoint,
     chromePath
   } = options;
-  await (0, import_promises4.mkdir)((0, import_path3.dirname)(outputPath), { recursive: true });
+  await (0, import_promises4.mkdir)((0, import_path4.dirname)(outputPath), { recursive: true });
   if (outputDir && !isDeployedEnvironment()) {
     const authState = await loadAuthState(outputDir);
     if (authState) {
@@ -24089,7 +27814,7 @@ async function captureWithDiagnostics(options) {
   const suggestions = [];
   let httpStatus;
   try {
-    await (0, import_promises4.mkdir)((0, import_path3.dirname)(outputPath), { recursive: true });
+    await (0, import_promises4.mkdir)((0, import_path4.dirname)(outputPath), { recursive: true });
     if (outputDir && !isDeployedEnvironment()) {
       await loadAuthState(outputDir);
     }
@@ -24226,14 +27951,14 @@ async function captureWithDiagnostics(options) {
     };
   }
 }
-var import_promises4, import_path3, driver;
+var import_promises4, import_path4, driver;
 var init_capture = __esm({
   "src/capture.ts"() {
     "use strict";
     init_driver();
     init_compat();
     import_promises4 = require("fs/promises");
-    import_path3 = require("path");
+    import_path4 = require("path");
     init_schemas3();
     init_devices();
     init_types();
@@ -24459,7 +28184,7 @@ async function compareImages(options) {
   for (let i = 0; i < totalPixels; i++) {
     if (isDiffMarker(diff.data, i * 4)) diffMask[i] = 1;
   }
-  await (0, import_promises5.mkdir)((0, import_path4.dirname)(diffPath), { recursive: true });
+  await (0, import_promises5.mkdir)((0, import_path5.dirname)(diffPath), { recursive: true });
   await (0, import_promises5.writeFile)(diffPath, import_pngjs2.PNG.sync.write(diff));
   const diffPercent = diffPixels / totalPixels * 100;
   return {
@@ -24563,14 +28288,14 @@ function getVerdictDescription(verdict) {
       return "Unknown verdict";
   }
 }
-var import_pngjs2, import_promises5, import_path4, DEFAULT_REGIONS, NATIVE_REGIONS;
+var import_pngjs2, import_promises5, import_path5, DEFAULT_REGIONS, NATIVE_REGIONS;
 var init_compare = __esm({
   "src/compare.ts"() {
     "use strict";
     init_pixelmatch();
     import_pngjs2 = __toESM(require_png());
     import_promises5 = require("fs/promises");
-    import_path4 = require("path");
+    import_path5 = require("path");
     init_verdict_policy();
     DEFAULT_REGIONS = [
       { name: "header", location: "top", xStart: 0, xEnd: 1, yStart: 0, yEnd: 0.1 },
@@ -24691,7 +28416,7 @@ function getCurrentBranch(dir) {
   }
 }
 async function getGitContext(dir) {
-  const gitConfigPath = (0, import_path5.join)(dir, ".git", "config");
+  const gitConfigPath = (0, import_path6.join)(dir, ".git", "config");
   const { remote, remoteUrl } = await parseGitConfig(gitConfigPath);
   const repoName = remoteUrl ? extractRepoName(remoteUrl) : null;
   const branch = getCurrentBranch(dir);
@@ -24704,7 +28429,7 @@ async function getGitContext(dir) {
 }
 async function getAppName(dir) {
   try {
-    const packageJsonPath = (0, import_path5.join)(dir, "package.json");
+    const packageJsonPath = (0, import_path6.join)(dir, "package.json");
     const content = await (0, import_promises6.readFile)(packageJsonPath, "utf-8");
     const packageJson = JSON.parse(content);
     if (packageJson.name) {
@@ -24714,7 +28439,7 @@ async function getAppName(dir) {
     }
   } catch {
   }
-  return (0, import_path5.basename)(dir);
+  return (0, import_path6.basename)(dir);
 }
 async function getAppContext(dir) {
   const [gitContext, appName] = await Promise.all([
@@ -24728,16 +28453,16 @@ async function getAppContext(dir) {
 }
 function getSessionBasePath(outputDir, context) {
   if (context.repoName && context.branch) {
-    return (0, import_path5.join)(outputDir, "apps", context.appName, context.branch, "sessions");
+    return (0, import_path6.join)(outputDir, "apps", context.appName, context.branch, "sessions");
   }
-  return (0, import_path5.join)(outputDir, "sessions");
+  return (0, import_path6.join)(outputDir, "sessions");
 }
-var import_promises6, import_path5, import_child_process;
+var import_promises6, import_path6, import_child_process;
 var init_git_context = __esm({
   "src/git-context.ts"() {
     "use strict";
     import_promises6 = require("fs/promises");
-    import_path5 = require("path");
+    import_path6 = require("path");
     import_child_process = require("child_process");
   }
 });
@@ -24766,24 +28491,24 @@ function generateSessionId() {
   return `${SESSION_PREFIX}${nanoid3(10)}`;
 }
 function getSessionPaths(outputDir, sessionId) {
-  const root = (0, import_path6.join)(outputDir, "sessions", sessionId);
+  const root = (0, import_path7.join)(outputDir, "sessions", sessionId);
   return {
     root,
-    sessionJson: (0, import_path6.join)(root, "session.json"),
-    baseline: (0, import_path6.join)(root, "baseline.png"),
-    current: (0, import_path6.join)(root, "current.png"),
-    diff: (0, import_path6.join)(root, "diff.png")
+    sessionJson: (0, import_path7.join)(root, "session.json"),
+    baseline: (0, import_path7.join)(root, "baseline.png"),
+    current: (0, import_path7.join)(root, "current.png"),
+    diff: (0, import_path7.join)(root, "diff.png")
   };
 }
 function getSessionPathsWithContext(outputDir, sessionId, context) {
-  const basePath = context ? getSessionBasePath(outputDir, context) : (0, import_path6.join)(outputDir, "sessions");
-  const root = (0, import_path6.join)(basePath, sessionId);
+  const basePath = context ? getSessionBasePath(outputDir, context) : (0, import_path7.join)(outputDir, "sessions");
+  const root = (0, import_path7.join)(basePath, sessionId);
   return {
     root,
-    sessionJson: (0, import_path6.join)(root, "session.json"),
-    baseline: (0, import_path6.join)(root, "baseline.png"),
-    current: (0, import_path6.join)(root, "current.png"),
-    diff: (0, import_path6.join)(root, "diff.png")
+    sessionJson: (0, import_path7.join)(root, "session.json"),
+    baseline: (0, import_path7.join)(root, "baseline.png"),
+    current: (0, import_path7.join)(root, "current.png"),
+    diff: (0, import_path7.join)(root, "diff.png")
   };
 }
 async function getCachedAppContext(projectDir) {
@@ -24850,7 +28575,7 @@ async function markSessionCompared(outputDir, sessionId, comparison, analysis) {
   });
 }
 async function listSessions(outputDir) {
-  const sessionsDir = (0, import_path6.join)(outputDir, "sessions");
+  const sessionsDir = (0, import_path7.join)(outputDir, "sessions");
   try {
     const entries = await (0, import_promises7.readdir)(sessionsDir, { withFileTypes: true });
     const sessions2 = [];
@@ -25007,13 +28732,13 @@ async function getSessionStats(outputDir) {
     byVerdict
   };
 }
-var import_promises7, import_path6, SESSION_PREFIX, cachedContext, contextCacheDir;
+var import_promises7, import_path7, SESSION_PREFIX, cachedContext, contextCacheDir;
 var init_session = __esm({
   "src/session.ts"() {
     "use strict";
     init_nanoid();
     import_promises7 = require("fs/promises");
-    import_path6 = require("path");
+    import_path7 = require("path");
     init_schemas3();
     init_git_context();
     SESSION_PREFIX = "sess_";
@@ -26282,7 +30007,7 @@ async function captureStepScreenshot(page, step, artifactDir, startTime) {
   const timing = Date.now() - startTime;
   const stepNum = { before: "01", "after-query": "02", loading: "03", results: "04" }[step];
   const filename = `${stepNum}-${step}.png`;
-  const path3 = (0, import_path7.join)(artifactDir, filename);
+  const path3 = (0, import_path8.join)(artifactDir, filename);
   await page.addStyleTag({
     content: `
       *, *::before, *::after {
@@ -26348,7 +30073,7 @@ async function aiSearchFlow(page, options) {
   };
   let artifactDir;
   if (captureSteps && options.sessionDir) {
-    artifactDir = (0, import_path7.join)(options.sessionDir, `search-${Date.now()}`);
+    artifactDir = (0, import_path8.join)(options.sessionDir, `search-${Date.now()}`);
     await (0, import_promises8.mkdir)(artifactDir, { recursive: true });
   }
   try {
@@ -26433,7 +30158,7 @@ async function aiSearchFlow(page, options) {
         extractedResults
       };
       await (0, import_promises8.writeFile)(
-        (0, import_path7.join)(artifactDir, "results.json"),
+        (0, import_path8.join)(artifactDir, "results.json"),
         JSON.stringify(resultsData, null, 2)
       );
     }
@@ -26472,12 +30197,12 @@ async function aiSearchFlow(page, options) {
     };
   }
 }
-var import_promises8, import_path7;
+var import_promises8, import_path8;
 var init_search = __esm({
   "src/flows/search.ts"() {
     "use strict";
     import_promises8 = require("fs/promises");
-    import_path7 = require("path");
+    import_path8 = require("path");
     init_types2();
   }
 });
@@ -26832,7 +30557,7 @@ var init_flows = __esm({
 
 // src/cleanup.ts
 async function loadRetentionConfig(outputDir) {
-  const configPath = (0, import_path8.join)(outputDir, "..", ".ibrrc.json");
+  const configPath = (0, import_path9.join)(outputDir, "..", ".ibrrc.json");
   try {
     await (0, import_promises9.access)(configPath);
     const content = await (0, import_promises9.readFile)(configPath, "utf-8");
@@ -26963,12 +30688,12 @@ function formatRetentionStatus(status) {
   }
   return lines.join("\n");
 }
-var import_promises9, import_path8, DEFAULT_RETENTION;
+var import_promises9, import_path9, DEFAULT_RETENTION;
 var init_cleanup = __esm({
   "src/cleanup.ts"() {
     "use strict";
     import_promises9 = require("fs/promises");
-    import_path8 = require("path");
+    import_path9 = require("path");
     init_session();
     DEFAULT_RETENTION = {
       maxSessions: void 0,
@@ -27006,17 +30731,17 @@ function contentDigest(value) {
   return `sha256:${(0, import_crypto2.createHash)("sha256").update(value).digest("hex")}`;
 }
 function isWithinRoot(root, candidate) {
-  const offset = (0, import_path9.relative)(root, candidate);
-  return offset !== "" && !offset.startsWith(`..${import_path9.sep}`) && offset !== ".." && !(0, import_path9.isAbsolute)(offset);
+  const offset = (0, import_path10.relative)(root, candidate);
+  return offset !== "" && !offset.startsWith(`..${import_path10.sep}`) && offset !== ".." && !(0, import_path10.isAbsolute)(offset);
 }
 async function artifactDigest(path3, policy) {
-  const suppliedPath = (0, import_path9.resolve)(path3);
+  const suppliedPath = (0, import_path10.resolve)(path3);
   if (!isWithinRoot(policy.lexicalRoot, suppliedPath)) throw new ArtifactPolicyError();
   const beforeOpen = await (0, import_promises10.lstat)(suppliedPath);
   if (beforeOpen.isSymbolicLink() || !beforeOpen.isFile()) throw new ArtifactPolicyError();
   const canonicalPath = await (0, import_promises10.realpath)(suppliedPath);
   if (!isWithinRoot(policy.canonicalRoot, canonicalPath)) throw new ArtifactPolicyError();
-  const handle = await (0, import_promises10.open)(canonicalPath, import_fs3.constants.O_RDONLY | import_fs3.constants.O_NOFOLLOW);
+  const handle = await (0, import_promises10.open)(canonicalPath, import_fs4.constants.O_RDONLY | import_fs4.constants.O_NOFOLLOW);
   const hash2 = (0, import_crypto2.createHash)("sha256");
   let bytes = 0;
   try {
@@ -27067,18 +30792,18 @@ async function normalizeArtifact(artifact, retainPath, location, artifactPolicy)
     measured = artifact.path ? await artifactDigest(artifact.path, artifactPolicy) : void 0;
   } catch (error51) {
     if (error51 instanceof ArtifactSizeLimitError) {
-      const target = retainPath ? (0, import_path9.basename)(artifact.path) : location;
+      const target = retainPath ? (0, import_path10.basename)(artifact.path) : location;
       throw new Error(`artifact exceeds ${MAX_EXTERNAL_ACTION_ARTIFACT_BYTES} bytes at ${target}`);
     }
     if (error51 instanceof ArtifactPolicyError) {
-      const target = retainPath && artifact.path ? (0, import_path9.basename)(artifact.path) : location;
+      const target = retainPath && artifact.path ? (0, import_path10.basename)(artifact.path) : location;
       throw new Error(`artifact violates regular-file root policy at ${target}`);
     }
     if (retainPath) throw error51;
     throw new Error(`unable to read artifact at ${location}`);
   }
   if (artifact.sha256 && measured && artifact.sha256 !== measured.sha256) {
-    const target = retainPath ? (0, import_path9.basename)(artifact.path) : location;
+    const target = retainPath ? (0, import_path10.basename)(artifact.path) : location;
     throw new Error(`artifact digest mismatch for ${target}`);
   }
   return {
@@ -27120,7 +30845,7 @@ async function createExternalActionReceipt(rawInput, options = {}) {
   if (hasArtifactPath) {
     if (!parsedOptions.artifactRoot) throw new Error("artifactRoot is required when an artifact path is supplied");
     try {
-      const lexicalRoot = (0, import_path9.resolve)(parsedOptions.artifactRoot);
+      const lexicalRoot = (0, import_path10.resolve)(parsedOptions.artifactRoot);
       const canonicalRoot = await (0, import_promises10.realpath)(lexicalRoot);
       if (!(await (0, import_promises10.lstat)(canonicalRoot)).isDirectory()) throw new ArtifactPolicyError();
       artifactPolicy = { lexicalRoot, canonicalRoot };
@@ -27198,10 +30923,10 @@ async function createExternalActionReceipt(rawInput, options = {}) {
 async function writeExternalActionReceipt(receipt, options = {}) {
   const validated = ExternalActionReceiptSchema.parse(receipt);
   const parsedOptions = writeOptionsSchema.parse(options);
-  const outputDir = parsedOptions.outputDir ?? (0, import_path9.join)(process.cwd(), ".ibr", "evidence");
+  const outputDir = parsedOptions.outputDir ?? (0, import_path10.join)(process.cwd(), ".ibr", "evidence");
   await (0, import_promises10.mkdir)(outputDir, { recursive: true });
-  const destination = (0, import_path9.join)(outputDir, `${validated.receiptId}.json`);
-  const temporary = (0, import_path9.join)(outputDir, `.${validated.receiptId}.${(0, import_crypto2.randomUUID)()}.tmp`);
+  const destination = (0, import_path10.join)(outputDir, `${validated.receiptId}.json`);
+  const temporary = (0, import_path10.join)(outputDir, `.${validated.receiptId}.${(0, import_crypto2.randomUUID)()}.tmp`);
   await publishExternalActionReceipt(
     temporary,
     destination,
@@ -27228,14 +30953,14 @@ async function recordExternalActionEvidence(input, createOptions = {}, writeOpti
   const path3 = await writeExternalActionReceipt(receipt, writeOptions);
   return { receipt, path: path3 };
 }
-var import_crypto2, import_fs3, import_promises10, import_path9, MAX_TEXT, SHA256, FIELD_DIGEST, SAFE_CODE, SAFE_TOKEN, RECEIPT_ID, TRANSFORMED_FIELD, MAX_EXTERNAL_ACTION_ARTIFACT_BYTES, boundedText, timestamp, boundsSchema, artifactSchema, observationSchema, targetSchema, ExternalActionEvidenceInputSchema, artifactReceiptSchema, observationReceiptSchema, surfaceReceiptSchema, ExternalActionReceiptSchema, createOptionsSchema, writeOptionsSchema, ArtifactPolicyError, ArtifactSizeLimitError;
+var import_crypto2, import_fs4, import_promises10, import_path10, MAX_TEXT, SHA256, FIELD_DIGEST, SAFE_CODE, SAFE_TOKEN, RECEIPT_ID, TRANSFORMED_FIELD, MAX_EXTERNAL_ACTION_ARTIFACT_BYTES, boundedText, timestamp, boundsSchema, artifactSchema, observationSchema, targetSchema, ExternalActionEvidenceInputSchema, artifactReceiptSchema, observationReceiptSchema, surfaceReceiptSchema, ExternalActionReceiptSchema, createOptionsSchema, writeOptionsSchema, ArtifactPolicyError, ArtifactSizeLimitError;
 var init_external_action_evidence = __esm({
   "src/external-action-evidence.ts"() {
     "use strict";
     import_crypto2 = require("crypto");
-    import_fs3 = require("fs");
+    import_fs4 = require("fs");
     import_promises10 = require("fs/promises");
-    import_path9 = require("path");
+    import_path10 = require("path");
     init_zod();
     MAX_TEXT = 4096;
     SHA256 = /^sha256:[a-f0-9]{64}$/;
@@ -27395,8 +31120,8 @@ var init_external_action_evidence = __esm({
         artifactPathsRetained: external_exports.boolean()
       }).strict()
     }).strict().superRefine((receipt, context) => {
-      for (const message of chronologyIssues(receipt)) {
-        context.addIssue({ code: "custom", message });
+      for (const message2 of chronologyIssues(receipt)) {
+        context.addIssue({ code: "custom", message: message2 });
       }
       const duration3 = Date.parse(receipt.action.completedAt) - Date.parse(receipt.action.startedAt);
       if (receipt.action.durationMs !== duration3) {
@@ -27519,7 +31244,8 @@ var consistency_exports = {};
 __export(consistency_exports, {
   analyzeThemeConsistency: () => analyzeThemeConsistency,
   checkConsistency: () => checkConsistency,
-  formatConsistencyReport: () => formatConsistencyReport
+  formatConsistencyReport: () => formatConsistencyReport,
+  resolvePageBackground: () => resolvePageBackground
 });
 function parseColor(color) {
   if (!color || color === "transparent") return null;
@@ -27563,11 +31289,49 @@ function relativeLuminance(r, g, b) {
   };
   return 0.2126 * linearize2(r) + 0.7152 * linearize2(g) + 0.0722 * linearize2(b);
 }
+function colorAlpha(color) {
+  if (!color || color === "transparent") return 0;
+  const m = color.match(/rgba\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*,\s*([\d.]+)\s*\)/i);
+  return m ? Number(m[1]) : 1;
+}
+function compositeLuminance(color, backdrop) {
+  const parsed = parseColor(color);
+  if (!parsed) return null;
+  const a = colorAlpha(color);
+  const mix = (c, d) => c * a + d * (1 - a);
+  return relativeLuminance(mix(parsed.r, backdrop.r), mix(parsed.g, backdrop.g), mix(parsed.b, backdrop.b));
+}
+function resolvePageBackground(input) {
+  const canvas = parseColor(input.canvas) ?? { r: 255, g: 255, b: 255 };
+  for (const [color, image] of [[input.bodyColor, input.bodyImage], [input.htmlColor, input.htmlImage]]) {
+    if (colorAlpha(color) >= 1) return { color, luminance: compositeLuminance(color, canvas) };
+    if (image && image !== "none") {
+      if (/url\(/i.test(image)) return { color: image, luminance: null };
+      const stops = image.match(/rgba?\([^)]*\)|#[0-9a-f]{3,8}\b/gi) ?? [];
+      const values = stops.map((stop) => compositeLuminance(stop, canvas)).filter((v) => v !== null);
+      if (values.length) return { color: image, luminance: values.reduce((sum, v) => sum + v, 0) / values.length };
+      return { color: image, luminance: null };
+    }
+    if (colorAlpha(color) > 0) return { color, luminance: compositeLuminance(color, canvas) };
+  }
+  return { color: input.canvas, luminance: compositeLuminance(input.canvas, canvas) };
+}
 async function analyzeThemeConsistency(page) {
   const data = await page.evaluate(() => {
-    const bodyBg = window.getComputedStyle(document.body).backgroundColor;
-    const htmlBg = window.getComputedStyle(document.documentElement).backgroundColor;
-    const pageBg = bodyBg && bodyBg !== "rgba(0, 0, 0, 0)" && bodyBg !== "transparent" ? bodyBg : htmlBg;
+    const bodyStyle = window.getComputedStyle(document.body);
+    const htmlStyle = window.getComputedStyle(document.documentElement);
+    const probe = document.createElement("div");
+    probe.style.cssText = "position:absolute;width:0;height:0;background-color:Canvas";
+    document.documentElement.appendChild(probe);
+    const canvas = window.getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    const background = {
+      bodyColor: bodyStyle.backgroundColor,
+      htmlColor: htmlStyle.backgroundColor,
+      bodyImage: bodyStyle.backgroundImage,
+      htmlImage: htmlStyle.backgroundImage,
+      canvas
+    };
     const containerSelectors = [
       '[class*="card"]',
       '[class*="form"]',
@@ -27598,11 +31362,11 @@ async function analyzeThemeConsistency(page) {
       }
       if (cards.length >= 10) break;
     }
-    return { pageBg, cards };
+    return { background, cards };
   });
-  const pageParsed = parseColor(data.pageBg);
-  const pageLuminance = pageParsed ? relativeLuminance(pageParsed.r, pageParsed.g, pageParsed.b) : 0.5;
-  const pageBackground = { color: data.pageBg, luminance: pageLuminance };
+  const resolved = resolvePageBackground(data.background);
+  const pageLuminance = resolved.luminance ?? 0.5;
+  const pageBackground = { color: resolved.color, luminance: pageLuminance };
   const contentCards = data.cards.map((c) => {
     const parsed = parseColor(c.color);
     const luminance = parsed ? relativeLuminance(parsed.r, parsed.g, parsed.b) : 0.5;
@@ -28535,7 +32299,7 @@ var init_integration = __esm({
 
 // src/operation-tracker.ts
 function getOperationsPath(outputDir) {
-  return (0, import_path10.join)(outputDir, "operations.json");
+  return (0, import_path11.join)(outputDir, "operations.json");
 }
 async function readState(outputDir) {
   const path3 = getOperationsPath(outputDir);
@@ -28548,7 +32312,7 @@ async function readState(outputDir) {
 }
 async function writeState(outputDir, state) {
   const path3 = getOperationsPath(outputDir);
-  await (0, import_promises11.mkdir)((0, import_path10.dirname)(path3), { recursive: true });
+  await (0, import_promises11.mkdir)((0, import_path11.dirname)(path3), { recursive: true });
   state.lastUpdated = (/* @__PURE__ */ new Date()).toISOString();
   await (0, import_promises11.writeFile)(path3, JSON.stringify(state, null, 2));
 }
@@ -28632,13 +32396,13 @@ function withOperationTracking(outputDir, options) {
     }
   };
 }
-var import_promises11, import_path10, OPERATION_PREFIX;
+var import_promises11, import_path11, OPERATION_PREFIX;
 var init_operation_tracker = __esm({
   "src/operation-tracker.ts"() {
     "use strict";
     init_nanoid();
     import_promises11 = require("fs/promises");
-    import_path10 = require("path");
+    import_path11 = require("path");
     OPERATION_PREFIX = "op_";
   }
 });
@@ -28838,6 +32602,35 @@ __export(interactivity_exports, {
   formatInteractivityResult: () => formatInteractivityResult,
   testInteractivity: () => testInteractivity
 });
+async function enrichFormSubmitListeners(page, forms) {
+  const pending = forms.map((f, i) => f.hasSubmitHandler ? -1 : i).filter((i) => i >= 0);
+  const evalWithApi = page.evaluateWithCommandLineAPI;
+  if (pending.length === 0 || typeof evalWithApi !== "function") return;
+  const expression = `
+    (function () {
+      const forms = Array.from(document.querySelectorAll('form'));
+      const hasSubmit = (node) => {
+        try {
+          const l = getEventListeners(node);
+          return !!(l && Array.isArray(l.submit) && l.submit.length > 0);
+        } catch (e) { return false; }
+      };
+      return ${JSON.stringify(pending)}.map((i) => {
+        let node = forms[i];
+        if (!node) return false;
+        while (node) { if (hasSubmit(node)) return true; node = node.parentNode; }
+        return hasSubmit(window);
+      });
+    })()`;
+  try {
+    const found = await evalWithApi.call(page, expression);
+    if (!Array.isArray(found)) return;
+    pending.forEach((formIndex, k) => {
+      if (found[k] === true) forms[formIndex].hasSubmitHandler = true;
+    });
+  } catch {
+  }
+}
 async function testInteractivity(page) {
   const data = await page.evaluate(() => {
     const results = {
@@ -28960,7 +32753,7 @@ async function testInteractivity(page) {
           buttonType: "submit"
         };
       }
-      const hasSubmitHandler = hasEventHandler(el) || el.getAttribute("action") !== null || submitBtn !== null;
+      const hasSubmitHandler = hasEventHandler(el) || typeof el.onsubmit === "function" || el.getAttribute("onsubmit") !== null || el.getAttribute("action") !== null || submitBtn !== null;
       results.forms.push({
         selector: getSelector(el),
         action: el.action || void 0,
@@ -28973,6 +32766,7 @@ async function testInteractivity(page) {
     }
     return results;
   });
+  await enrichFormSubmitListeners(page, data.forms);
   const issues = [];
   for (const btn of data.buttons) {
     if (!btn.hasHandler && !btn.isDisabled) {
@@ -29636,17 +33430,17 @@ __export(memory_exports, {
   seedFromGlobal: () => seedFromGlobal
 });
 async function initMemory(outputDir) {
-  const memoryDir = (0, import_path11.join)(outputDir, MEMORY_DIR);
-  await (0, import_promises12.mkdir)((0, import_path11.join)(memoryDir, PREFERENCES_DIR), { recursive: true });
-  await (0, import_promises12.mkdir)((0, import_path11.join)(memoryDir, LEARNED_DIR), { recursive: true });
-  await (0, import_promises12.mkdir)((0, import_path11.join)(memoryDir, ARCHIVE_DIR), { recursive: true });
+  const memoryDir = (0, import_path12.join)(outputDir, MEMORY_DIR);
+  await (0, import_promises12.mkdir)((0, import_path12.join)(memoryDir, PREFERENCES_DIR), { recursive: true });
+  await (0, import_promises12.mkdir)((0, import_path12.join)(memoryDir, LEARNED_DIR), { recursive: true });
+  await (0, import_promises12.mkdir)((0, import_path12.join)(memoryDir, ARCHIVE_DIR), { recursive: true });
 }
 function getMemoryPath(outputDir, ...segments) {
-  return (0, import_path11.join)(outputDir, MEMORY_DIR, ...segments);
+  return (0, import_path12.join)(outputDir, MEMORY_DIR, ...segments);
 }
 async function loadSummary(outputDir) {
   const summaryPath = getMemoryPath(outputDir, SUMMARY_FILE);
-  if (!(0, import_fs4.existsSync)(summaryPath)) {
+  if (!(0, import_fs5.existsSync)(summaryPath)) {
     return createEmptySummary();
   }
   try {
@@ -29701,7 +33495,7 @@ async function addPreference(outputDir, input) {
 }
 async function getPreference(outputDir, prefId) {
   const prefPath = getMemoryPath(outputDir, PREFERENCES_DIR, `${prefId}.json`);
-  if (!(0, import_fs4.existsSync)(prefPath)) return null;
+  if (!(0, import_fs5.existsSync)(prefPath)) return null;
   try {
     const content = await (0, import_promises12.readFile)(prefPath, "utf-8");
     return JSON.parse(content);
@@ -29711,20 +33505,20 @@ async function getPreference(outputDir, prefId) {
 }
 async function removePreference(outputDir, prefId) {
   const prefPath = getMemoryPath(outputDir, PREFERENCES_DIR, `${prefId}.json`);
-  if (!(0, import_fs4.existsSync)(prefPath)) return false;
+  if (!(0, import_fs5.existsSync)(prefPath)) return false;
   await (0, import_promises12.unlink)(prefPath);
   await rebuildSummary(outputDir);
   return true;
 }
 async function listPreferences(outputDir, filter) {
   const prefsDir = getMemoryPath(outputDir, PREFERENCES_DIR);
-  if (!(0, import_fs4.existsSync)(prefsDir)) return [];
+  if (!(0, import_fs5.existsSync)(prefsDir)) return [];
   const files = await (0, import_promises12.readdir)(prefsDir);
   const prefs = [];
   for (const file2 of files) {
     if (!file2.endsWith(".json")) continue;
     try {
-      const content = await (0, import_promises12.readFile)((0, import_path11.join)(prefsDir, file2), "utf-8");
+      const content = await (0, import_promises12.readFile)((0, import_path12.join)(prefsDir, file2), "utf-8");
       const pref = JSON.parse(content);
       if (filter?.category && pref.category !== filter.category) continue;
       if (filter?.route && pref.route !== filter.route) continue;
@@ -29752,13 +33546,13 @@ async function learnFromSession(outputDir, session, observations) {
 }
 async function listLearned(outputDir) {
   const learnedDir = getMemoryPath(outputDir, LEARNED_DIR);
-  if (!(0, import_fs4.existsSync)(learnedDir)) return [];
+  if (!(0, import_fs5.existsSync)(learnedDir)) return [];
   const files = await (0, import_promises12.readdir)(learnedDir);
   const items = [];
   for (const file2 of files) {
     if (!file2.endsWith(".json")) continue;
     try {
-      const content = await (0, import_promises12.readFile)((0, import_path11.join)(learnedDir, file2), "utf-8");
+      const content = await (0, import_promises12.readFile)((0, import_path12.join)(learnedDir, file2), "utf-8");
       items.push(JSON.parse(content));
     } catch {
     }
@@ -29767,7 +33561,7 @@ async function listLearned(outputDir) {
 }
 async function promoteToPreference(outputDir, learnedId) {
   const learnedPath = getMemoryPath(outputDir, LEARNED_DIR, `${learnedId}.json`);
-  if (!(0, import_fs4.existsSync)(learnedPath)) return null;
+  if (!(0, import_fs5.existsSync)(learnedPath)) return null;
   const content = await (0, import_promises12.readFile)(learnedPath, "utf-8");
   const learned = JSON.parse(content);
   if (learned.observations.length === 0) return null;
@@ -29821,7 +33615,7 @@ async function rebuildSummary(outputDir) {
 }
 async function archiveSummary(outputDir) {
   const summaryPath = getMemoryPath(outputDir, SUMMARY_FILE);
-  if (!(0, import_fs4.existsSync)(summaryPath)) return;
+  if (!(0, import_fs5.existsSync)(summaryPath)) return;
   const timestamp2 = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
   const archivePath = getMemoryPath(outputDir, ARCHIVE_DIR, `summary_${timestamp2}.json`);
   try {
@@ -29974,7 +33768,7 @@ async function promoteToGlobal(outputDir) {
       source: "learned",
       updatedAt: (/* @__PURE__ */ new Date()).toISOString()
     };
-    const globalPath = (0, import_path11.join)(GLOBAL_PREFS_DIR, `${globalPref.id}.json`);
+    const globalPath = (0, import_path12.join)(GLOBAL_PREFS_DIR, `${globalPref.id}.json`);
     await (0, import_promises12.writeFile)(globalPath, JSON.stringify(globalPref, null, 2));
     globalIndex.add(key);
     promoted.push(`${pref.category}: ${pref.description}`);
@@ -29983,13 +33777,13 @@ async function promoteToGlobal(outputDir) {
   return { promoted, skipped, alreadyGlobal };
 }
 async function listGlobalPreferences() {
-  if (!(0, import_fs4.existsSync)(GLOBAL_PREFS_DIR)) return [];
+  if (!(0, import_fs5.existsSync)(GLOBAL_PREFS_DIR)) return [];
   const files = await (0, import_promises12.readdir)(GLOBAL_PREFS_DIR);
   const prefs = [];
   for (const file2 of files) {
     if (!file2.endsWith(".json")) continue;
     try {
-      const content = await (0, import_promises12.readFile)((0, import_path11.join)(GLOBAL_PREFS_DIR, file2), "utf-8");
+      const content = await (0, import_promises12.readFile)((0, import_path12.join)(GLOBAL_PREFS_DIR, file2), "utf-8");
       prefs.push(JSON.parse(content));
     } catch {
     }
@@ -30050,8 +33844,8 @@ async function rebuildGlobalSummary() {
   await (0, import_promises12.writeFile)(GLOBAL_SUMMARY, JSON.stringify(summary, null, 2));
 }
 async function removeGlobalPreference(prefId) {
-  const prefPath = (0, import_path11.join)(GLOBAL_PREFS_DIR, `${prefId}.json`);
-  if (!(0, import_fs4.existsSync)(prefPath)) return false;
+  const prefPath = (0, import_path12.join)(GLOBAL_PREFS_DIR, `${prefId}.json`);
+  if (!(0, import_fs5.existsSync)(prefPath)) return false;
   await (0, import_promises12.unlink)(prefPath);
   await rebuildGlobalSummary();
   return true;
@@ -30077,14 +33871,14 @@ function formatGlobalMemory(prefs) {
   }
   return lines.join("\n");
 }
-var import_promises12, import_fs4, import_path11, import_os2, MEMORY_DIR, SUMMARY_FILE, PREFERENCES_DIR, LEARNED_DIR, ARCHIVE_DIR, PREF_PREFIX, LEARN_PREFIX, MAX_ACTIVE_PREFERENCES, GLOBAL_DIR, GLOBAL_PREFS_DIR, GLOBAL_SUMMARY, GLOBAL_PROMOTION_THRESHOLD;
+var import_promises12, import_fs5, import_path12, import_os3, MEMORY_DIR, SUMMARY_FILE, PREFERENCES_DIR, LEARNED_DIR, ARCHIVE_DIR, PREF_PREFIX, LEARN_PREFIX, MAX_ACTIVE_PREFERENCES, GLOBAL_DIR, GLOBAL_PREFS_DIR, GLOBAL_SUMMARY, GLOBAL_PROMOTION_THRESHOLD;
 var init_memory = __esm({
   "src/memory.ts"() {
     "use strict";
     import_promises12 = require("fs/promises");
-    import_fs4 = require("fs");
-    import_path11 = require("path");
-    import_os2 = require("os");
+    import_fs5 = require("fs");
+    import_path12 = require("path");
+    import_os3 = require("os");
     init_nanoid();
     MEMORY_DIR = "memory";
     SUMMARY_FILE = "summary.json";
@@ -30094,9 +33888,9 @@ var init_memory = __esm({
     PREF_PREFIX = "pref_";
     LEARN_PREFIX = "learn_";
     MAX_ACTIVE_PREFERENCES = 50;
-    GLOBAL_DIR = (0, import_path11.join)((0, import_os2.homedir)(), ".ibr", "global-memory");
-    GLOBAL_PREFS_DIR = (0, import_path11.join)(GLOBAL_DIR, "preferences");
-    GLOBAL_SUMMARY = (0, import_path11.join)(GLOBAL_DIR, "summary.json");
+    GLOBAL_DIR = (0, import_path12.join)((0, import_os3.homedir)(), ".ibr", "global-memory");
+    GLOBAL_PREFS_DIR = (0, import_path12.join)(GLOBAL_DIR, "preferences");
+    GLOBAL_SUMMARY = (0, import_path12.join)(GLOBAL_DIR, "summary.json");
     GLOBAL_PROMOTION_THRESHOLD = 0.9;
   }
 });
@@ -30219,14 +34013,14 @@ var init_types3 = __esm({
 
 // src/decision-tracker.ts
 function getDecisionsDir(outputDir) {
-  return (0, import_path12.join)(outputDir, CONTEXT_DIR, DECISIONS_DIR);
+  return (0, import_path13.join)(outputDir, CONTEXT_DIR, DECISIONS_DIR);
 }
 function routeToFilename(route) {
   return route.replace(/^\/+/, "").replace(/\//g, "_").replace(/[^a-zA-Z0-9_-]/g, "") || "_root";
 }
 function getRouteLogPath(outputDir, route) {
   const filename = `${routeToFilename(route)}.jsonl`;
-  return (0, import_path12.join)(getDecisionsDir(outputDir), filename);
+  return (0, import_path13.join)(getDecisionsDir(outputDir), filename);
 }
 async function ensureContextDirs(outputDir) {
   await (0, import_promises13.mkdir)(getDecisionsDir(outputDir), { recursive: true });
@@ -30253,7 +34047,7 @@ async function recordDecision(outputDir, options) {
 }
 async function getDecisionsByRoute(outputDir, route) {
   const logPath = getRouteLogPath(outputDir, route);
-  if (!(0, import_fs5.existsSync)(logPath)) {
+  if (!(0, import_fs6.existsSync)(logPath)) {
     return [];
   }
   const content = await (0, import_promises13.readFile)(logPath, "utf-8");
@@ -30267,13 +34061,13 @@ async function queryDecisions(outputDir, options = {}) {
     decisions = await getDecisionsByRoute(outputDir, route);
   } else {
     const decisionsDir = getDecisionsDir(outputDir);
-    if (!(0, import_fs5.existsSync)(decisionsDir)) {
+    if (!(0, import_fs6.existsSync)(decisionsDir)) {
       return [];
     }
     const files = await (0, import_promises13.readdir)(decisionsDir);
     for (const file2 of files) {
       if (!file2.endsWith(".jsonl")) continue;
-      const filePath = (0, import_path12.join)(decisionsDir, file2);
+      const filePath = (0, import_path13.join)(decisionsDir, file2);
       const content = await (0, import_promises13.readFile)(filePath, "utf-8");
       const lines = content.trim().split("\n").filter(Boolean);
       for (const line of lines) {
@@ -30298,13 +34092,13 @@ async function queryDecisions(outputDir, options = {}) {
 }
 async function getDecision(outputDir, decisionId) {
   const decisionsDir = getDecisionsDir(outputDir);
-  if (!(0, import_fs5.existsSync)(decisionsDir)) {
+  if (!(0, import_fs6.existsSync)(decisionsDir)) {
     return null;
   }
   const files = await (0, import_promises13.readdir)(decisionsDir);
   for (const file2 of files) {
     if (!file2.endsWith(".jsonl")) continue;
-    const filePath = (0, import_path12.join)(decisionsDir, file2);
+    const filePath = (0, import_path13.join)(decisionsDir, file2);
     const content = await (0, import_promises13.readFile)(filePath, "utf-8");
     const lines = content.trim().split("\n").filter(Boolean);
     for (const line of lines) {
@@ -30318,7 +34112,7 @@ async function getDecision(outputDir, decisionId) {
 }
 async function getTrackedRoutes(outputDir) {
   const decisionsDir = getDecisionsDir(outputDir);
-  if (!(0, import_fs5.existsSync)(decisionsDir)) {
+  if (!(0, import_fs6.existsSync)(decisionsDir)) {
     return [];
   }
   const files = await (0, import_promises13.readdir)(decisionsDir);
@@ -30336,26 +34130,26 @@ async function getDecisionStats(outputDir) {
 }
 async function getDecisionsSize(outputDir) {
   const decisionsDir = getDecisionsDir(outputDir);
-  if (!(0, import_fs5.existsSync)(decisionsDir)) {
+  if (!(0, import_fs6.existsSync)(decisionsDir)) {
     return 0;
   }
   const files = await (0, import_promises13.readdir)(decisionsDir);
   let total = 0;
   for (const file2 of files) {
     if (!file2.endsWith(".jsonl")) continue;
-    const s = await (0, import_promises13.stat)((0, import_path12.join)(decisionsDir, file2));
+    const s = await (0, import_promises13.stat)((0, import_path13.join)(decisionsDir, file2));
     total += s.size;
   }
   return total;
 }
-var import_promises13, import_path12, import_fs5, CONTEXT_DIR, DECISIONS_DIR;
+var import_promises13, import_path13, import_fs6, CONTEXT_DIR, DECISIONS_DIR;
 var init_decision_tracker = __esm({
   "src/decision-tracker.ts"() {
     "use strict";
     init_nanoid();
     import_promises13 = require("fs/promises");
-    import_path12 = require("path");
-    import_fs5 = require("fs");
+    import_path13 = require("path");
+    import_fs6 = require("fs");
     init_types3();
     CONTEXT_DIR = "context";
     DECISIONS_DIR = "decisions";
@@ -30364,14 +34158,14 @@ var init_decision_tracker = __esm({
 
 // src/context/compact.ts
 function getCompactPath(outputDir) {
-  return (0, import_path13.join)(outputDir, CONTEXT_DIR2, COMPACT_FILE);
+  return (0, import_path14.join)(outputDir, CONTEXT_DIR2, COMPACT_FILE);
 }
 function getArchiveDir(outputDir) {
-  return (0, import_path13.join)(outputDir, CONTEXT_DIR2, ARCHIVE_DIR2);
+  return (0, import_path14.join)(outputDir, CONTEXT_DIR2, ARCHIVE_DIR2);
 }
 async function loadCompactContext(outputDir, sessionId) {
   const compactPath = getCompactPath(outputDir);
-  if ((0, import_fs6.existsSync)(compactPath)) {
+  if ((0, import_fs7.existsSync)(compactPath)) {
     const content = await (0, import_promises14.readFile)(compactPath, "utf-8");
     return CompactContextSchema.parse(JSON.parse(content));
   }
@@ -30390,7 +34184,7 @@ async function loadCompactContext(outputDir, sessionId) {
   };
 }
 async function saveCompactContext(outputDir, context) {
-  const contextDir = (0, import_path13.join)(outputDir, CONTEXT_DIR2);
+  const contextDir = (0, import_path14.join)(outputDir, CONTEXT_DIR2);
   await (0, import_promises14.mkdir)(contextDir, { recursive: true });
   const compactPath = getCompactPath(outputDir);
   await (0, import_promises14.writeFile)(compactPath, JSON.stringify(context, null, 2));
@@ -30436,7 +34230,7 @@ async function compactContext(outputDir, request) {
   const archiveDir = getArchiveDir(outputDir);
   await (0, import_promises14.mkdir)(archiveDir, { recursive: true });
   const archiveFilename = `compact_${Date.now()}.json`;
-  const archivePath = (0, import_path13.join)(archiveDir, archiveFilename);
+  const archivePath = (0, import_path14.join)(archiveDir, archiveFilename);
   await (0, import_promises14.writeFile)(archivePath, JSON.stringify(current, null, 2));
   const decisionsCompacted = current.decisions_summary.reduce(
     (sum, s) => sum + s.decision_count,
@@ -30491,17 +34285,17 @@ async function addKnownIssue(outputDir, issue2) {
 }
 async function isCompactContextOversize(outputDir) {
   const compactPath = getCompactPath(outputDir);
-  if (!(0, import_fs6.existsSync)(compactPath)) return false;
+  if (!(0, import_fs7.existsSync)(compactPath)) return false;
   const content = await (0, import_promises14.readFile)(compactPath, "utf-8");
   return Buffer.byteLength(content, "utf-8") > 4096;
 }
-var import_promises14, import_path13, import_fs6, CONTEXT_DIR2, COMPACT_FILE, ARCHIVE_DIR2;
+var import_promises14, import_path14, import_fs7, CONTEXT_DIR2, COMPACT_FILE, ARCHIVE_DIR2;
 var init_compact = __esm({
   "src/context/compact.ts"() {
     "use strict";
     import_promises14 = require("fs/promises");
-    import_path13 = require("path");
-    import_fs6 = require("fs");
+    import_path14 = require("path");
+    import_fs7 = require("fs");
     init_nanoid();
     init_types3();
     init_decision_tracker();
@@ -30713,8 +34507,8 @@ async function closeBrowser2() {
   }
 }
 async function checkLock(outputDir) {
-  const lockPath = (0, import_path14.join)(outputDir, LOCK_FILE);
-  if (!(0, import_fs7.existsSync)(lockPath)) {
+  const lockPath = (0, import_path15.join)(outputDir, LOCK_FILE);
+  if (!(0, import_fs8.existsSync)(lockPath)) {
     return false;
   }
   try {
@@ -30731,11 +34525,11 @@ async function checkLock(outputDir) {
   }
 }
 async function createLock(outputDir) {
-  const lockPath = (0, import_path14.join)(outputDir, LOCK_FILE);
+  const lockPath = (0, import_path15.join)(outputDir, LOCK_FILE);
   await (0, import_promises15.writeFile)(lockPath, Date.now().toString());
 }
 async function releaseLock(outputDir) {
-  const lockPath = (0, import_path14.join)(outputDir, LOCK_FILE);
+  const lockPath = (0, import_path15.join)(outputDir, LOCK_FILE);
   try {
     await (0, import_promises15.unlink)(lockPath);
   } catch {
@@ -31733,7 +35527,7 @@ async function extractFromURL(options) {
   if (await checkLock(outputDir)) {
     throw new Error("Another extraction is in progress. Please wait.");
   }
-  const sessionDir = (0, import_path14.join)(outputDir, "sessions", sessionId);
+  const sessionDir = (0, import_path15.join)(outputDir, "sessions", sessionId);
   await (0, import_promises15.mkdir)(sessionDir, { recursive: true });
   await createLock(outputDir);
   let timeoutHandle = null;
@@ -31773,7 +35567,7 @@ async function extractFromURL(options) {
           elements.push(...extracted);
         }
         const cssVariables = await extractCSSVariables(page);
-        const screenshotPath = (0, import_path14.join)(sessionDir, "reference.png");
+        const screenshotPath = (0, import_path15.join)(sessionDir, "reference.png");
         await page.screenshot({
           path: screenshotPath,
           fullPage: true,
@@ -31789,10 +35583,10 @@ async function extractFromURL(options) {
           screenshotPath
         };
         await (0, import_promises15.writeFile)(
-          (0, import_path14.join)(sessionDir, "reference.json"),
+          (0, import_path15.join)(sessionDir, "reference.json"),
           JSON.stringify(result2, null, 2)
         );
-        await (0, import_promises15.writeFile)((0, import_path14.join)(sessionDir, "reference.html"), html);
+        await (0, import_promises15.writeFile)((0, import_path15.join)(sessionDir, "reference.html"), html);
         return result2;
       } finally {
         await driverInstance.close();
@@ -31808,15 +35602,15 @@ async function extractFromURL(options) {
   }
 }
 function getReferenceSessionPaths(outputDir, sessionId) {
-  const root = (0, import_path14.join)(outputDir, "sessions", sessionId);
+  const root = (0, import_path15.join)(outputDir, "sessions", sessionId);
   return {
     root,
-    sessionJson: (0, import_path14.join)(root, "session.json"),
-    reference: (0, import_path14.join)(root, "reference.png"),
-    referenceHtml: (0, import_path14.join)(root, "reference.html"),
-    referenceData: (0, import_path14.join)(root, "reference.json"),
-    current: (0, import_path14.join)(root, "current.png"),
-    diff: (0, import_path14.join)(root, "diff.png")
+    sessionJson: (0, import_path15.join)(root, "session.json"),
+    reference: (0, import_path15.join)(root, "reference.png"),
+    referenceHtml: (0, import_path15.join)(root, "reference.html"),
+    referenceData: (0, import_path15.join)(root, "reference.json"),
+    current: (0, import_path15.join)(root, "current.png"),
+    diff: (0, import_path15.join)(root, "diff.png")
   };
 }
 async function extractTextCensus(page) {
@@ -31911,15 +35705,15 @@ async function extractTextCensus(page) {
     return census;
   });
 }
-var import_promises15, import_fs7, import_path14, LOCK_FILE, LOCK_TIMEOUT_MS, EXTRACTION_TIMEOUT_MS, DEFAULT_SELECTORS, CSS_PROPERTIES_TO_EXTRACT, driver2, INTERACTIVE_SELECTORS, ACTIVATION_EVENT_TYPES, ROOT_DELEGATION_UNRESOLVED, CONTENT_SELECTORS, INLINE_TEXT_SELECTORS, CONTENT_ELEMENT_TAGS, INLINE_TEXT_TAGS;
+var import_promises15, import_fs8, import_path15, LOCK_FILE, LOCK_TIMEOUT_MS, EXTRACTION_TIMEOUT_MS, DEFAULT_SELECTORS, CSS_PROPERTIES_TO_EXTRACT, driver2, INTERACTIVE_SELECTORS, ACTIVATION_EVENT_TYPES, ROOT_DELEGATION_UNRESOLVED, CONTENT_SELECTORS, INLINE_TEXT_SELECTORS, CONTENT_ELEMENT_TAGS, INLINE_TEXT_TAGS;
 var init_extract2 = __esm({
   "src/extract.ts"() {
     "use strict";
     init_driver();
     init_compat();
     import_promises15 = require("fs/promises");
-    import_fs7 = require("fs");
-    import_path14 = require("path");
+    import_fs8 = require("fs");
+    import_path15 = require("path");
     init_schemas3();
     init_devices();
     init_target_sizing();
@@ -32867,10 +36661,10 @@ var init_layout_overflow = __esm({
 
 // src/design-system/config.ts
 async function loadDesignSystemConfig(projectDir) {
-  let configPath = (0, import_path15.join)(projectDir, ".ibr", "design-system.json");
-  if (!(0, import_fs8.existsSync)(configPath)) {
-    configPath = (0, import_path15.join)(projectDir, "design-system.json");
-    if (!(0, import_fs8.existsSync)(configPath)) {
+  let configPath = (0, import_path16.join)(projectDir, ".ibr", "design-system.json");
+  if (!(0, import_fs9.existsSync)(configPath)) {
+    configPath = (0, import_path16.join)(projectDir, "design-system.json");
+    if (!(0, import_fs9.existsSync)(configPath)) {
       return void 0;
     }
   }
@@ -32885,14 +36679,14 @@ function getDefaultSeverity(principleId, config2) {
   if (config2.principles.calmPrecision.stylistic.includes(principleId)) return "warn";
   return "warn";
 }
-var import_promises16, import_fs8, import_path15, CustomCheckSchema, CustomPrincipleSchema, DEFAULT_CALM_PRECISION_CONFIG, CalmPrecisionConfigSchema, TypographyTokensSchema, DesignSystemConfigSchema;
+var import_promises16, import_fs9, import_path16, CustomCheckSchema, CustomPrincipleSchema, DEFAULT_CALM_PRECISION_CONFIG, CalmPrecisionConfigSchema, TypographyTokensSchema, DesignSystemConfigSchema;
 var init_config = __esm({
   "src/design-system/config.ts"() {
     "use strict";
     init_zod();
     import_promises16 = require("fs/promises");
-    import_fs8 = require("fs");
-    import_path15 = require("path");
+    import_fs9 = require("fs");
+    import_path16 = require("path");
     CustomCheckSchema = external_exports.object({
       property: external_exports.string(),
       operator: external_exports.enum(["equals", "in-set", "not-in-set", "gte", "lte", "contains"]),
@@ -32982,12 +36776,12 @@ var init_schema = __esm({
 
 // src/tokens.ts
 function loadTokenSpec(specPath) {
-  if (!(0, import_fs9.existsSync)(specPath)) {
+  if (!(0, import_fs10.existsSync)(specPath)) {
     throw new Error(`Token spec not found: ${specPath}`);
   }
   let spec;
   try {
-    const content = (0, import_fs9.readFileSync)(specPath, "utf-8");
+    const content = (0, import_fs10.readFileSync)(specPath, "utf-8");
     spec = JSON.parse(content);
   } catch (err) {
     throw new Error(`Failed to parse token spec: ${err instanceof Error ? err.message : "Unknown error"}`);
@@ -33034,11 +36828,11 @@ function validateAgainstTokens(elements, spec) {
   }
   return violations;
 }
-var import_fs9, touchTargetValidator, fontSizeValidator, colorValidator, cornerRadiusValidator, spacingValidator, tokenValidators;
+var import_fs10, touchTargetValidator, fontSizeValidator, colorValidator, cornerRadiusValidator, spacingValidator, tokenValidators;
 var init_tokens = __esm({
   "src/tokens.ts"() {
     "use strict";
-    import_fs9 = require("fs");
+    import_fs10 = require("fs");
     touchTargetValidator = {
       name: "touchTargets",
       validate(elements, spec) {
@@ -36965,8 +40759,8 @@ function listPresets() {
   return Array.from(presets.keys());
 }
 async function loadRulesConfig(projectDir) {
-  const configPath = (0, import_path16.join)(projectDir, ".ibr", "rules.json");
-  if (!(0, import_fs10.existsSync)(configPath)) {
+  const configPath = (0, import_path17.join)(projectDir, ".ibr", "rules.json");
+  if (!(0, import_fs11.existsSync)(configPath)) {
     return { extends: [], rules: {} };
   }
   try {
@@ -36985,7 +40779,7 @@ async function resolveRulesConfig(projectDir, requested) {
     const presets3 = [...requested];
     return { config: { extends: presets3, rules: {} }, source: "flag", presets: presets3 };
   }
-  if ((0, import_fs10.existsSync)((0, import_path16.join)(projectDir, ".ibr", "rules.json"))) {
+  if ((0, import_fs11.existsSync)((0, import_path17.join)(projectDir, ".ibr", "rules.json"))) {
     const config2 = await loadRulesConfig(projectDir);
     const presets3 = config2.extends ?? [];
     if (presets3.length > 0 || Object.keys(config2.rules ?? {}).length > 0) {
@@ -37123,13 +40917,13 @@ async function loadMemoryPreset(outputDir) {
   } catch {
   }
 }
-var import_promises17, import_fs10, import_path16, presets, DEFAULT_RULE_PRESETS, RULES_OPT_OUT;
+var import_promises17, import_fs11, import_path17, presets, DEFAULT_RULE_PRESETS, RULES_OPT_OUT;
 var init_engine = __esm({
   "src/rules/engine.ts"() {
     "use strict";
     import_promises17 = require("fs/promises");
-    import_fs10 = require("fs");
-    import_path16 = require("path");
+    import_fs11 = require("fs");
+    import_path17 = require("path");
     init_calm_precision2();
     init_minimal();
     init_touch_targets2();
@@ -37617,11 +41411,11 @@ async function scan(url2, options = {}) {
           });
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message2 = err instanceof Error ? err.message : String(err);
         issues.push({
           category: "structure",
           severity: "warning",
-          description: `[layout-overflow-failed] Content overflow/clipping was NOT measured \u2014 self-overflow, container-escape, sibling-overlap, and clip findings are all absent from this scan: ${message}`,
+          description: `[layout-overflow-failed] Content overflow/clipping was NOT measured \u2014 self-overflow, container-escape, sibling-overlap, and clip findings are all absent from this scan: ${message2}`,
           fix: "Re-run the scan. If it persists, the page navigated or the browser detached mid-scan."
         });
       }
@@ -39037,7 +42831,7 @@ async function captureNativeScreenshot(options) {
   const { device, outputPath, mask } = options;
   const start = Date.now();
   try {
-    await (0, import_promises18.mkdir)((0, import_path17.dirname)(outputPath), { recursive: true });
+    await (0, import_promises18.mkdir)((0, import_path18.dirname)(outputPath), { recursive: true });
     const args = ["simctl", "io", device.udid, "screenshot", "--type=png"];
     const effectiveMask = mask ?? (device.platform === "watchos" ? "black" : void 0);
     if (effectiveMask) {
@@ -39063,14 +42857,14 @@ async function captureNativeScreenshot(options) {
     };
   }
 }
-var import_child_process3, import_util4, import_promises18, import_path17, execFileAsync2;
+var import_child_process3, import_util4, import_promises18, import_path18, execFileAsync2;
 var init_capture3 = __esm({
   "src/native/capture.ts"() {
     "use strict";
     import_child_process3 = require("child_process");
     import_util4 = require("util");
     import_promises18 = require("fs/promises");
-    import_path17 = require("path");
+    import_path18 = require("path");
     init_viewports();
     execFileAsync2 = (0, import_util4.promisify)(import_child_process3.execFile);
   }
@@ -39164,14 +42958,14 @@ var init_role_map = __esm({
 });
 
 // src/native/runtime-path.mts
-var import_path18, import_url2, import_meta, moduleDir;
+var import_path19, import_url2, import_meta, moduleDir;
 var init_runtime_path = __esm({
   "src/native/runtime-path.mts"() {
     "use strict";
-    import_path18 = require("path");
+    import_path19 = require("path");
     import_url2 = require("url");
     import_meta = {};
-    moduleDir = typeof __dirname === "string" ? __dirname : (0, import_path18.dirname)((0, import_url2.fileURLToPath)(import_meta.url));
+    moduleDir = typeof __dirname === "string" ? __dirname : (0, import_path19.dirname)((0, import_url2.fileURLToPath)(import_meta.url));
   }
 });
 
@@ -39188,13 +42982,13 @@ __export(extract_exports2, {
 function resolveSwiftSourceDir(runtimeModuleDir = moduleDir) {
   const candidates = [
     // TypeScript source execution: src/native/extract.ts
-    (0, import_path19.join)(runtimeModuleDir, "swift", "ibr-ax-extract"),
+    (0, import_path20.join)(runtimeModuleDir, "swift", "ibr-ax-extract"),
     // Bundled package execution: dist/index.{js,mjs}
-    (0, import_path19.join)(runtimeModuleDir, "..", "src", "native", "swift", "ibr-ax-extract"),
+    (0, import_path20.join)(runtimeModuleDir, "..", "src", "native", "swift", "ibr-ax-extract"),
     // Packaged CLI execution: dist/bin/ibr.js
-    (0, import_path19.join)(runtimeModuleDir, "..", "..", "src", "native", "swift", "ibr-ax-extract")
+    (0, import_path20.join)(runtimeModuleDir, "..", "..", "src", "native", "swift", "ibr-ax-extract")
   ];
-  return candidates.find((candidate) => (0, import_fs11.existsSync)((0, import_path19.join)(candidate, "Package.swift"))) ?? candidates[0];
+  return candidates.find((candidate) => (0, import_fs12.existsSync)((0, import_path20.join)(candidate, "Package.swift"))) ?? candidates[0];
 }
 async function ensureExtractor() {
   if (process.platform !== "darwin") {
@@ -39202,20 +42996,20 @@ async function ensureExtractor() {
       `macOS AX extractor requires macOS (current platform: ${process.platform})`
     );
   }
-  if ((0, import_fs11.existsSync)(EXTRACTOR_PATH) && isFileFresh(EXTRACTOR_PATH)) {
+  if ((0, import_fs12.existsSync)(EXTRACTOR_PATH) && isFileFresh(EXTRACTOR_PATH)) {
     return EXTRACTOR_PATH;
   }
-  if (!(0, import_fs11.existsSync)(SWIFT_PACKAGE_PATH)) {
+  if (!(0, import_fs12.existsSync)(SWIFT_PACKAGE_PATH)) {
     throw new Error(
       `Bundled Swift extractor source not found at ${SWIFT_SOURCE_DIR}. Rebuild or reinstall IBR so src/native/swift/ibr-ax-extract is included.`
     );
   }
   await (0, import_promises19.mkdir)(EXTRACTOR_DIR, { recursive: true });
   try {
-    if (!(0, import_fs11.existsSync)(SWIFT_BUILD_PATH) || !isFileFresh(SWIFT_BUILD_PATH)) {
+    if (!(0, import_fs12.existsSync)(SWIFT_BUILD_PATH) || !isFileFresh(SWIFT_BUILD_PATH)) {
       await buildSwiftExtractor();
     }
-    if (!(0, import_fs11.existsSync)(SWIFT_BUILD_PATH)) {
+    if (!(0, import_fs12.existsSync)(SWIFT_BUILD_PATH)) {
       throw new Error("Swift build succeeded but binary not found at expected path");
     }
     await (0, import_promises19.copyFile)(SWIFT_BUILD_PATH, EXTRACTOR_PATH);
@@ -39242,10 +43036,10 @@ async function buildSwiftExtractor() {
 }
 function isFileFresh(path3) {
   try {
-    const binaryMtime = (0, import_fs11.statSync)(path3).mtimeMs;
+    const binaryMtime = (0, import_fs12.statSync)(path3).mtimeMs;
     const sourceMtime = Math.max(
-      (0, import_fs11.statSync)(SWIFT_PACKAGE_PATH).mtimeMs,
-      ...(0, import_fs11.readdirSync)(SWIFT_SOURCES_DIR).filter((name) => name.endsWith(".swift")).map((name) => (0, import_fs11.statSync)((0, import_path19.join)(SWIFT_SOURCES_DIR, name)).mtimeMs)
+      (0, import_fs12.statSync)(SWIFT_PACKAGE_PATH).mtimeMs,
+      ...(0, import_fs12.readdirSync)(SWIFT_SOURCES_DIR).filter((name) => name.endsWith(".swift")).map((name) => (0, import_fs12.statSync)((0, import_path20.join)(SWIFT_SOURCES_DIR, name)).mtimeMs)
     );
     return binaryMtime >= sourceMtime;
   } catch {
@@ -39260,13 +43054,13 @@ async function requestAccessibilityPermission(deps) {
     return { trusted: true, message: "Accessibility permission is granted." };
   } catch (err) {
     const stderr = String(err.stderr ?? "").trim();
-    const message = err instanceof Error ? err.message : String(err);
-    return { trusted: false, message: stderr || message };
+    const message2 = err instanceof Error ? err.message : String(err);
+    return { trusted: false, message: stderr || message2 };
   }
 }
 function isExtractorAvailable() {
-  if ((0, import_fs11.existsSync)(EXTRACTOR_PATH)) return true;
-  return (0, import_fs11.existsSync)((0, import_path19.join)(SWIFT_SOURCE_DIR, "Package.swift"));
+  if ((0, import_fs12.existsSync)(EXTRACTOR_PATH)) return true;
+  return (0, import_fs12.existsSync)((0, import_path20.join)(SWIFT_SOURCE_DIR, "Package.swift"));
 }
 async function extractNativeElements(device) {
   const extractorPath = await ensureExtractor();
@@ -39280,13 +43074,13 @@ async function extractNativeElements(device) {
     const elements = JSON.parse(stdout);
     return elements;
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    if (message.includes("permission") || message.includes("accessibility")) {
+    const message2 = err instanceof Error ? err.message : "Unknown error";
+    if (message2.includes("permission") || message2.includes("accessibility")) {
       throw new Error(
         "Accessibility permission required. Grant Terminal/IDE access in System Settings > Privacy & Security > Accessibility"
       );
     }
-    throw new Error(`Element extraction failed: ${message}`);
+    throw new Error(`Element extraction failed: ${message2}`);
   }
 }
 function mapToEnhancedElements(nativeElements) {
@@ -39326,24 +43120,24 @@ function mapToEnhancedElements(nativeElements) {
   flatten2(nativeElements);
   return enhanced;
 }
-var import_child_process4, import_util5, import_fs11, import_promises19, import_path19, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_SOURCES_DIR, SWIFT_PACKAGE_PATH, SWIFT_BUILD_PATH;
+var import_child_process4, import_util5, import_fs12, import_promises19, import_path20, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_SOURCES_DIR, SWIFT_PACKAGE_PATH, SWIFT_BUILD_PATH;
 var init_extract3 = __esm({
   "src/native/extract.ts"() {
     "use strict";
     import_child_process4 = require("child_process");
     import_util5 = require("util");
-    import_fs11 = require("fs");
+    import_fs12 = require("fs");
     import_promises19 = require("fs/promises");
-    import_path19 = require("path");
+    import_path20 = require("path");
     init_role_map();
     init_runtime_path();
     execFileAsync3 = (0, import_util5.promisify)(import_child_process4.execFile);
-    EXTRACTOR_DIR = (0, import_path19.join)(process.cwd(), ".ibr", "bin");
-    EXTRACTOR_PATH = (0, import_path19.join)(EXTRACTOR_DIR, "ibr-ax-extract");
+    EXTRACTOR_DIR = (0, import_path20.join)(process.cwd(), ".ibr", "bin");
+    EXTRACTOR_PATH = (0, import_path20.join)(EXTRACTOR_DIR, "ibr-ax-extract");
     SWIFT_SOURCE_DIR = resolveSwiftSourceDir();
-    SWIFT_SOURCES_DIR = (0, import_path19.join)(SWIFT_SOURCE_DIR, "Sources");
-    SWIFT_PACKAGE_PATH = (0, import_path19.join)(SWIFT_SOURCE_DIR, "Package.swift");
-    SWIFT_BUILD_PATH = (0, import_path19.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
+    SWIFT_SOURCES_DIR = (0, import_path20.join)(SWIFT_SOURCE_DIR, "Sources");
+    SWIFT_PACKAGE_PATH = (0, import_path20.join)(SWIFT_SOURCE_DIR, "Package.swift");
+    SWIFT_BUILD_PATH = (0, import_path20.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
   }
 });
 
@@ -39451,20 +43245,20 @@ async function extractMacOSElements(options) {
   try {
     return await runMacOSExtraction(extractorPath, args);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    if (message.includes("Accessibility permission")) {
+    const message2 = err instanceof Error ? err.message : "Unknown error";
+    if (message2.includes("Accessibility permission")) {
       throw new Error(
         "Accessibility permission required. Grant Terminal/IDE access in System Settings > Privacy & Security > Accessibility"
       );
     }
-    if (message.includes("No running app")) {
+    if (message2.includes("No running app")) {
       throw err;
     }
-    if (message.includes("No windows found")) {
+    if (message2.includes("No windows found")) {
       const retry = await retryMacOSExtractionAfterActivation(options, extractorPath);
       if (retry) return retry;
     }
-    throw new Error(`macOS element extraction failed: ${message}`);
+    throw new Error(`macOS element extraction failed: ${message2}`);
   }
 }
 async function runMacOSExtraction(extractorPath, args) {
@@ -39584,19 +43378,19 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
   return enhanced;
 }
 async function captureMacOSScreenshot(windowId, outputPath) {
-  await (0, import_promises20.mkdir)((0, import_path20.dirname)(outputPath), { recursive: true });
+  await (0, import_promises20.mkdir)((0, import_path21.dirname)(outputPath), { recursive: true });
   await execFileAsync4("screencapture", ["-l", String(windowId), "-x", outputPath], {
     timeout: 1e4
   });
 }
-var import_child_process5, import_util6, import_promises20, import_path20, execFileAsync4, execAsync;
+var import_child_process5, import_util6, import_promises20, import_path21, execFileAsync4, execAsync;
 var init_macos = __esm({
   "src/native/macos.ts"() {
     "use strict";
     import_child_process5 = require("child_process");
     import_util6 = require("util");
     import_promises20 = require("fs/promises");
-    import_path20 = require("path");
+    import_path21 = require("path");
     init_extract3();
     init_role_map();
     execFileAsync4 = (0, import_util6.promisify)(import_child_process5.execFile);
@@ -40044,7 +43838,7 @@ async function scanNative(options = {}) {
   let screenshotPath;
   if (screenshot) {
     const timestamp2 = Date.now();
-    const ssPath = (0, import_path21.join)(outputDir, "native", `${device.udid.slice(0, 8)}-${timestamp2}.png`);
+    const ssPath = (0, import_path22.join)(outputDir, "native", `${device.udid.slice(0, 8)}-${timestamp2}.png`);
     const captureResult = await captureNativeScreenshot({
       device,
       outputPath: ssPath
@@ -40321,11 +44115,11 @@ function formatNativeScanResult(result) {
   lines.push("", "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   return lines.join("\n");
 }
-var import_path21;
+var import_path22;
 var init_scan2 = __esm({
   "src/native/scan.ts"() {
     "use strict";
-    import_path21 = require("path");
+    import_path22 = require("path");
     init_scan();
     init_extract2();
     init_simulator();
@@ -40348,12 +44142,12 @@ __export(crop_exports, {
 function loadPng(path3) {
   return new Promise((resolve7, reject) => {
     const png = new import_pngjs3.PNG();
-    (0, import_fs12.createReadStream)(path3).pipe(png).on("parsed", () => resolve7(png)).on("error", reject);
+    (0, import_fs13.createReadStream)(path3).pipe(png).on("parsed", () => resolve7(png)).on("error", reject);
   });
 }
 function writePng(png, path3) {
   return new Promise((resolve7, reject) => {
-    png.pack().pipe((0, import_fs12.createWriteStream)(path3)).on("finish", resolve7).on("error", reject);
+    png.pack().pipe((0, import_fs13.createWriteStream)(path3)).on("finish", resolve7).on("error", reject);
   });
 }
 function clamp(v, lo, hi) {
@@ -40372,17 +44166,17 @@ async function cropPng(srcPath, bounds, destPath, opts = {}) {
   if (cropW <= 0 || cropH <= 0) return null;
   const out = new import_pngjs3.PNG({ width: cropW, height: cropH });
   src.bitblt(out, x0, y0, cropW, cropH, 0, 0);
-  await (0, import_promises21.mkdir)((0, import_path22.dirname)(destPath), { recursive: true });
+  await (0, import_promises21.mkdir)((0, import_path23.dirname)(destPath), { recursive: true });
   await writePng(out, destPath);
   return destPath;
 }
-var import_fs12, import_promises21, import_path22, import_pngjs3;
+var import_fs13, import_promises21, import_path23, import_pngjs3;
 var init_crop = __esm({
   "src/utils/crop.ts"() {
     "use strict";
-    import_fs12 = require("fs");
+    import_fs13 = require("fs");
     import_promises21 = require("fs/promises");
-    import_path22 = require("path");
+    import_path23 = require("path");
     import_pngjs3 = __toESM(require_png());
   }
 });
@@ -40870,23 +44664,23 @@ var init_principles = __esm({
 // src/native/sim-driver.ts
 function existingBinaryCandidates() {
   return [
-    (0, import_path23.join)(moduleDir, "..", "bin", DRIVER_NAME),
-    (0, import_path23.join)(moduleDir, "bin", DRIVER_NAME),
-    (0, import_path23.join)(moduleDir, "..", "..", "dist", "bin", DRIVER_NAME),
+    (0, import_path24.join)(moduleDir, "..", "bin", DRIVER_NAME),
+    (0, import_path24.join)(moduleDir, "bin", DRIVER_NAME),
+    (0, import_path24.join)(moduleDir, "..", "..", "dist", "bin", DRIVER_NAME),
     CACHE_PATH
   ];
 }
 function sourceDirCandidates() {
   return [
-    (0, import_path23.join)(moduleDir, "..", "..", "mobile-ui", "sim-driver"),
-    (0, import_path23.join)(moduleDir, "..", "mobile-ui", "sim-driver")
+    (0, import_path24.join)(moduleDir, "..", "..", "mobile-ui", "sim-driver"),
+    (0, import_path24.join)(moduleDir, "..", "mobile-ui", "sim-driver")
   ];
 }
 function findExistingBinary() {
-  return existingBinaryCandidates().find((p) => (0, import_fs13.existsSync)(p)) ?? null;
+  return existingBinaryCandidates().find((p) => (0, import_fs14.existsSync)(p)) ?? null;
 }
 function findSourceDir() {
-  return sourceDirCandidates().find((p) => (0, import_fs13.existsSync)((0, import_path23.join)(p, "Package.swift"))) ?? null;
+  return sourceDirCandidates().find((p) => (0, import_fs14.existsSync)((0, import_path24.join)(p, "Package.swift"))) ?? null;
 }
 function errorMessage(err) {
   if (err && typeof err === "object") {
@@ -40925,8 +44719,8 @@ async function ensureSimDriver() {
     await execFileAsync5("swift", ["build", "--package-path", sourceDir, "-c", "release"], {
       timeout: 12e4
     });
-    const builtPath = (0, import_path23.join)(sourceDir, ".build", "release", DRIVER_NAME);
-    if (!(0, import_fs13.existsSync)(builtPath)) {
+    const builtPath = (0, import_path24.join)(sourceDir, ".build", "release", DRIVER_NAME);
+    if (!(0, import_fs14.existsSync)(builtPath)) {
       throw new Error("Swift build succeeded but binary was not created");
     }
     await (0, import_promises22.mkdir)(CACHE_DIR, { recursive: true });
@@ -40977,20 +44771,20 @@ function simDriverSwipe(udid, x1, y1, x2, y2, duration3, opts) {
   if (duration3) args.push("--duration", String(duration3));
   return runSimDriver(args, "swipe");
 }
-var import_child_process6, import_fs13, import_promises22, import_path23, import_util7, execFileAsync5, DRIVER_NAME, CACHE_DIR, CACHE_PATH, cachedPath, buildError;
+var import_child_process6, import_fs14, import_promises22, import_path24, import_util7, execFileAsync5, DRIVER_NAME, CACHE_DIR, CACHE_PATH, cachedPath, buildError;
 var init_sim_driver = __esm({
   "src/native/sim-driver.ts"() {
     "use strict";
     import_child_process6 = require("child_process");
-    import_fs13 = require("fs");
+    import_fs14 = require("fs");
     import_promises22 = require("fs/promises");
-    import_path23 = require("path");
+    import_path24 = require("path");
     import_util7 = require("util");
     init_runtime_path();
     execFileAsync5 = (0, import_util7.promisify)(import_child_process6.execFile);
     DRIVER_NAME = "ibr-sim-driver";
-    CACHE_DIR = (0, import_path23.join)(process.cwd(), ".ibr", "bin");
-    CACHE_PATH = (0, import_path23.join)(CACHE_DIR, DRIVER_NAME);
+    CACHE_DIR = (0, import_path24.join)(process.cwd(), ".ibr", "bin");
+    CACHE_PATH = (0, import_path24.join)(CACHE_DIR, DRIVER_NAME);
     buildError = null;
   }
 });
@@ -41006,12 +44800,12 @@ function configuredDriverPreference() {
 function shouldTryDriver(driver3, preference) {
   return preference === "auto" || preference === driver3;
 }
-function forcedDriverFailure(action, driver3, message) {
+function forcedDriverFailure(action, driver3, message2) {
   return {
     success: false,
     action,
     driver: driver3,
-    error: `${SIMULATOR_DRIVER_ENV}=${driver3}: ${message}`
+    error: `${SIMULATOR_DRIVER_ENV}=${driver3}: ${message2}`
   };
 }
 function simDriverSuffix(error51) {
@@ -41328,7 +45122,7 @@ function drawLabel(png, cx, cy, id) {
 async function annotateScreenshot(screenshotPath, issues) {
   let png;
   try {
-    const buf = (0, import_fs14.readFileSync)(screenshotPath);
+    const buf = (0, import_fs15.readFileSync)(screenshotPath);
     png = import_pngjs4.PNG.sync.read(buf);
   } catch {
     return null;
@@ -41340,18 +45134,18 @@ async function annotateScreenshot(screenshotPath, issues) {
   }
   const outPath = screenshotPath.replace(/\.png$/i, "-annotated.png");
   try {
-    (0, import_fs14.writeFileSync)(outPath, import_pngjs4.PNG.sync.write(png));
+    (0, import_fs15.writeFileSync)(outPath, import_pngjs4.PNG.sync.write(png));
   } catch {
     return null;
   }
   return outPath;
 }
-var import_pngjs4, import_fs14, DIGITS;
+var import_pngjs4, import_fs15, DIGITS;
 var init_annotate = __esm({
   "src/native/annotate.ts"() {
     "use strict";
     import_pngjs4 = __toESM(require_png());
-    import_fs14 = require("fs");
+    import_fs15 = require("fs");
     DIGITS = [
       [31, 17, 17, 17, 17, 17, 31],
       // 0
@@ -41720,11 +45514,11 @@ async function performNativeAction(options) {
         }
       }
     }
-    const message = err instanceof Error ? err.message : "Action failed";
+    const message2 = err instanceof Error ? err.message : "Action failed";
     return {
       success: false,
       action: options.action,
-      error: message
+      error: message2
     };
   }
 }
@@ -42178,8 +45972,8 @@ async function runKeystrokeCapability(opts) {
       "no observable AX state change after background and foreground-activate delivery"
     );
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return keystrokeFailure(chord, "unavailable", "unavailable", `keystroke capability failed: ${message}`);
+    const message2 = err instanceof Error ? err.message : String(err);
+    return keystrokeFailure(chord, "unavailable", "unavailable", `keystroke capability failed: ${message2}`);
   }
 }
 var import_child_process10, import_util10, execFileAsync8, SETTLE_MS, deliverKeystrokeOneShot;
@@ -42211,8 +46005,8 @@ var init_keyboard = __esm({
             }
           }
         }
-        const message = err instanceof Error ? err.message : "keystroke delivery failed";
-        return { success: false, error: message };
+        const message2 = err instanceof Error ? err.message : "keystroke delivery failed";
+        return { success: false, error: message2 };
       }
     };
   }
@@ -42263,8 +46057,8 @@ async function runLaunch(spec, ops) {
   try {
     await ops.launch(spec.app);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return lifecycleFailure(expected, `launch command failed: ${message}`, "not-running", "not-running");
+    const message2 = err instanceof Error ? err.message : String(err);
+    return lifecycleFailure(expected, `launch command failed: ${message2}`, "not-running", "not-running");
   }
   let pid = null;
   const appeared = await pollUntil(async () => {
@@ -42303,8 +46097,8 @@ async function runSwitch(target, spec, ops) {
   try {
     pid = await resolveTargetPid(target, spec, ops);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return lifecycleFailure(expected, `could not resolve target process: ${message}`, "unavailable", "unavailable");
+    const message2 = err instanceof Error ? err.message : String(err);
+    return lifecycleFailure(expected, `could not resolve target process: ${message2}`, "unavailable", "unavailable");
   }
   const before = `frontmost=${await ops.frontmostPid()}`;
   const activated = await ops.activate(pid);
@@ -42328,8 +46122,8 @@ async function runQuit(target, spec, ops) {
   try {
     pid = await resolveTargetPid(target, spec, ops);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return lifecycleFailure(expected, `could not resolve target process: ${message}`, "unavailable", "unavailable");
+    const message2 = err instanceof Error ? err.message : String(err);
+    return lifecycleFailure(expected, `could not resolve target process: ${message2}`, "unavailable", "unavailable");
   }
   const wasRunning = await ops.isRunning(pid);
   if (!wasRunning) {
@@ -42340,8 +46134,8 @@ async function runQuit(target, spec, ops) {
   try {
     await ops.quit({ pid, app: appName });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return lifecycleFailure(expected, `quit command failed: ${message}`, "running=true", "running=true");
+    const message2 = err instanceof Error ? err.message : String(err);
+    return lifecycleFailure(expected, `quit command failed: ${message2}`, "running=true", "running=true");
   }
   const exited = await pollUntil(async () => !await ops.isRunning(pid), QUIT_TIMEOUT_MS);
   const after = `running=${!exited}`;
@@ -42365,8 +46159,8 @@ async function runLifecycleCapability(target, spec, ops) {
       }
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return lifecycleFailure("lifecycle op to complete", `threw: ${message}`, "unavailable", "unavailable");
+    const message2 = err instanceof Error ? err.message : String(err);
+    return lifecycleFailure("lifecycle op to complete", `threw: ${message2}`, "unavailable", "unavailable");
   }
 }
 async function defaultLaunch(app) {
@@ -42517,8 +46311,8 @@ async function runMenuCapability(opts) {
       "menu item selected but no observable AX state change (selection unverified)"
     );
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return menuFailure(menuPath, "unavailable", "unavailable", `menu capability failed: ${message}`);
+    const message2 = err instanceof Error ? err.message : String(err);
+    return menuFailure(menuPath, "unavailable", "unavailable", `menu capability failed: ${message2}`);
   }
 }
 var import_child_process12, import_util12, execFileAsync10, SETTLE_MS2, deliverMenuOneShot;
@@ -42549,8 +46343,8 @@ var init_menu = __esm({
             }
           }
         }
-        const message = err instanceof Error ? err.message : "menu delivery failed";
-        return { success: false, error: message };
+        const message2 = err instanceof Error ? err.message : "menu delivery failed";
+        return { success: false, error: message2 };
       }
     };
   }
@@ -42920,9 +46714,9 @@ async function macOSNativePreflight(options) {
       message: "Xcode Command Line Tools missing \u2014 `swift` not on PATH. Install with: xcode-select --install"
     };
   }
-  const extractorPath = options?.extractorBinaryPath ?? (0, import_path24.join)(process.cwd(), ".ibr", "bin", "ibr-ax-extract");
-  const swiftSourceDir = options?.swiftSourceDir ?? (0, import_path24.join)(process.cwd(), "src", "native", "swift", "ibr-ax-extract");
-  if (!(0, import_fs15.existsSync)(extractorPath) && !(0, import_fs15.existsSync)((0, import_path24.join)(swiftSourceDir, "Package.swift"))) {
+  const extractorPath = options?.extractorBinaryPath ?? (0, import_path25.join)(process.cwd(), ".ibr", "bin", "ibr-ax-extract");
+  const swiftSourceDir = options?.swiftSourceDir ?? (0, import_path25.join)(process.cwd(), "src", "native", "swift", "ibr-ax-extract");
+  if (!(0, import_fs16.existsSync)(extractorPath) && !(0, import_fs16.existsSync)((0, import_path25.join)(swiftSourceDir, "Package.swift"))) {
     return {
       ok: false,
       reason: "extractor-build-failed",
@@ -42988,14 +46782,14 @@ function classifyExtractorError(err) {
   }
   return null;
 }
-var import_child_process13, import_util13, import_fs15, import_path24, execFileAsync11, _deps, SIMULATOR_CHROME_LABELS, HOST_CHROME_ROLES, ACCESSIBILITY_UNTRUSTED_EXIT_CODE, REQUEST_PERMISSION_COMMAND;
+var import_child_process13, import_util13, import_fs16, import_path25, execFileAsync11, _deps, SIMULATOR_CHROME_LABELS, HOST_CHROME_ROLES, ACCESSIBILITY_UNTRUSTED_EXIT_CODE, REQUEST_PERMISSION_COMMAND;
 var init_preflight = __esm({
   "src/native/preflight.ts"() {
     "use strict";
     import_child_process13 = require("child_process");
     import_util13 = require("util");
-    import_fs15 = require("fs");
-    import_path24 = require("path");
+    import_fs16 = require("fs");
+    import_path25 = require("path");
     execFileAsync11 = (0, import_util13.promisify)(import_child_process13.execFile);
     _deps = {
       hasCommand: defaultHasCommand
@@ -43151,11 +46945,11 @@ function formatNativeCandidate(candidate) {
     frame: candidate.frame
   };
 }
-var import_path25, DEFAULT_OUTPUT_DIR, NativeSessionController, nativeSessionController;
+var import_path26, DEFAULT_OUTPUT_DIR, NativeSessionController, nativeSessionController;
 var init_session_controller = __esm({
   "src/native/session-controller.ts"() {
     "use strict";
-    import_path25 = require("path");
+    import_path26 = require("path");
     init_sessions();
     init_backend();
     init_actions();
@@ -43245,7 +47039,7 @@ var init_session_controller = __esm({
       async readMacOS(entry, what, limit) {
         try {
           if (what === "screenshot") {
-            const screenshotPath = (0, import_path25.join)(
+            const screenshotPath = (0, import_path26.join)(
               DEFAULT_OUTPUT_DIR,
               "native",
               "macos-sessions",
@@ -43305,7 +47099,7 @@ var init_session_controller = __esm({
       async readSimulator(entry, what, limit) {
         try {
           if (what === "screenshot") {
-            const screenshotPath = (0, import_path25.join)(
+            const screenshotPath = (0, import_path26.join)(
               DEFAULT_OUTPUT_DIR,
               "native",
               "simulator-sessions",
@@ -43931,7 +47725,7 @@ async function compare(options) {
     baselinePath,
     currentPath,
     regions,
-    outputDir = (0, import_path26.join)((0, import_os3.tmpdir)(), "ibr-compare"),
+    outputDir = (0, import_path27.join)((0, import_os4.tmpdir)(), "ibr-compare"),
     viewport = "desktop",
     fullPage = true,
     waitForNetworkIdle = true,
@@ -43955,9 +47749,9 @@ async function compare(options) {
   const resolvedViewport = typeof viewport === "string" ? VIEWPORTS[viewport] || VIEWPORTS.desktop : viewport;
   await (0, import_promises23.mkdir)(outputDir, { recursive: true });
   const timestamp2 = Date.now();
-  const actualBaselinePath = baselinePath || (0, import_path26.join)(outputDir, `baseline-${timestamp2}.png`);
-  const actualCurrentPath = currentPath || (0, import_path26.join)(outputDir, `current-${timestamp2}.png`);
-  const diffPath = (0, import_path26.join)(outputDir, `diff-${timestamp2}.png`);
+  const actualBaselinePath = baselinePath || (0, import_path27.join)(outputDir, `baseline-${timestamp2}.png`);
+  const actualCurrentPath = currentPath || (0, import_path27.join)(outputDir, `current-${timestamp2}.png`);
+  const diffPath = (0, import_path27.join)(outputDir, `diff-${timestamp2}.png`);
   if (url2 && !baselinePath) {
     await captureScreenshot({
       url: url2,
@@ -44044,7 +47838,7 @@ async function compareAll(options = {}) {
     const result = await compare({
       url: session.url,
       baselinePath: paths.baseline,
-      outputDir: (0, import_path26.dirname)(paths.diff),
+      outputDir: (0, import_path27.dirname)(paths.diff),
       viewport: session.viewport
     });
     results.push(result);
@@ -44062,7 +47856,7 @@ async function compareAll(options = {}) {
         const result = await compare({
           url: session.url,
           baselinePath: paths.baseline,
-          outputDir: (0, import_path26.dirname)(paths.diff),
+          outputDir: (0, import_path27.dirname)(paths.diff),
           viewport: session.viewport
         });
         results.push(result);
@@ -44074,7 +47868,7 @@ async function compareAll(options = {}) {
   await closeBrowser();
   return results;
 }
-var import_promises23, import_path26, import_os3, InterfaceBuiltRight, IBRSession;
+var import_promises23, import_path27, import_os4, InterfaceBuiltRight, IBRSession;
 var init_index = __esm({
   "src/index.ts"() {
     "use strict";
@@ -44090,8 +47884,8 @@ var init_index = __esm({
     init_driver();
     init_compat();
     import_promises23 = require("fs/promises");
-    import_path26 = require("path");
-    import_os3 = require("os");
+    import_path27 = require("path");
+    import_os4 = require("os");
     init_cleanup();
     init_external_action_evidence();
     init_schemas3();
@@ -45455,19 +49249,19 @@ __export(context_loader_exports, {
 async function discoverUserContext(projectDir) {
   const sources = [];
   let framework;
-  const projectClaudePath = (0, import_path31.join)(projectDir, ".claude", "CLAUDE.md");
+  const projectClaudePath = (0, import_path32.join)(projectDir, ".claude", "CLAUDE.md");
   const projectClaudeResult = await tryLoadFramework(projectClaudePath, "project-claude");
   sources.push(projectClaudeResult.source);
   if (projectClaudeResult.framework && !framework) {
     framework = projectClaudeResult.framework;
   }
-  const rootClaudePath = (0, import_path31.join)(projectDir, "CLAUDE.md");
+  const rootClaudePath = (0, import_path32.join)(projectDir, "CLAUDE.md");
   const rootClaudeResult = await tryLoadFramework(rootClaudePath, "root-claude");
   sources.push(rootClaudeResult.source);
   if (rootClaudeResult.framework && !framework) {
     framework = rootClaudeResult.framework;
   }
-  const userClaudePath = (0, import_path31.join)((0, import_os4.homedir)(), ".claude", "CLAUDE.md");
+  const userClaudePath = (0, import_path32.join)((0, import_os5.homedir)(), ".claude", "CLAUDE.md");
   const userClaudeResult = await tryLoadFramework(userClaudePath, "user-claude");
   sources.push(userClaudeResult.source);
   if (userClaudeResult.framework && !framework) {
@@ -45476,8 +49270,8 @@ async function discoverUserContext(projectDir) {
   const config2 = await loadIBRConfig(projectDir);
   let memory;
   const outputDir = config2.outputDir || "./.ibr";
-  const memoryPath = (0, import_path31.join)(outputDir, "memory", "summary.json");
-  if ((0, import_fs21.existsSync)(memoryPath)) {
+  const memoryPath = (0, import_path32.join)(outputDir, "memory", "summary.json");
+  if ((0, import_fs22.existsSync)(memoryPath)) {
     try {
       const memContent = await (0, import_promises26.readFile)(memoryPath, "utf-8");
       memory = JSON.parse(memContent);
@@ -45499,7 +49293,7 @@ async function tryLoadFramework(filePath, type) {
     found: false,
     hasFramework: false
   };
-  if (!(0, import_fs21.existsSync)(filePath)) {
+  if (!(0, import_fs22.existsSync)(filePath)) {
     return { source };
   }
   source.found = true;
@@ -45515,8 +49309,8 @@ async function tryLoadFramework(filePath, type) {
   return { source };
 }
 async function loadIBRConfig(projectDir) {
-  const configPath = (0, import_path31.join)(projectDir, ".ibrrc.json");
-  if (!(0, import_fs21.existsSync)(configPath)) {
+  const configPath = (0, import_path32.join)(projectDir, ".ibrrc.json");
+  if (!(0, import_fs22.existsSync)(configPath)) {
     return {};
   }
   try {
@@ -45550,14 +49344,14 @@ function formatContextSummary(context) {
   }
   return lines.join("\n");
 }
-var import_fs21, import_promises26, import_path31, import_os4;
+var import_fs22, import_promises26, import_path32, import_os5;
 var init_context_loader = __esm({
   "src/context-loader.ts"() {
     "use strict";
-    import_fs21 = require("fs");
+    import_fs22 = require("fs");
     import_promises26 = require("fs/promises");
-    import_path31 = require("path");
-    import_os4 = require("os");
+    import_path32 = require("path");
+    import_os5 = require("os");
     init_framework_parser();
   }
 });
@@ -46891,9 +50685,9 @@ __export(browser_server_exports, {
 });
 function getPaths(outputDir) {
   return {
-    stateFile: (0, import_path32.join)(outputDir, SERVER_STATE_FILE),
-    profileDir: (0, import_path32.join)(outputDir, ISOLATED_PROFILE_DIR),
-    sessionsDir: (0, import_path32.join)(outputDir, "sessions")
+    stateFile: (0, import_path33.join)(outputDir, SERVER_STATE_FILE),
+    profileDir: (0, import_path33.join)(outputDir, ISOLATED_PROFILE_DIR),
+    sessionsDir: (0, import_path33.join)(outputDir, "sessions")
   };
 }
 async function touchBrowserServerActivity(outputDir) {
@@ -46913,10 +50707,10 @@ async function browserServerLastActivityAt(outputDir) {
 }
 async function findPendingHardWall(outputDir, requestedUrl, strategyKey) {
   const { sessionsDir } = getPaths(outputDir);
-  if (!(0, import_fs22.existsSync)(sessionsDir)) return null;
+  if (!(0, import_fs23.existsSync)(sessionsDir)) return null;
   const attemptKey = sessionAttemptKey(requestedUrl, strategyKey);
   const entries = await (0, import_promises27.readdir)(sessionsDir, { withFileTypes: true });
-  const candidates = entries.filter((e) => e.isDirectory() && e.name.startsWith("live_")).map((e) => (0, import_path32.join)(sessionsDir, e.name, "live-session.json"));
+  const candidates = entries.filter((e) => e.isDirectory() && e.name.startsWith("live_")).map((e) => (0, import_path33.join)(sessionsDir, e.name, "live-session.json"));
   for (let i = 0; i < candidates.length; i += HARD_WALL_SCAN_CONCURRENCY) {
     const batch = candidates.slice(i, i + HARD_WALL_SCAN_CONCURRENCY);
     const walls = await Promise.all(batch.map(async (statePath) => {
@@ -46934,7 +50728,7 @@ async function findPendingHardWall(outputDir, requestedUrl, strategyKey) {
 }
 async function inspectBrowserServer(outputDir) {
   const { stateFile } = getPaths(outputDir);
-  if (!(0, import_fs22.existsSync)(stateFile)) {
+  if (!(0, import_fs23.existsSync)(stateFile)) {
     return { status: "no-manifest", reason: "No browser-server.json on disk.", state: null };
   }
   let state;
@@ -47140,7 +50934,7 @@ function lastBrowserServerStopFailure() {
 async function stopBrowserServer(outputDir) {
   lastStopFailure = null;
   const { stateFile, profileDir: _profileDir } = getPaths(outputDir);
-  if (!(0, import_fs22.existsSync)(stateFile)) {
+  if (!(0, import_fs23.existsSync)(stateFile)) {
     return false;
   }
   try {
@@ -47176,7 +50970,7 @@ async function stopBrowserServer(outputDir) {
 }
 async function listActiveSessions(outputDir) {
   const { sessionsDir } = getPaths(outputDir);
-  if (!(0, import_fs22.existsSync)(sessionsDir)) {
+  if (!(0, import_fs23.existsSync)(sessionsDir)) {
     return [];
   }
   const { readdir: readdir7 } = await import("fs/promises");
@@ -47184,23 +50978,23 @@ async function listActiveSessions(outputDir) {
   const liveSessions = [];
   for (const entry of entries) {
     if (entry.isDirectory() && entry.name.startsWith("live_")) {
-      const statePath = (0, import_path32.join)(sessionsDir, entry.name, "live-session.json");
-      if ((0, import_fs22.existsSync)(statePath)) {
+      const statePath = (0, import_path33.join)(sessionsDir, entry.name, "live-session.json");
+      if ((0, import_fs23.existsSync)(statePath)) {
         liveSessions.push(entry.name);
       }
     }
   }
   return liveSessions;
 }
-var import_promises27, import_fs22, import_path32, UserActionRequiredError, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, HARD_WALL_SCAN_CONCURRENCY, lastConnectFailure, lastStopFailure, PersistentSession;
+var import_promises27, import_fs23, import_path33, UserActionRequiredError, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, HARD_WALL_SCAN_CONCURRENCY, lastConnectFailure, lastStopFailure, PersistentSession;
 var init_browser_server = __esm({
   "src/browser-server.ts"() {
     "use strict";
     init_driver();
     init_compat();
     import_promises27 = require("fs/promises");
-    import_fs22 = require("fs");
-    import_path32 = require("path");
+    import_fs23 = require("fs");
+    import_path33 = require("path");
     init_nanoid();
     init_schemas3();
     init_devices();
@@ -47261,8 +51055,8 @@ var init_browser_server = __esm({
           );
         }
         const sessionId = `live_${nanoid3(10)}`;
-        const sessionsDir = (0, import_path32.join)(outputDir, "sessions");
-        const sessionDir = (0, import_path32.join)(sessionsDir, sessionId);
+        const sessionsDir = (0, import_path33.join)(outputDir, "sessions");
+        const sessionDir = (0, import_path33.join)(sessionsDir, sessionId);
         await (0, import_promises27.mkdir)(sessionDir, { recursive: true });
         await driver3.emulationDomain.applyDeviceProfile(viewportToConfig(viewport));
         await driver3.emulationDomain.setReducedMotion(true);
@@ -47302,11 +51096,11 @@ var init_browser_server = __esm({
           }]
         };
         await (0, import_promises27.writeFile)(
-          (0, import_path32.join)(sessionDir, "live-session.json"),
+          (0, import_path33.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
         await page.screenshot({
-          path: (0, import_path32.join)(sessionDir, "baseline.png"),
+          path: (0, import_path33.join)(sessionDir, "baseline.png"),
           fullPage: false
         });
         return new _PersistentSession(driver3, page, state, sessionDir, outputDir);
@@ -47315,9 +51109,9 @@ var init_browser_server = __esm({
        * Get session from browser server by ID
        */
       static async get(outputDir, sessionId) {
-        const sessionDir = (0, import_path32.join)(outputDir, "sessions", sessionId);
-        const statePath = (0, import_path32.join)(sessionDir, "live-session.json");
-        if (!(0, import_fs22.existsSync)(statePath)) {
+        const sessionDir = (0, import_path33.join)(outputDir, "sessions", sessionId);
+        const statePath = (0, import_path33.join)(sessionDir, "live-session.json");
+        if (!(0, import_fs23.existsSync)(statePath)) {
           return null;
         }
         const content = await (0, import_promises27.readFile)(statePath, "utf-8");
@@ -47366,7 +51160,7 @@ var init_browser_server = __esm({
       }
       async saveState() {
         await (0, import_promises27.writeFile)(
-          (0, import_path32.join)(this.sessionDir, "live-session.json"),
+          (0, import_path33.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
       }
@@ -47566,7 +51360,7 @@ var init_browser_server = __esm({
       async screenshot(options) {
         const start = Date.now();
         const screenshotName = options?.name || `screenshot-${Date.now()}`;
-        const outputPath = (0, import_path32.join)(this.sessionDir, `${screenshotName}.png`);
+        const outputPath = (0, import_path33.join)(this.sessionDir, `${screenshotName}.png`);
         try {
           await this.page.addStyleTag({
             content: `
@@ -47837,7 +51631,7 @@ var init_browser_server = __esm({
         const stepNum = this.stepCounter;
         const stepLabel = label2 || `step-${String(stepNum).padStart(3, "0")}`;
         const screenshotFile = `${stepLabel}.png`;
-        const screenshotPath = (0, import_path32.join)(this.sessionDir, screenshotFile);
+        const screenshotPath = (0, import_path33.join)(this.sessionDir, screenshotFile);
         try {
           await this.page.addStyleTag({
             content: `*, *::before, *::after {
@@ -47938,14 +51732,14 @@ var init_browser_server = __esm({
         if (this.state.captures && this.state.captures.length > 0) {
           const ephemeral = this.state.captures.filter((c) => !c.keep);
           if (ephemeral.length > 0) {
-            const archiveDir = (0, import_path32.join)(this.sessionDir, "archive");
+            const archiveDir = (0, import_path33.join)(this.sessionDir, "archive");
             await (0, import_promises27.mkdir)(archiveDir, { recursive: true });
             const { rename: rename2 } = await import("fs/promises");
             for (const cap of ephemeral) {
-              const src = (0, import_path32.join)(this.sessionDir, cap.screenshot);
-              const dest = (0, import_path32.join)(archiveDir, cap.screenshot);
+              const src = (0, import_path33.join)(this.sessionDir, cap.screenshot);
+              const dest = (0, import_path33.join)(archiveDir, cap.screenshot);
               try {
-                if ((0, import_fs22.existsSync)(src)) {
+                if ((0, import_fs23.existsSync)(src)) {
                   await rename2(src, dest);
                   cap.screenshot = `archive/${cap.screenshot}`;
                 }
@@ -47956,9 +51750,9 @@ var init_browser_server = __esm({
           }
         }
         await this.driver.close();
-        const liveSessionPath = (0, import_path32.join)(this.sessionDir, "live-session.json");
+        const liveSessionPath = (0, import_path33.join)(this.sessionDir, "live-session.json");
         try {
-          if ((0, import_fs22.existsSync)(liveSessionPath)) {
+          if ((0, import_fs23.existsSync)(liveSessionPath)) {
             await (0, import_promises27.unlink)(liveSessionPath);
           }
         } catch {
@@ -47996,15 +51790,15 @@ __export(live_session_exports, {
   LiveSession: () => LiveSession,
   liveSessionManager: () => liveSessionManager
 });
-var import_promises28, import_fs23, import_path33, LiveSession, LiveSessionManager, liveSessionManager;
+var import_promises28, import_fs24, import_path34, LiveSession, LiveSessionManager, liveSessionManager;
 var init_live_session = __esm({
   "src/live-session.ts"() {
     "use strict";
     init_driver();
     init_compat();
     import_promises28 = require("fs/promises");
-    import_fs23 = require("fs");
-    import_path33 = require("path");
+    import_fs24 = require("fs");
+    import_path34 = require("path");
     init_nanoid();
     init_schemas3();
     init_scan();
@@ -48023,7 +51817,7 @@ var init_live_session = __esm({
       constructor(state, outputDir, driver3, page) {
         this.state = state;
         this.outputDir = outputDir;
-        this.sessionDir = (0, import_path33.join)(outputDir, "sessions", state.id);
+        this.sessionDir = (0, import_path34.join)(outputDir, "sessions", state.id);
         this.driver = driver3;
         this.page = page;
         page.on("console", (msg) => {
@@ -48054,7 +51848,7 @@ var init_live_session = __esm({
         } = options;
         const showBrowser = headed || sandbox || debug;
         const sessionId = `live_${nanoid3(10)}`;
-        const sessionDir = (0, import_path33.join)(outputDir, "sessions", sessionId);
+        const sessionDir = (0, import_path34.join)(outputDir, "sessions", sessionId);
         await (0, import_promises28.mkdir)(sessionDir, { recursive: true });
         const driver3 = new EngineDriver();
         await driver3.launch({
@@ -48093,11 +51887,11 @@ var init_live_session = __esm({
           captures: []
         };
         await (0, import_promises28.writeFile)(
-          (0, import_path33.join)(sessionDir, "live-session.json"),
+          (0, import_path34.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
         await page.screenshot({
-          path: (0, import_path33.join)(sessionDir, "baseline.png"),
+          path: (0, import_path34.join)(sessionDir, "baseline.png"),
           fullPage: false
         });
         const session = new _LiveSession(state, outputDir, driver3, page);
@@ -48111,9 +51905,9 @@ var init_live_session = __esm({
        * Note: This only works within the same process - browser state is not persisted
        */
       static async resume(outputDir, sessionId) {
-        const sessionDir = (0, import_path33.join)(outputDir, "sessions", sessionId);
-        const statePath = (0, import_path33.join)(sessionDir, "live-session.json");
-        if (!(0, import_fs23.existsSync)(statePath)) {
+        const sessionDir = (0, import_path34.join)(outputDir, "sessions", sessionId);
+        const statePath = (0, import_path34.join)(sessionDir, "live-session.json");
+        if (!(0, import_fs24.existsSync)(statePath)) {
           return null;
         }
         const content = await (0, import_promises28.readFile)(statePath, "utf-8");
@@ -48243,7 +52037,7 @@ var init_live_session = __esm({
         const stepNum = this.stepCounter;
         const stepLabel = label2 || `step-${String(stepNum).padStart(3, "0")}`;
         const screenshotFile = `${stepLabel}.png`;
-        const screenshotPath = (0, import_path33.join)(this.sessionDir, screenshotFile);
+        const screenshotPath = (0, import_path34.join)(this.sessionDir, screenshotFile);
         try {
           await page.addStyleTag({
             content: `
@@ -48754,7 +52548,7 @@ var init_live_session = __esm({
         const page = this.ensurePage();
         const start = Date.now();
         const screenshotName = options?.name || `screenshot-${Date.now()}`;
-        const outputPath = (0, import_path33.join)(this.sessionDir, `${screenshotName}.png`);
+        const outputPath = (0, import_path34.join)(this.sessionDir, `${screenshotName}.png`);
         try {
           await page.addStyleTag({
             content: `
@@ -48868,13 +52662,13 @@ var init_live_session = __esm({
       async archiveEphemeralScreenshots() {
         const ephemeral = this.state.captures.filter((c) => !c.keep);
         if (ephemeral.length === 0) return;
-        const archiveDir = (0, import_path33.join)(this.sessionDir, "archive");
+        const archiveDir = (0, import_path34.join)(this.sessionDir, "archive");
         await (0, import_promises28.mkdir)(archiveDir, { recursive: true });
         for (const cap of ephemeral) {
-          const src = (0, import_path33.join)(this.sessionDir, cap.screenshot);
-          const dest = (0, import_path33.join)(archiveDir, cap.screenshot);
+          const src = (0, import_path34.join)(this.sessionDir, cap.screenshot);
+          const dest = (0, import_path34.join)(archiveDir, cap.screenshot);
           try {
-            if ((0, import_fs23.existsSync)(src)) {
+            if ((0, import_fs24.existsSync)(src)) {
               await (0, import_promises28.rename)(src, dest);
               cap.screenshot = `archive/${cap.screenshot}`;
             }
@@ -48891,7 +52685,7 @@ var init_live_session = __esm({
       }
       async saveState() {
         await (0, import_promises28.writeFile)(
-          (0, import_path33.join)(this.sessionDir, "live-session.json"),
+          (0, import_path34.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
       }
@@ -48959,13 +52753,13 @@ function formatAge(ms) {
   if (minutes > 0) return `${minutes}m ago`;
   return `${seconds}s ago`;
 }
-var import_promises29, import_fs24, import_path34, DEFAULT_CONFIG, ScreenshotManager;
+var import_promises29, import_fs25, import_path35, DEFAULT_CONFIG, ScreenshotManager;
 var init_screenshot_manager = __esm({
   "src/screenshot-manager.ts"() {
     "use strict";
     import_promises29 = require("fs/promises");
-    import_fs24 = require("fs");
-    import_path34 = require("path");
+    import_fs25 = require("fs");
+    import_path35 = require("path");
     DEFAULT_CONFIG = {
       maxAgeDays: 7,
       maxSizeBytes: 500 * 1024 * 1024,
@@ -48986,12 +52780,12 @@ var init_screenshot_manager = __esm({
         const { sessionId, fullPage = false, selector } = options;
         let outputPath;
         if (sessionId) {
-          const sessionDir = (0, import_path34.join)(this.outputDir, "sessions", sessionId);
+          const sessionDir = (0, import_path35.join)(this.outputDir, "sessions", sessionId);
           await (0, import_promises29.mkdir)(sessionDir, { recursive: true });
-          outputPath = (0, import_path34.join)(sessionDir, `${name}.png`);
+          outputPath = (0, import_path35.join)(sessionDir, `${name}.png`);
         } else {
           await (0, import_promises29.mkdir)(this.outputDir, { recursive: true });
-          outputPath = (0, import_path34.join)(this.outputDir, `${name}.png`);
+          outputPath = (0, import_path35.join)(this.outputDir, `${name}.png`);
         }
         await page.addStyleTag({
           content: `
@@ -49022,8 +52816,8 @@ var init_screenshot_manager = __esm({
        * List all screenshots for a session
        */
       async list(sessionId) {
-        const sessionDir = (0, import_path34.join)(this.outputDir, "sessions", sessionId);
-        if (!(0, import_fs24.existsSync)(sessionDir)) {
+        const sessionDir = (0, import_path35.join)(this.outputDir, "sessions", sessionId);
+        if (!(0, import_fs25.existsSync)(sessionDir)) {
           return [];
         }
         const screenshots = [];
@@ -49035,14 +52829,14 @@ var init_screenshot_manager = __esm({
        * List all screenshots across all sessions
        */
       async listAll() {
-        const sessionsDir = (0, import_path34.join)(this.outputDir, "sessions");
-        if (!(0, import_fs24.existsSync)(sessionsDir)) {
+        const sessionsDir = (0, import_path35.join)(this.outputDir, "sessions");
+        if (!(0, import_fs25.existsSync)(sessionsDir)) {
           return [];
         }
         const screenshots = [];
         const sessions2 = await (0, import_promises29.readdir)(sessionsDir);
         for (const sessionId of sessions2) {
-          const sessionDir = (0, import_path34.join)(sessionsDir, sessionId);
+          const sessionDir = (0, import_path35.join)(sessionsDir, sessionId);
           const stats = await (0, import_promises29.stat)(sessionDir);
           if (stats.isDirectory()) {
             await this.scanDirectory(sessionDir, sessionId, screenshots);
@@ -49057,7 +52851,7 @@ var init_screenshot_manager = __esm({
       async scanDirectory(dir, sessionId, results) {
         const entries = await (0, import_promises29.readdir)(dir, { withFileTypes: true });
         for (const entry of entries) {
-          const fullPath = (0, import_path34.join)(dir, entry.name);
+          const fullPath = (0, import_path35.join)(dir, entry.name);
           if (entry.isDirectory()) {
             await this.scanDirectory(fullPath, sessionId, results);
           } else if (entry.name.endsWith(".png")) {
@@ -49081,20 +52875,20 @@ var init_screenshot_manager = __esm({
        * Get metadata for a specific screenshot
        */
       async getMetadata(path3) {
-        if (!(0, import_fs24.existsSync)(path3)) {
+        if (!(0, import_fs25.existsSync)(path3)) {
           return null;
         }
         const stats = await (0, import_promises29.stat)(path3);
-        const name = (0, import_path34.basename)(path3);
-        const dir = (0, import_path34.dirname)(path3);
+        const name = (0, import_path35.basename)(path3);
+        const dir = (0, import_path35.dirname)(path3);
         const stepMatch = name.match(/^\d+-(.+)\.png$/);
         const step = stepMatch ? stepMatch[1] : void 0;
         const sessionMatch = dir.match(/sessions[/\\]([^/\\]+)/);
         const sessionId = sessionMatch ? sessionMatch[1] : void 0;
         let query;
         let userIntent;
-        const resultsPath = (0, import_path34.join)(dir, "results.json");
-        if ((0, import_fs24.existsSync)(resultsPath)) {
+        const resultsPath = (0, import_path35.join)(dir, "results.json");
+        if ((0, import_fs25.existsSync)(resultsPath)) {
           try {
             const resultsContent = await (0, import_promises29.readFile)(resultsPath, "utf-8");
             const results = JSON.parse(resultsContent);
@@ -49193,15 +52987,15 @@ var init_screenshot_manager = __esm({
        * Save configuration to file
        */
       async saveConfig() {
-        const configPath = (0, import_path34.join)(this.outputDir, "screenshot-config.json");
+        const configPath = (0, import_path35.join)(this.outputDir, "screenshot-config.json");
         await (0, import_promises29.writeFile)(configPath, JSON.stringify(this.config, null, 2));
       }
       /**
        * Load configuration from file
        */
       async loadConfig() {
-        const configPath = (0, import_path34.join)(this.outputDir, "screenshot-config.json");
-        if ((0, import_fs24.existsSync)(configPath)) {
+        const configPath = (0, import_path35.join)(this.outputDir, "screenshot-config.json");
+        if ((0, import_fs25.existsSync)(configPath)) {
           try {
             const content = await (0, import_promises29.readFile)(configPath, "utf-8");
             const loaded = JSON.parse(content);
@@ -49235,23 +53029,23 @@ function findSwiftFiles(dir, rootDir) {
   function walk(currentDir) {
     let entries;
     try {
-      entries = (0, import_fs25.readdirSync)(currentDir);
+      entries = (0, import_fs26.readdirSync)(currentDir);
     } catch {
       return;
     }
     for (const entry of entries) {
       if (SKIP_DIRS.has(entry)) continue;
-      const fullPath = (0, import_path35.join)(currentDir, entry);
+      const fullPath = (0, import_path36.join)(currentDir, entry);
       let stat6;
       try {
-        stat6 = (0, import_fs25.statSync)(fullPath);
+        stat6 = (0, import_fs26.statSync)(fullPath);
       } catch {
         continue;
       }
       if (stat6.isDirectory()) {
         walk(fullPath);
       } else if (entry.endsWith(".swift")) {
-        results.push((0, import_path35.relative)(rootDir, fullPath));
+        results.push((0, import_path36.relative)(rootDir, fullPath));
       }
     }
   }
@@ -49267,10 +53061,10 @@ function scanSwiftSources(projectRoot, swiftFiles) {
   const TEXT_RE = /Text\(\s*"([^"]+)"/g;
   const VIEW_STRUCT_RE = /struct\s+(\w+)\s*:\s*(?:\w+,\s*)*View\b/g;
   for (const filePath of swiftFiles) {
-    const fullPath = (0, import_path35.join)(projectRoot, filePath);
+    const fullPath = (0, import_path36.join)(projectRoot, filePath);
     let content;
     try {
-      content = (0, import_fs25.readFileSync)(fullPath, "utf-8");
+      content = (0, import_fs26.readFileSync)(fullPath, "utf-8");
     } catch {
       continue;
     }
@@ -49354,10 +53148,10 @@ function scanSwiftSources(projectRoot, swiftFiles) {
 }
 function loadNavGatorFileMap(projectRoot) {
   for (const navPath of NAVGATOR_PATHS) {
-    const fileMapPath = (0, import_path35.join)(projectRoot, navPath, "file_map.json");
-    if (!(0, import_fs25.existsSync)(fileMapPath)) continue;
+    const fileMapPath = (0, import_path36.join)(projectRoot, navPath, "file_map.json");
+    if (!(0, import_fs26.existsSync)(fileMapPath)) continue;
     try {
-      const content = (0, import_fs25.readFileSync)(fileMapPath, "utf-8");
+      const content = (0, import_fs26.readFileSync)(fileMapPath, "utf-8");
       const parsed = JSON.parse(content);
       return parsed.files || null;
     } catch {
@@ -49513,15 +53307,15 @@ function formatBridgeResult(result) {
   }
   return lines.join("\n");
 }
-var import_fs25, import_path35, NAVGATOR_PATHS, CONFIDENCE;
+var import_fs26, import_path36, NAVGATOR_PATHS, CONFIDENCE;
 var init_bridge = __esm({
   "src/native/bridge.ts"() {
     "use strict";
-    import_fs25 = require("fs");
-    import_path35 = require("path");
+    import_fs26 = require("fs");
+    import_path36 = require("path");
     NAVGATOR_PATHS = [
-      (0, import_path35.join)(".navgator", "architecture"),
-      (0, import_path35.join)(".claude", "architecture")
+      (0, import_path36.join)(".navgator", "architecture"),
+      (0, import_path36.join)(".claude", "architecture")
       // legacy — NavGator < 0.3
     ];
     CONFIDENCE = {
@@ -49710,7 +53504,7 @@ async function executeStep(driver3, step, url2, outputDir) {
     if (expectation.screenshot !== void 0) {
       try {
         await (0, import_promises30.mkdir)(outputDir, { recursive: true });
-        const screenshotPath = (0, import_path36.join)(outputDir, `${expectation.screenshot}.png`);
+        const screenshotPath = (0, import_path37.join)(outputDir, `${expectation.screenshot}.png`);
         await (0, import_promises30.writeFile)(screenshotPath, captureResult.after.screenshot);
         assertions.push({
           check: `screenshot: "${expectation.screenshot}"`,
@@ -49857,12 +53651,12 @@ function formatInteractionResult(result) {
   }
   return lines.join("\n");
 }
-var import_promises30, import_path36;
+var import_promises30, import_path37;
 var init_interaction_test = __esm({
   "src/interaction-test.ts"() {
     "use strict";
     import_promises30 = require("fs/promises");
-    import_path36 = require("path");
+    import_path37 = require("path");
     init_driver();
   }
 });
@@ -50451,8 +54245,8 @@ function formatReconciliationMatrix(matrix) {
   return lines.join("\n");
 }
 async function loadChanges(outputDir) {
-  const filePath = (0, import_path37.join)(outputDir, CHANGES_FILE);
-  if (!(0, import_fs26.existsSync)(filePath)) return [];
+  const filePath = (0, import_path38.join)(outputDir, CHANGES_FILE);
+  if (!(0, import_fs27.existsSync)(filePath)) return [];
   try {
     const raw = await (0, import_promises32.readFile)(filePath, "utf-8");
     const parsed = JSON.parse(raw);
@@ -50466,16 +54260,16 @@ async function saveChange(outputDir, change) {
   await (0, import_promises32.mkdir)(outputDir, { recursive: true });
   const existing = await loadChanges(outputDir);
   existing.push(change);
-  const filePath = (0, import_path37.join)(outputDir, CHANGES_FILE);
+  const filePath = (0, import_path38.join)(outputDir, CHANGES_FILE);
   await (0, import_promises32.writeFile)(filePath, JSON.stringify(existing, null, 2), "utf-8");
 }
-var import_promises32, import_fs26, import_path37, CHANGES_FILE;
+var import_promises32, import_fs27, import_path38, CHANGES_FILE;
 var init_design_verifier = __esm({
   "src/design-verifier.ts"() {
     "use strict";
     import_promises32 = require("fs/promises");
-    import_fs26 = require("fs");
-    import_path37 = require("path");
+    import_fs27 = require("fs");
+    import_path38 = require("path");
     CHANGES_FILE = "design-changes.json";
   }
 });
@@ -50701,7 +54495,7 @@ async function generateTest(options) {
   const suite = {
     [pageName]: { url: url2, tests }
   };
-  const dir = (0, import_path38.dirname)(outputPath);
+  const dir = (0, import_path39.dirname)(outputPath);
   if (dir && dir !== ".") {
     await (0, import_promises33.mkdir)(dir, { recursive: true });
   }
@@ -50760,12 +54554,12 @@ function buildScenarioTest(scenario, elements) {
     steps
   };
 }
-var import_promises33, import_path38, INPUT_SAMPLE_VALUES;
+var import_promises33, import_path39, INPUT_SAMPLE_VALUES;
 var init_test_generator = __esm({
   "src/test-generator.ts"() {
     "use strict";
     import_promises33 = require("fs/promises");
-    import_path38 = require("path");
+    import_path39 = require("path");
     init_driver();
     INPUT_SAMPLE_VALUES = {
       email: "test@example.com",
@@ -50800,7 +54594,7 @@ async function runTests(options = {}) {
     wsEndpoint,
     chromePath
   } = options;
-  const raw = await (0, import_promises34.readFile)((0, import_path39.resolve)(filePath), "utf-8");
+  const raw = await (0, import_promises34.readFile)((0, import_path40.resolve)(filePath), "utf-8");
   const suite = JSON.parse(raw);
   await (0, import_promises34.mkdir)(outputDir, { recursive: true });
   const allResults = [];
@@ -50849,7 +54643,7 @@ async function runTests(options = {}) {
         duration: Date.now() - runStart
       };
       allResults.push(runResult);
-      const resultPath = (0, import_path39.join)(outputDir, `${pageName}-results.json`);
+      const resultPath = (0, import_path40.join)(outputDir, `${pageName}-results.json`);
       await (0, import_promises34.writeFile)(resultPath, JSON.stringify(runResult, null, 2), "utf-8");
       console.log(`[test-runner]   results: ${resultPath}`);
     } finally {
@@ -50879,7 +54673,7 @@ async function executeStep2(driver3, step, outputDir) {
       await runAssert(driver3, step.assert);
     } else if ("screenshot" in step) {
       await (0, import_promises34.mkdir)(outputDir, { recursive: true });
-      const screenshotPath = (0, import_path39.join)(outputDir, `${step.screenshot}.png`);
+      const screenshotPath = (0, import_path40.join)(outputDir, `${step.screenshot}.png`);
       const buf = await driver3.screenshot();
       await (0, import_promises34.writeFile)(screenshotPath, buf);
       return {
@@ -50978,12 +54772,12 @@ function formatRunResult(result) {
   }
   return lines.join("\n");
 }
-var import_promises34, import_path39;
+var import_promises34, import_path40;
 var init_test_runner = __esm({
   "src/test-runner.ts"() {
     "use strict";
     import_promises34 = require("fs/promises");
-    import_path39 = require("path");
+    import_path40 = require("path");
     init_driver();
   }
 });
@@ -51030,10 +54824,10 @@ async function runScript(options) {
     env = {}
   } = options;
   const tmpId = (0, import_crypto7.randomBytes)(8).toString("hex");
-  const tmpDir = (0, import_path40.join)((0, import_os5.tmpdir)(), `ibr-script-${tmpId}`);
+  const tmpDir = (0, import_path41.join)((0, import_os6.tmpdir)(), `ibr-script-${tmpId}`);
   await (0, import_promises35.mkdir)(tmpDir, { recursive: true });
-  const copiedScript = (0, import_path40.join)(tmpDir, "user_script.py");
-  const wrapperPath = (0, import_path40.join)(tmpDir, "wrapper.py");
+  const copiedScript = (0, import_path41.join)(tmpDir, "user_script.py");
+  const wrapperPath = (0, import_path41.join)(tmpDir, "wrapper.py");
   try {
     await (0, import_promises35.copyFile)(scriptPath, copiedScript);
     await (0, import_promises35.writeFile)(wrapperPath, buildWrapper(copiedScript, cpuSeconds, memoryMB), "utf-8");
@@ -51113,14 +54907,14 @@ function formatScriptResult(result) {
   }
   return lines.join("\n");
 }
-var import_child_process17, import_promises35, import_path40, import_os5, import_crypto7;
+var import_child_process17, import_promises35, import_path41, import_os6, import_crypto7;
 var init_script_runner = __esm({
   "src/script-runner.ts"() {
     "use strict";
     import_child_process17 = require("child_process");
     import_promises35 = require("fs/promises");
-    import_path40 = require("path");
-    import_os5 = require("os");
+    import_path41 = require("path");
+    import_os6 = require("os");
     import_crypto7 = require("crypto");
   }
 });
@@ -51142,7 +54936,7 @@ async function loadState(statePath) {
   }
 }
 async function saveState(statePath, state) {
-  await (0, import_promises36.mkdir)((0, import_path41.resolve)(statePath, ".."), { recursive: true });
+  await (0, import_promises36.mkdir)((0, import_path42.resolve)(statePath, ".."), { recursive: true });
   await (0, import_promises36.writeFile)(statePath, JSON.stringify(state, null, 2), "utf-8");
 }
 function hashIssues(issues) {
@@ -51253,7 +55047,7 @@ async function runOneIteration(url2, testFile, outputDir, iterationNumber, prevI
     try {
       const results = await runTests({
         filePath: testFile,
-        outputDir: (0, import_path41.join)(outputDir, `iter-${iterationNumber}`)
+        outputDir: (0, import_path42.join)(outputDir, `iter-${iterationNumber}`)
       });
       fingerprints = testRunFingerprints(results);
       issueCount = fingerprints.length;
@@ -51267,7 +55061,7 @@ async function runOneIteration(url2, testFile, outputDir, iterationNumber, prevI
     }
   } else {
     try {
-      const result = await scan(url2, { outputDir: (0, import_path41.join)(outputDir, `iter-${iterationNumber}`) });
+      const result = await scan(url2, { outputDir: (0, import_path42.join)(outputDir, `iter-${iterationNumber}`) });
       fingerprints = extractIssueFingerprints(result);
       issueCount = result.issues.length;
       issues = result.issues;
@@ -51294,7 +55088,7 @@ async function runOneIteration(url2, testFile, outputDir, iterationNumber, prevI
 async function verifyResolved(url2, outputDir, iterationNumber) {
   try {
     const verifyResult = await scan(url2, {
-      outputDir: (0, import_path41.join)(outputDir, `iter-${iterationNumber}-verify`)
+      outputDir: (0, import_path42.join)(outputDir, `iter-${iterationNumber}-verify`)
     });
     return { confirmed: verifyResult.issues.length === 0, verifyIssueCount: verifyResult.issues.length };
   } catch {
@@ -51309,7 +55103,7 @@ async function iterate(options) {
     outputDir = ".ibr/iterate",
     autoApprove = false
   } = options;
-  const statePath = (0, import_path41.join)(outputDir, "iterate-state.json");
+  const statePath = (0, import_path42.join)(outputDir, "iterate-state.json");
   await (0, import_promises36.mkdir)(outputDir, { recursive: true });
   let persisted = await loadState(statePath);
   if (!persisted || persisted.url !== url2) {
@@ -51365,11 +55159,11 @@ async function iterate(options) {
   const targetState = finalState ?? "in_progress";
   if (analysisStates.includes(targetState) && !testFile) {
     analysis = analyzeIssues(allIterations);
-    const analysisDir = (0, import_path41.join)(outputDir);
+    const analysisDir = (0, import_path42.join)(outputDir);
     await (0, import_promises36.mkdir)(analysisDir, { recursive: true }).catch(() => {
     });
     await (0, import_promises36.writeFile)(
-      (0, import_path41.join)(analysisDir, "analysis.json"),
+      (0, import_path42.join)(analysisDir, "analysis.json"),
       JSON.stringify(analysis, null, 2)
     ).catch(() => {
     });
@@ -51411,17 +55205,17 @@ function buildResult(iterations, finalState, verificationPassed, analysis) {
   return { iterations, finalState, summary, verificationPassed, analysis };
 }
 async function resetIterateState(outputDir = ".ibr/iterate") {
-  const statePath = (0, import_path41.join)(outputDir, "iterate-state.json");
+  const statePath = (0, import_path42.join)(outputDir, "iterate-state.json");
   await (0, import_promises36.writeFile)(statePath, JSON.stringify({ iterations: [] }, null, 2), "utf-8").catch(() => {
   });
 }
-var import_crypto8, import_promises36, import_path41, CHECKPOINT_ITERATIONS, APPROACH_MAP;
+var import_crypto8, import_promises36, import_path42, CHECKPOINT_ITERATIONS, APPROACH_MAP;
 var init_iterate = __esm({
   "src/iterate.ts"() {
     "use strict";
     import_crypto8 = require("crypto");
     import_promises36 = require("fs/promises");
-    import_path41 = require("path");
+    import_path42 = require("path");
     init_test_runner();
     init_scan();
     CHECKPOINT_ITERATIONS = /* @__PURE__ */ new Set([3, 7, 15, 20]);
@@ -51974,16 +55768,16 @@ __export(scan_exports3, {
 });
 function scanStatic(options) {
   const { htmlPath, cssPath } = options;
-  if (!(0, import_fs27.existsSync)(htmlPath)) {
+  if (!(0, import_fs28.existsSync)(htmlPath)) {
     throw new Error(`HTML file not found: ${htmlPath}`);
   }
-  if (cssPath && !(0, import_fs27.existsSync)(cssPath)) {
+  if (cssPath && !(0, import_fs28.existsSync)(cssPath)) {
     throw new Error(`CSS file not found: ${cssPath}`);
   }
-  const html = (0, import_fs27.readFileSync)(htmlPath, "utf-8");
+  const html = (0, import_fs28.readFileSync)(htmlPath, "utf-8");
   let elements = parseStaticHTML(html);
   if (cssPath) {
-    const css = (0, import_fs27.readFileSync)(cssPath, "utf-8");
+    const css = (0, import_fs28.readFileSync)(cssPath, "utf-8");
     const rules = parseCSS(css);
     elements = applyStyles(elements, rules);
   }
@@ -52091,11 +55885,11 @@ function generateSummary3(totalElements, interactiveCount, errors, warnings) {
   }
   return parts.join(", ") + ".";
 }
-var import_fs27;
+var import_fs28;
 var init_scan4 = __esm({
   "src/static/scan.ts"() {
     "use strict";
-    import_fs27 = require("fs");
+    import_fs28 = require("fs");
     init_parser();
   }
 });
@@ -52269,8 +56063,8 @@ var init_attach = __esm({
     init_target();
     DEFAULT_CDP_PROBE_TIMEOUT_MS = 4e3;
     LiveAttachError = class extends Error {
-      constructor(message) {
-        super(message);
+      constructor(message2) {
+        super(message2);
         this.name = "LiveAttachError";
       }
     };
@@ -53418,8 +57212,8 @@ ${meta3.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta3.
           }
           const page = new CompatPage(driver3);
           if (aiValidation) {
-            const artifactDir = (0, import_path42.join)(DEFAULT_OUTPUT_DIR2, "mcp-search", `${Date.now()}`);
-            (0, import_fs28.mkdirSync)(artifactDir, { recursive: true });
+            const artifactDir = (0, import_path43.join)(DEFAULT_OUTPUT_DIR2, "mcp-search", `${Date.now()}`);
+            (0, import_fs29.mkdirSync)(artifactDir, { recursive: true });
             const result2 = await aiSearchFlow(page, {
               query,
               userIntent: userIntent || `Find results related to: ${query}`,
@@ -54300,14 +58094,14 @@ async function handleListSessions() {
   return textResponse(lines.join("\n"));
 }
 function readReferencesIndex() {
-  if (!(0, import_fs28.existsSync)(REFERENCES_INDEX)) {
+  if (!(0, import_fs29.existsSync)(REFERENCES_INDEX)) {
     return { references: [] };
   }
-  return JSON.parse((0, import_fs28.readFileSync)(REFERENCES_INDEX, "utf-8"));
+  return JSON.parse((0, import_fs29.readFileSync)(REFERENCES_INDEX, "utf-8"));
 }
 function writeReferencesIndex(index) {
-  (0, import_fs28.mkdirSync)(REFERENCES_DIR, { recursive: true });
-  (0, import_fs28.writeFileSync)(REFERENCES_INDEX, JSON.stringify(index, null, 2));
+  (0, import_fs29.mkdirSync)(REFERENCES_DIR, { recursive: true });
+  (0, import_fs29.writeFileSync)(REFERENCES_INDEX, JSON.stringify(index, null, 2));
 }
 async function handleScreenshot(args) {
   const url2 = args.url;
@@ -54323,9 +58117,9 @@ async function handleScreenshot(args) {
   const isExternal = !url2.includes("localhost") && !url2.includes("127.0.0.1");
   const delay = args.delay ?? (isExternal ? 2e3 : 500);
   const timestamp2 = Date.now();
-  const screenshotsDir = (0, import_path42.join)(DEFAULT_OUTPUT_DIR2, "screenshots");
-  (0, import_fs28.mkdirSync)(screenshotsDir, { recursive: true });
-  const tempPath = (0, import_path42.join)(screenshotsDir, `capture-${timestamp2}.png`);
+  const screenshotsDir = (0, import_path43.join)(DEFAULT_OUTPUT_DIR2, "screenshots");
+  (0, import_fs29.mkdirSync)(screenshotsDir, { recursive: true });
+  const tempPath = (0, import_path43.join)(screenshotsDir, `capture-${timestamp2}.png`);
   await captureScreenshot({
     url: url2,
     outputPath: tempPath,
@@ -54338,14 +58132,14 @@ async function handleScreenshot(args) {
     delay,
     pool: await getMcpBrowserPool()
   });
-  const imageBuffer = (0, import_fs28.readFileSync)(tempPath);
+  const imageBuffer = (0, import_fs29.readFileSync)(tempPath);
   const base643 = imageBuffer.toString("base64");
   const fileSize = imageBuffer.length;
   let savedPath = "not saved";
   if (saveAs) {
-    (0, import_fs28.mkdirSync)(REFERENCES_DIR, { recursive: true });
-    const refPath = (0, import_path42.join)(REFERENCES_DIR, `${saveAs}.png`);
-    (0, import_fs28.writeFileSync)(refPath, imageBuffer);
+    (0, import_fs29.mkdirSync)(REFERENCES_DIR, { recursive: true });
+    const refPath = (0, import_path43.join)(REFERENCES_DIR, `${saveAs}.png`);
+    (0, import_fs29.writeFileSync)(refPath, imageBuffer);
     savedPath = refPath;
     const index = readReferencesIndex();
     index.references = index.references.filter((r) => r.name !== saveAs);
@@ -54400,11 +58194,11 @@ async function handleReferences(args) {
           `Reference "${name}" not found. Use action 'list' to see available references.`
         );
       }
-      const refPath = (0, import_path42.join)(REFERENCES_DIR, ref.path);
-      if (!(0, import_fs28.existsSync)(refPath)) {
+      const refPath = (0, import_path43.join)(REFERENCES_DIR, ref.path);
+      if (!(0, import_fs29.existsSync)(refPath)) {
         return errorResponse2(`Reference file missing: ${refPath}`);
       }
-      const imageBuffer = (0, import_fs28.readFileSync)(refPath);
+      const imageBuffer = (0, import_fs29.readFileSync)(refPath);
       const base643 = imageBuffer.toString("base64");
       const metadata = [
         `Reference: ${ref.name}`,
@@ -54426,9 +58220,9 @@ async function handleReferences(args) {
           `Reference "${name}" not found. Use action 'list' to see available references.`
         );
       }
-      const refPath = (0, import_path42.join)(REFERENCES_DIR, ref.path);
-      if ((0, import_fs28.existsSync)(refPath)) {
-        (0, import_fs28.unlinkSync)(refPath);
+      const refPath = (0, import_path43.join)(REFERENCES_DIR, ref.path);
+      if ((0, import_fs29.existsSync)(refPath)) {
+        (0, import_fs29.unlinkSync)(refPath);
       }
       index.references = index.references.filter((r) => r.name !== name);
       writeReferencesIndex(index);
@@ -54872,7 +58666,7 @@ async function handleBridgeToSource(args) {
   if (!projectRoot) {
     return errorResponse2("The 'project_root' parameter is required.");
   }
-  if (!(0, import_fs28.existsSync)(projectRoot)) {
+  if (!(0, import_fs29.existsSync)(projectRoot)) {
     return errorResponse2(`Project root not found: ${projectRoot}`);
   }
   const deviceQuery = args.device;
@@ -55069,32 +58863,32 @@ async function handleSimAction(args) {
 async function handleDesignSystem(args) {
   const action = args.action;
   const projectDir = args.projectDir || process.cwd();
-  const ibrDir = (0, import_path42.join)(projectDir, ".ibr");
-  const configPath = (0, import_path42.join)(ibrDir, "design-system.json");
+  const ibrDir = (0, import_path43.join)(projectDir, ".ibr");
+  const configPath = (0, import_path43.join)(ibrDir, "design-system.json");
   switch (action) {
     case "init": {
       const templateCandidates = [
-        (0, import_path42.join)(projectDir, "node_modules", "interface-built-right", "templates", "design-system.json"),
-        (0, import_path42.join)(projectDir, "templates", "design-system.json"),
+        (0, import_path43.join)(projectDir, "node_modules", "interface-built-right", "templates", "design-system.json"),
+        (0, import_path43.join)(projectDir, "templates", "design-system.json"),
         // Dev: relative to this compiled file in dist/mcp/ → ../../templates/
-        (0, import_path42.join)(__dirname, "..", "..", "templates", "design-system.json")
+        (0, import_path43.join)(__dirname, "..", "..", "templates", "design-system.json")
       ];
-      const templatePath = templateCandidates.find((p) => (0, import_fs28.existsSync)(p));
+      const templatePath = templateCandidates.find((p) => (0, import_fs29.existsSync)(p));
       if (!templatePath) {
         return errorResponse2(
           "Could not find design-system template. Expected at templates/design-system.json or node_modules/interface-built-right/templates/design-system.json"
         );
       }
-      if ((0, import_fs28.existsSync)(configPath)) {
+      if ((0, import_fs29.existsSync)(configPath)) {
         return textResponse(
           `.ibr/design-system.json already exists. Delete it first if you want to reset to defaults.
 Path: ${configPath}`
         );
       }
-      if (!(0, import_fs28.existsSync)(ibrDir)) {
-        (0, import_fs28.mkdirSync)(ibrDir, { recursive: true });
+      if (!(0, import_fs29.existsSync)(ibrDir)) {
+        (0, import_fs29.mkdirSync)(ibrDir, { recursive: true });
       }
-      (0, import_fs28.copyFileSync)(templatePath, configPath);
+      (0, import_fs29.copyFileSync)(templatePath, configPath);
       return textResponse(
         `Design system config created at .ibr/design-system.json
 Edit it to add your tokens and configure principle severities.
@@ -55102,13 +58896,13 @@ Path: ${configPath}`
       );
     }
     case "status": {
-      if (!(0, import_fs28.existsSync)(configPath)) {
+      if (!(0, import_fs29.existsSync)(configPath)) {
         return textResponse(
           `No design system config found. Run design_system with action "init" to create one.
 Expected: ${configPath}`
         );
       }
-      const raw = (0, import_fs28.readFileSync)(configPath, "utf-8");
+      const raw = (0, import_fs29.readFileSync)(configPath, "utf-8");
       const config2 = JSON.parse(raw);
       return textResponse(
         `Design system config: ${configPath}
@@ -55164,12 +58958,12 @@ Expected: ${configPath}`
       return errorResponse2(`Unknown action: ${action}. Use: init, status, validate`);
   }
 }
-var import_fs28, import_path42, hardWallAttempts, hardWallsBySession, NOOP_PIXEL_THRESHOLD, TOOLS, DEFAULT_OUTPUT_DIR2, mcpBrowserPoolPromise, REFERENCES_DIR, REFERENCES_INDEX;
+var import_fs29, import_path43, hardWallAttempts, hardWallsBySession, NOOP_PIXEL_THRESHOLD, TOOLS, DEFAULT_OUTPUT_DIR2, mcpBrowserPoolPromise, REFERENCES_DIR, REFERENCES_INDEX;
 var init_tools = __esm({
   "src/mcp/tools.ts"() {
     "use strict";
-    import_fs28 = require("fs");
-    import_path42 = require("path");
+    import_fs29 = require("fs");
+    import_path43 = require("path");
     init_design_system();
     init_scan();
     init_index();
@@ -56176,10 +59970,42 @@ var init_tools = __esm({
       }
     ];
     DEFAULT_OUTPUT_DIR2 = ".ibr";
-    REFERENCES_DIR = (0, import_path42.join)(DEFAULT_OUTPUT_DIR2, "references");
-    REFERENCES_INDEX = (0, import_path42.join)(REFERENCES_DIR, "index.json");
+    REFERENCES_DIR = (0, import_path43.join)(DEFAULT_OUTPUT_DIR2, "references");
+    REFERENCES_INDEX = (0, import_path43.join)(REFERENCES_DIR, "index.json");
   }
 });
+
+// src/bin/node-version-guard.ts
+var import_fs = require("fs");
+var import_os = require("os");
+var import_path = require("path");
+
+// src/exit-codes.ts
+var EXIT_PASS = 0;
+var EXIT_ISSUES = 1;
+var EXIT_TOOL_ERROR = 2;
+
+// src/bin/node-version-guard.ts
+var MIN_MAJOR = 20;
+function runHint() {
+  try {
+    const root = (0, import_path.join)((0, import_os.homedir)(), ".nvm", "versions", "node");
+    const best = (0, import_fs.readdirSync)(root).map((d) => ({ d, v: d.replace(/^v/, "").split(".").map(Number) })).filter((x) => x.v[0] >= 22 && (0, import_fs.existsSync)((0, import_path.join)(root, x.d, "bin", "node"))).sort((a, b) => a.v[0] - b.v[0] || a.v[1] - b.v[1] || a.v[2] - b.v[2]).pop();
+    if (best) return (0, import_path.join)(root, best.d, "bin", "node").replace((0, import_os.homedir)(), "~");
+  } catch {
+  }
+  return "Node 22+";
+}
+function checkNodeVersion(version2) {
+  const major = Number(version2.replace(/^v/, "").split(".")[0]);
+  if (major >= MIN_MAJOR) return null;
+  return `ibr needs Node ${MIN_MAJOR}+ (found v${version2.replace(/^v/, "")}); run with ${runHint()}`;
+}
+var message = checkNodeVersion(process.versions.node);
+if (message) {
+  process.stderr.write(message + "\n");
+  process.exit(EXIT_TOOL_ERROR);
+}
 
 // node_modules/commander/lib/error.js
 var CommanderError = class extends Error {
@@ -56189,8 +60015,8 @@ var CommanderError = class extends Error {
    * @param {string} code an id string representing the error
    * @param {string} message human-readable description of the error
    */
-  constructor(exitCode, code, message) {
-    super(message);
+  constructor(exitCode, code, message2) {
+    super(message2);
     Error.captureStackTrace(this, this.constructor);
     this.name = this.constructor.name;
     this.code = code;
@@ -56203,8 +60029,8 @@ var InvalidArgumentError = class extends CommanderError {
    * Constructs the InvalidArgumentError class
    * @param {string} [message] explanation of why argument is invalid
    */
-  constructor(message) {
-    super(1, "commander.invalidArgument", message);
+  constructor(message2) {
+    super(1, "commander.invalidArgument", message2);
     Error.captureStackTrace(this, this.constructor);
     this.name = this.constructor.name;
   }
@@ -57750,9 +61576,9 @@ Expecting one of '${allowedValues.join("', '")}'`);
    * @return never
    * @private
    */
-  _exit(exitCode, code, message) {
+  _exit(exitCode, code, message2) {
     if (this._exitCallback) {
-      this._exitCallback(new CommanderError(exitCode, code, message));
+      this._exitCallback(new CommanderError(exitCode, code, message2));
     }
     import_node_process.default.exit(exitCode);
   }
@@ -57812,8 +61638,8 @@ Expecting one of '${allowedValues.join("', '")}'`);
       return target.parseArg(value, previous);
     } catch (err) {
       if (err.code === "commander.invalidArgument") {
-        const message = `${invalidArgumentMessage} ${err.message}`;
-        this.error(message, { exitCode: err.exitCode, code: err.code });
+        const message2 = `${invalidArgumentMessage} ${err.message}`;
+        this.error(message2, { exitCode: err.exitCode, code: err.code });
       }
       throw err;
     }
@@ -58891,9 +62717,9 @@ Expecting one of '${allowedValues.join("', '")}'`);
    * @param {string} [errorOptions.code] - an id string representing the error
    * @param {number} [errorOptions.exitCode] - used with process.exit
    */
-  error(message, errorOptions) {
+  error(message2, errorOptions) {
     this._outputConfiguration.outputError(
-      `${message}
+      `${message2}
 `,
       this._outputConfiguration.writeErr
     );
@@ -58907,7 +62733,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
     const config2 = errorOptions || {};
     const exitCode = config2.exitCode || 1;
     const code = config2.code || "commander.error";
-    this._exit(exitCode, code, message);
+    this._exit(exitCode, code, message2);
   }
   /**
    * Apply any option related environment variables, if option does
@@ -58963,8 +62789,8 @@ Expecting one of '${allowedValues.join("', '")}'`);
    * @private
    */
   missingArgument(name) {
-    const message = `error: missing required argument '${name}'`;
-    this.error(message, { code: "commander.missingArgument" });
+    const message2 = `error: missing required argument '${name}'`;
+    this.error(message2, { code: "commander.missingArgument" });
   }
   /**
    * `Option` is missing an argument.
@@ -58973,8 +62799,8 @@ Expecting one of '${allowedValues.join("', '")}'`);
    * @private
    */
   optionMissingArgument(option) {
-    const message = `error: option '${option.flags}' argument missing`;
-    this.error(message, { code: "commander.optionMissingArgument" });
+    const message2 = `error: option '${option.flags}' argument missing`;
+    this.error(message2, { code: "commander.optionMissingArgument" });
   }
   /**
    * `Option` does not have a value, and is a mandatory option.
@@ -58983,8 +62809,8 @@ Expecting one of '${allowedValues.join("', '")}'`);
    * @private
    */
   missingMandatoryOptionValue(option) {
-    const message = `error: required option '${option.flags}' not specified`;
-    this.error(message, { code: "commander.missingMandatoryOptionValue" });
+    const message2 = `error: required option '${option.flags}' not specified`;
+    this.error(message2, { code: "commander.missingMandatoryOptionValue" });
   }
   /**
    * `Option` conflicts with another option.
@@ -59017,8 +62843,8 @@ Expecting one of '${allowedValues.join("', '")}'`);
       }
       return `option '${bestOption.flags}'`;
     };
-    const message = `error: ${getErrorMessage(option)} cannot be used with ${getErrorMessage(conflictingOption)}`;
-    this.error(message, { code: "commander.conflictingOption" });
+    const message2 = `error: ${getErrorMessage(option)} cannot be used with ${getErrorMessage(conflictingOption)}`;
+    this.error(message2, { code: "commander.conflictingOption" });
   }
   /**
    * Unknown option `flag`.
@@ -59039,8 +62865,8 @@ Expecting one of '${allowedValues.join("', '")}'`);
       } while (command && !command._enablePositionalOptions);
       suggestion = suggestSimilar(flag, candidateFlags);
     }
-    const message = `error: unknown option '${flag}'${suggestion}`;
-    this.error(message, { code: "commander.unknownOption" });
+    const message2 = `error: unknown option '${flag}'${suggestion}`;
+    this.error(message2, { code: "commander.unknownOption" });
   }
   /**
    * Excess arguments, more than expected.
@@ -59055,8 +62881,8 @@ Expecting one of '${allowedValues.join("', '")}'`);
     const received = receivedArgs.length;
     const forSubcommand = this.parent ? ` for '${this.name()}'` : "";
     const details = receivedArgs.join(", ");
-    const message = `error: too many arguments${forSubcommand}. Expected ${expected} argument${s} but got ${received}: ${details}.`;
-    this.error(message, { code: "commander.excessArguments" });
+    const message2 = `error: too many arguments${forSubcommand}. Expected ${expected} argument${s} but got ${received}: ${details}.`;
+    this.error(message2, { code: "commander.excessArguments" });
   }
   /**
    * Unknown command.
@@ -59074,8 +62900,8 @@ Expecting one of '${allowedValues.join("', '")}'`);
       });
       suggestion = suggestSimilar(unknownName, candidateNames);
     }
-    const message = `error: unknown command '${unknownName}'${suggestion}`;
-    this.error(message, { code: "commander.unknownCommand" });
+    const message2 = `error: unknown command '${unknownName}'${suggestion}`;
+    this.error(message2, { code: "commander.unknownCommand" });
   }
   /**
    * Get or set the program version.
@@ -59551,11 +63377,11 @@ var program = new Command();
 
 // src/bin/ibr.ts
 var import_promises37 = require("fs/promises");
-var import_path43 = require("path");
-var import_fs29 = require("fs");
+var import_path44 = require("path");
+var import_fs30 = require("fs");
 
 // src/native/toolchain-env.ts
-var import_fs = require("fs");
+var import_fs2 = require("fs");
 var TOOLCHAIN_DIRS = [
   "/usr/bin",
   "/bin",
@@ -59568,7 +63394,7 @@ function hardenPath(currentPath) {
   const existing = (currentPath ?? "").split(":").filter(Boolean);
   const have = new Set(existing);
   const additions = TOOLCHAIN_DIRS.filter(
-    (dir) => !have.has(dir) && (0, import_fs.existsSync)(dir)
+    (dir) => !have.has(dir) && (0, import_fs2.existsSync)(dir)
   );
   return [...existing, ...additions].join(":");
 }
@@ -59579,21 +63405,14 @@ function ensureToolchainPath(env = process.env) {
 
 // src/bin/ibr.ts
 init_driver();
-
-// src/exit-codes.ts
-var EXIT_PASS = 0;
-var EXIT_ISSUES = 1;
-var EXIT_TOOL_ERROR = 2;
-
-// src/bin/ibr.ts
 init_compat();
 init_index();
 init_operation_tracker();
 init_devices();
 
 // src/native/compact-refs.ts
-var import_fs16 = require("fs");
-var import_path27 = require("path");
+var import_fs17 = require("fs");
+var import_path28 = require("path");
 function keyOf(e) {
   return `${e.role}|${e.label ?? ""}|${e.identifier ?? ""}|${e.frame?.join(",") ?? ""}`;
 }
@@ -59645,35 +63464,35 @@ function formatDiff(d) {
   ].join("\n");
 }
 function refsPath(dir, sessionId) {
-  return (0, import_path27.join)(dir, `${sessionId}.refs.json`);
+  return (0, import_path28.join)(dir, `${sessionId}.refs.json`);
 }
 function saveRefs(dir, sessionId, refs) {
-  (0, import_fs16.mkdirSync)(dir, { recursive: true });
+  (0, import_fs17.mkdirSync)(dir, { recursive: true });
   const p = refsPath(dir, sessionId);
-  (0, import_fs16.writeFileSync)(p, JSON.stringify(refs));
+  (0, import_fs17.writeFileSync)(p, JSON.stringify(refs));
   return p;
 }
 function loadRefs(dir, sessionId) {
   const p = refsPath(dir, sessionId);
-  if (!(0, import_fs16.existsSync)(p)) return null;
+  if (!(0, import_fs17.existsSync)(p)) return null;
   try {
-    return JSON.parse((0, import_fs16.readFileSync)(p, "utf8"));
+    return JSON.parse((0, import_fs17.readFileSync)(p, "utf8"));
   } catch {
     return null;
   }
 }
 function writeFullPayload(dir, sessionId, what, payload) {
-  (0, import_fs16.mkdirSync)(dir, { recursive: true });
-  const p = (0, import_path27.join)(dir, `${sessionId}.${what}.json`);
-  (0, import_fs16.writeFileSync)(p, JSON.stringify(payload));
+  (0, import_fs17.mkdirSync)(dir, { recursive: true });
+  const p = (0, import_path28.join)(dir, `${sessionId}.${what}.json`);
+  (0, import_fs17.writeFileSync)(p, JSON.stringify(payload));
   return p;
 }
 
 // src/native/session-store.ts
-var import_fs17 = require("fs");
-var import_path28 = require("path");
+var import_fs18 = require("fs");
+var import_path29 = require("path");
 var import_crypto4 = require("crypto");
-var DEFAULT_SESSION_STORE_DIR = (0, import_path28.join)(".ibr", "native-sessions");
+var DEFAULT_SESSION_STORE_DIR = (0, import_path29.join)(".ibr", "native-sessions");
 function safeSessionFilePart(sessionId) {
   if (!sessionId || !/^[a-zA-Z0-9._-]+$/.test(sessionId) || sessionId === "." || sessionId === "..") {
     throw new Error(`Invalid sessionId for file store: ${JSON.stringify(sessionId)}`);
@@ -59681,23 +63500,23 @@ function safeSessionFilePart(sessionId) {
   return sessionId;
 }
 function sessionFilePath(sessionId, baseDir) {
-  return (0, import_path28.join)(baseDir, `${safeSessionFilePart(sessionId)}.json`);
+  return (0, import_path29.join)(baseDir, `${safeSessionFilePart(sessionId)}.json`);
 }
 function writeSession(sessionId, entry, baseDir = DEFAULT_SESSION_STORE_DIR) {
-  (0, import_fs17.mkdirSync)(baseDir, { recursive: true });
+  (0, import_fs18.mkdirSync)(baseDir, { recursive: true });
   const target = sessionFilePath(sessionId, baseDir);
-  const tmp = (0, import_path28.join)(
+  const tmp = (0, import_path29.join)(
     baseDir,
     `.${safeSessionFilePart(sessionId)}.${process.pid}-${(0, import_crypto4.randomBytes)(4).toString("hex")}.tmp`
   );
-  (0, import_fs17.writeFileSync)(tmp, JSON.stringify(entry, null, 2), "utf8");
-  (0, import_fs17.renameSync)(tmp, target);
+  (0, import_fs18.writeFileSync)(tmp, JSON.stringify(entry, null, 2), "utf8");
+  (0, import_fs18.renameSync)(tmp, target);
 }
 function readSession(sessionId, baseDir = DEFAULT_SESSION_STORE_DIR) {
   const target = sessionFilePath(sessionId, baseDir);
-  if (!(0, import_fs17.existsSync)(target)) return null;
+  if (!(0, import_fs18.existsSync)(target)) return null;
   try {
-    const parsed = JSON.parse((0, import_fs17.readFileSync)(target, "utf8"));
+    const parsed = JSON.parse((0, import_fs18.readFileSync)(target, "utf8"));
     if (!parsed || parsed.type !== "macos" && parsed.type !== "simulator") return null;
     if (typeof parsed.createdAt !== "number") return null;
     return parsed;
@@ -59708,7 +63527,7 @@ function readSession(sessionId, baseDir = DEFAULT_SESSION_STORE_DIR) {
 function deleteSession2(sessionId, baseDir = DEFAULT_SESSION_STORE_DIR) {
   const target = sessionFilePath(sessionId, baseDir);
   try {
-    (0, import_fs17.unlinkSync)(target);
+    (0, import_fs18.unlinkSync)(target);
   } catch {
   }
 }
@@ -59716,8 +63535,8 @@ function deleteSession2(sessionId, baseDir = DEFAULT_SESSION_STORE_DIR) {
 // src/native/computer-use.ts
 var import_child_process14 = require("child_process");
 var import_util14 = require("util");
-var import_fs18 = require("fs");
-var import_path29 = require("path");
+var import_fs19 = require("fs");
+var import_path30 = require("path");
 init_idb();
 var execFileAsync12 = (0, import_util14.promisify)(import_child_process14.execFile);
 var num2 = (v) => {
@@ -59803,8 +63622,8 @@ var KEY_TEXT = { return: "\n", enter: "\n", tab: "	" };
 async function executeOnSimulator(udid, a, outDir) {
   switch (a.kind) {
     case "screenshot": {
-      (0, import_fs18.mkdirSync)(outDir, { recursive: true });
-      const p = (0, import_path29.join)(outDir, `cu-${Date.now()}.png`);
+      (0, import_fs19.mkdirSync)(outDir, { recursive: true });
+      const p = (0, import_path30.join)(outDir, `cu-${Date.now()}.png`);
       await execFileAsync12("xcrun", ["simctl", "io", udid, "screenshot", p], { timeout: 15e3 });
       return { success: true, screenshot: p };
     }
@@ -59861,8 +63680,8 @@ init_idb();
 init_backend();
 
 // src/native/replay.ts
-var import_fs19 = require("fs");
-var import_path30 = require("path");
+var import_fs20 = require("fs");
+var import_path31 = require("path");
 var import_crypto5 = require("crypto");
 init_actions();
 init_session_controller();
@@ -59885,16 +63704,16 @@ function fpText(f) {
   return `${f.role.replace(/^AX/, "")} ${JSON.stringify(f.label ?? f.identifier ?? "")}`;
 }
 function loadReplayFile(path3) {
-  if (!(0, import_fs19.existsSync)(path3)) return { version: 1, steps: [] };
-  const parsed = JSON.parse((0, import_fs19.readFileSync)(path3, "utf-8"));
+  if (!(0, import_fs20.existsSync)(path3)) return { version: 1, steps: [] };
+  const parsed = JSON.parse((0, import_fs20.readFileSync)(path3, "utf-8"));
   if (parsed.version !== 1 || !Array.isArray(parsed.steps)) throw new Error(`${path3} is not an IBR replay file (version 1).`);
   return parsed;
 }
 function appendReplayStep(path3, step) {
   const file2 = loadReplayFile(path3);
   file2.steps.push(step);
-  (0, import_fs19.mkdirSync)((0, import_path30.dirname)(path3), { recursive: true });
-  (0, import_fs19.writeFileSync)(path3, JSON.stringify(file2, null, 2));
+  (0, import_fs20.mkdirSync)((0, import_path31.dirname)(path3), { recursive: true });
+  (0, import_fs20.writeFileSync)(path3, JSON.stringify(file2, null, 2));
   return file2.steps.length;
 }
 function elementAtPoint(elements, x, y) {
@@ -60079,33 +63898,33 @@ function parsePayload(text) {
     return {};
   }
 }
-function invalidTarget(message, extra = {}) {
+function invalidTarget(message2, extra = {}) {
   return {
     exitCode: EXIT_INVALID_TARGET,
-    json: { ok: false, exitCode: EXIT_INVALID_TARGET, error: message, ...extra },
-    text: `\u2717 ${message}`
+    json: { ok: false, exitCode: EXIT_INVALID_TARGET, error: message2, ...extra },
+    text: `\u2717 ${message2}`
   };
 }
 function sessionNotFound(sessionId) {
-  const message = `Session not found: ${sessionId}. Use native:session:start first.`;
+  const message2 = `Session not found: ${sessionId}. Use native:session:start first.`;
   return {
     exitCode: EXIT_SESSION_NOT_FOUND,
-    json: { ok: false, exitCode: EXIT_SESSION_NOT_FOUND, sessionId, error: message },
-    text: `\u2717 ${message}`
+    json: { ok: false, exitCode: EXIT_SESSION_NOT_FOUND, sessionId, error: message2 },
+    text: `\u2717 ${message2}`
   };
 }
-function actionFailed(message, extra = {}) {
+function actionFailed(message2, extra = {}) {
   return {
     exitCode: EXIT_ACTION_FAILED,
-    json: { ok: false, exitCode: EXIT_ACTION_FAILED, error: message, ...extra },
-    text: `\u2717 ${message}`
+    json: { ok: false, exitCode: EXIT_ACTION_FAILED, error: message2, ...extra },
+    text: `\u2717 ${message2}`
   };
 }
-function waitFailed(message, extra = {}) {
+function waitFailed(message2, extra = {}) {
   return {
     exitCode: EXIT_WAIT_FAILED,
-    json: { ok: false, exitCode: EXIT_WAIT_FAILED, error: message, ...extra },
-    text: `\u2717 ${message}`
+    json: { ok: false, exitCode: EXIT_WAIT_FAILED, error: message2, ...extra },
+    text: `\u2717 ${message2}`
   };
 }
 function looksLikeTargetProblem(payload, rawText) {
@@ -60270,11 +64089,11 @@ async function handleAction(opts, deps = defaultCliDeps()) {
       return waitFailed(`Wait for "${opts.waitFor}" timed out.`, { sessionId: opts.sessionId, ...payload });
     }
     const code = looksLikeTargetProblem(payload, result.text) ? EXIT_INVALID_TARGET : EXIT_ACTION_FAILED;
-    const message = typeof payload.error === "string" ? payload.error : result.text;
+    const message2 = typeof payload.error === "string" ? payload.error : result.text;
     return {
       exitCode: code,
-      json: { ok: false, exitCode: code, sessionId: opts.sessionId, ...payload, error: message },
-      text: `\u2717 ${message}`
+      json: { ok: false, exitCode: code, sessionId: opts.sessionId, ...payload, error: message2 },
+      text: `\u2717 ${message2}`
     };
   }
   if (opts.waitFor && postAction && postAction.settled === false) {
@@ -60542,7 +64361,7 @@ init_session_hard_wall();
 init_session_idle();
 
 // src/bin/external-action-evidence-cli.ts
-var import_fs20 = require("fs");
+var import_fs21 = require("fs");
 var import_promises24 = require("fs/promises");
 init_external_action_evidence();
 var MAX_INPUT_BYTES = 1024 * 1024;
@@ -60565,7 +64384,7 @@ async function readEvidenceFile(path3) {
     throw new Error("input must be a regular file");
   }
   if (beforeOpen.size > MAX_INPUT_BYTES) throw new Error(`input exceeds ${MAX_INPUT_BYTES} bytes`);
-  const handle = await (0, import_promises24.open)(path3, import_fs20.constants.O_RDONLY | import_fs20.constants.O_NOFOLLOW);
+  const handle = await (0, import_promises24.open)(path3, import_fs21.constants.O_RDONLY | import_fs21.constants.O_NOFOLLOW);
   const chunks = [];
   let totalBytes = 0;
   try {
@@ -60623,8 +64442,8 @@ async function handleEvidenceRecord(options, deps = defaultDeps()) {
       text: `Recorded external action evidence: ${result.path}`
     };
   } catch (error51) {
-    const message = error51 instanceof Error ? error51.message : String(error51);
-    const publicMessage = options.privacy === "local-sensitive" ? message : "external action evidence rejected";
+    const message2 = error51 instanceof Error ? error51.message : String(error51);
+    const publicMessage = options.privacy === "local-sensitive" ? message2 : "external action evidence rejected";
     return {
       exitCode: 1,
       json: { ok: false, code: "EVIDENCE_REJECTED", error: publicMessage },
@@ -60773,7 +64592,7 @@ process.on("uncaughtException", (err) => {
 });
 function readPackageVersion() {
   try {
-    const pkg = JSON.parse((0, import_fs29.readFileSync)((0, import_path43.join)(__dirname, "..", "..", "package.json"), "utf8"));
+    const pkg = JSON.parse((0, import_fs30.readFileSync)((0, import_path44.join)(__dirname, "..", "..", "package.json"), "utf8"));
     if (typeof pkg.version === "string") return pkg.version;
   } catch {
   }
@@ -60881,8 +64700,8 @@ program2.hook("preAction", () => {
   if (browserOpts.chromePath) process.env.IBR_CHROME_PATH = browserOpts.chromePath;
 });
 async function loadConfig() {
-  const configPath = (0, import_path43.join)(process.cwd(), ".ibrrc.json");
-  if ((0, import_fs29.existsSync)(configPath)) {
+  const configPath = (0, import_path44.join)(process.cwd(), ".ibrrc.json");
+  if ((0, import_fs30.existsSync)(configPath)) {
     try {
       const content = await (0, import_promises37.readFile)(configPath, "utf-8");
       return normalizeFileConfig(JSON.parse(content));
@@ -61197,7 +65016,7 @@ program2.command("audit [url]").description("Full audit: functional checks + vis
       const { compareImages: compareImages2, analyzeComparison: analyzeComparison2 } = await Promise.resolve().then(() => (init_compare(), compare_exports));
       const { listSessions: listSessions2, getSessionPaths: getSessionPaths2 } = await Promise.resolve().then(() => (init_session(), session_exports));
       const { mkdir: mkdir30, access: access4 } = await import("fs/promises");
-      const { join: join40 } = await import("path");
+      const { join: join41 } = await import("path");
       const outputDir = globalOpts.output || "./.ibr";
       const sessions2 = await listSessions2(outputDir);
       const urlPath = new URL(resolvedUrl).pathname;
@@ -61205,7 +65024,7 @@ program2.command("audit [url]").description("Full audit: functional checks + vis
       if (baselineSession) {
         const paths = getSessionPaths2(outputDir, baselineSession.id);
         const currentPath = paths.current;
-        await mkdir30(join40(outputDir, "sessions", baselineSession.id), { recursive: true });
+        await mkdir30(join41(outputDir, "sessions", baselineSession.id), { recursive: true });
         await page.screenshot({ path: currentPath, fullPage: true });
         try {
           await access4(paths.baseline);
@@ -61240,7 +65059,7 @@ program2.command("audit [url]").description("Full audit: functional checks + vis
       const { getSemanticOutput: getSemanticOutput2, detectLandmarks: detectLandmarks2, compareLandmarks: compareLandmarks2, getExpectedLandmarksForIntent: getExpectedLandmarksForIntent2, getExpectedLandmarksFromContext: getExpectedLandmarksFromContext2, LANDMARK_SELECTORS: LANDMARK_SELECTORS2 } = await Promise.resolve().then(() => (init_semantic(), semantic_exports));
       const { listSessions: listSessions2 } = await Promise.resolve().then(() => (init_session(), session_exports));
       const { readFile: readFile24 } = await import("fs/promises");
-      const { join: join40 } = await import("path");
+      const { join: join41 } = await import("path");
       const semantic = await getSemanticOutput2(page);
       const outputDir = globalOpts.output || "./.ibr";
       const sessions2 = await listSessions2(outputDir);
@@ -61265,7 +65084,7 @@ program2.command("audit [url]").description("Full audit: functional checks + vis
         const intentLandmarks = getExpectedLandmarksForIntent2(pageIntent);
         let contextLandmarks = [];
         try {
-          const claudeMdPath = join40(process.cwd(), "CLAUDE.md");
+          const claudeMdPath = join41(process.cwd(), "CLAUDE.md");
           const content = await readFile24(claudeMdPath, "utf-8");
           contextLandmarks = getExpectedLandmarksFromContext2({ principles: [content] });
         } catch {
@@ -61742,14 +65561,14 @@ program2.command("serve").description("Start the comparison viewer web UI").opti
   const { resolve: resolve7 } = await import("path");
   const distBinRoot = resolve7(__dirname, "..", "..");
   const candidates = [
-    (0, import_path43.join)(distBinRoot, "web-ui"),
-    (0, import_path43.join)(process.cwd(), "web-ui"),
-    (0, import_path43.join)(process.cwd(), "node_modules", "@tyroneross", "interface-built-right", "web-ui"),
-    (0, import_path43.join)(process.cwd(), "node_modules", "interface-built-right", "web-ui")
+    (0, import_path44.join)(distBinRoot, "web-ui"),
+    (0, import_path44.join)(process.cwd(), "web-ui"),
+    (0, import_path44.join)(process.cwd(), "node_modules", "@tyroneross", "interface-built-right", "web-ui"),
+    (0, import_path44.join)(process.cwd(), "node_modules", "interface-built-right", "web-ui")
   ];
   let webUiDir = null;
   for (const c of candidates) {
-    if ((0, import_fs29.existsSync)(c)) {
+    if ((0, import_fs30.existsSync)(c)) {
       webUiDir = c;
       break;
     }
@@ -61943,7 +65762,7 @@ async function startDetachedServer(outputDir, argv, expectSession) {
   const { isServerRunning: isServerRunning2, listActiveSessions: listActiveSessions2 } = await Promise.resolve().then(() => (init_browser_server(), browser_server_exports));
   await mkdir30(outputDir, { recursive: true });
   const preexisting = new Set(await listActiveSessions2(outputDir).catch(() => []));
-  const logPath = (0, import_path43.join)(outputDir, "browser-server.log");
+  const logPath = (0, import_path44.join)(outputDir, "browser-server.log");
   const logFile = await open3(logPath, "a");
   const args = argv.slice(1).filter((a) => a !== "--detach");
   const child = spawn4(process.execPath, args, {
@@ -62096,7 +65915,7 @@ program2.command("session:start [url]").description("Start an interactive browse
             }
           }
           try {
-            (0, import_fs29.unlinkSync)((0, import_path43.join)(outputDir, "browser-server.json"));
+            (0, import_fs30.unlinkSync)((0, import_path44.join)(outputDir, "browser-server.json"));
           } catch {
           }
         };
@@ -62873,7 +66692,7 @@ program2.command("search-test <url>").description("Run AI search test with scree
     await driver3.launch(withBrowserOptions({ headless: true, viewport: viewportToConfig(viewport) }));
     const page = new CompatPage(driver3);
     await page.goto(url2, { waitUntil: "networkidle", timeout: 3e4 });
-    const sessionDir = (0, import_path43.join)(outputDir, "sessions", `search-${Date.now()}`);
+    const sessionDir = (0, import_path44.join)(outputDir, "sessions", `search-${Date.now()}`);
     await mkdir30(sessionDir, { recursive: true });
     const result = await aiSearchFlow2(page, {
       query: options.query,
@@ -63137,13 +66956,13 @@ program2.command("diagnose [url]").description("Diagnose page load issues (auto-
   try {
     const resolvedUrl = await resolveBaseUrl(url2);
     const { captureWithDiagnostics: captureWithDiagnostics2, closeBrowser: closeBrowser3 } = await Promise.resolve().then(() => (init_capture(), capture_exports));
-    const { join: join40 } = await import("path");
+    const { join: join41 } = await import("path");
     const outputDir = program2.opts().output || "./.ibr";
     console.log(`Diagnosing ${resolvedUrl}...`);
     console.log("");
     const result = await captureWithDiagnostics2({
       url: resolvedUrl,
-      outputPath: join40(outputDir, "diagnose", "test.png"),
+      outputPath: join41(outputDir, "diagnose", "test.png"),
       timeout: parseInt(options.timeout, 10),
       outputDir
     });
@@ -63261,10 +67080,10 @@ async function resolveBaseUrl(providedUrl) {
 }
 program2.command("init").description("Initialize IBR config and optionally register Claude Code plugin").option("-p, --port <port>", "Port for baseUrl (auto-detects available port if not specified)").option("-u, --url <url>", "Full base URL (overrides port)").option("--skip-plugin", "Skip Claude Code plugin registration prompt").action(async (options) => {
   const { writeFile: writeFile21, readFile: readFile24, mkdir: mkdir30 } = await import("fs/promises");
-  const configPath = (0, import_path43.join)(process.cwd(), ".ibrrc.json");
-  const claudeSettingsPath = (0, import_path43.join)(process.cwd(), ".claude", "settings.json");
+  const configPath = (0, import_path44.join)(process.cwd(), ".ibrrc.json");
+  const claudeSettingsPath = (0, import_path44.join)(process.cwd(), ".claude", "settings.json");
   let configCreated = false;
-  if (!(0, import_fs29.existsSync)(configPath)) {
+  if (!(0, import_fs30.existsSync)(configPath)) {
     let baseUrl;
     if (options.url) {
       baseUrl = options.url;
@@ -63318,8 +67137,8 @@ program2.command("init").description("Initialize IBR config and optionally regis
     }
     return;
   }
-  const claudeDirExists = (0, import_fs29.existsSync)((0, import_path43.join)(process.cwd(), ".claude"));
-  const hasClaudeSettings = (0, import_fs29.existsSync)(claudeSettingsPath);
+  const claudeDirExists = (0, import_fs30.existsSync)((0, import_path44.join)(process.cwd(), ".claude"));
+  const hasClaudeSettings = (0, import_fs30.existsSync)(claudeSettingsPath);
   const possiblePluginPaths = [
     "node_modules/@tyroneross/interface-built-right/plugin",
     "node_modules/interface-built-right/plugin",
@@ -63328,7 +67147,7 @@ program2.command("init").description("Initialize IBR config and optionally regis
   ];
   let pluginPath = null;
   for (const p of possiblePluginPaths) {
-    if ((0, import_fs29.existsSync)((0, import_path43.join)(process.cwd(), p))) {
+    if ((0, import_fs30.existsSync)((0, import_path44.join)(process.cwd(), p))) {
       pluginPath = p;
       break;
     }
@@ -63407,7 +67226,7 @@ program2.command("init").description("Initialize IBR config and optionally regis
   }
   try {
     if (!claudeDirExists) {
-      await mkdir30((0, import_path43.join)(process.cwd(), ".claude"), { recursive: true });
+      await mkdir30((0, import_path44.join)(process.cwd(), ".claude"), { recursive: true });
     }
     settings.plugins = settings.plugins || [];
     settings.plugins.push(pluginPath);
@@ -63589,8 +67408,8 @@ program2.command("native:scan [device]").description("Scan a running simulator f
         if (annotated) fixGuide.screenshot = annotated;
       }
       const { mkdirSync: mkdirSync7, writeFileSync: writeFileSync8 } = await import("fs");
-      const guidePath = (0, import_path43.join)(outputDir, "native", "fix-guide.json");
-      mkdirSync7((0, import_path43.join)(outputDir, "native"), { recursive: true });
+      const guidePath = (0, import_path44.join)(outputDir, "native", "fix-guide.json");
+      mkdirSync7((0, import_path44.join)(outputDir, "native"), { recursive: true });
       writeFileSync8(guidePath, JSON.stringify(fixGuide, null, 2));
       if (options.json) {
         console.log(JSON.stringify(fixGuide, null, 2));
@@ -63927,7 +67746,7 @@ program2.command("test-interact <url>").description("Run interaction assertions:
       url: resolvedUrl,
       steps,
       viewport,
-      outputDir: (0, import_path43.join)(outputDir, "interactions"),
+      outputDir: (0, import_path44.join)(outputDir, "interactions"),
       headless: !(options.headed || options.sandbox),
       ...getBrowserConnectionOptions()
     });

@@ -275,9 +275,6 @@ interface InteractivityResult {
         };
     };
 }
-/**
- * Test interactivity of all interactive elements on a page
- */
 declare function testInteractivity(page: PageLike): Promise<InteractivityResult>;
 /**
  * Format interactivity result for console output
@@ -2741,7 +2738,7 @@ type FlowName = keyof typeof flows;
 /**
  * CDP WebSocket transport layer.
  * Forked from Spectra — adapted for IBR engine.
- * Uses Node.js 22+ built-in WebSocket (no ws package).
+ * Uses the Node 22+ built-in WebSocket, falling back to the `ws` package on older Node.
  */
 type EventHandler = (params: unknown) => void;
 declare class CdpConnection {

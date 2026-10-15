@@ -727,10 +727,22 @@ var init_net_timeout = __esm({
 });
 
 // src/engine/cdp/connection.ts
-var DEFAULT_TIMEOUT_MS, CdpConnection;
+async function loadWebSocketCtor() {
+  if (cachedCtor) return cachedCtor;
+  if (typeof globalThis.WebSocket !== "undefined") {
+    cachedCtor = globalThis.WebSocket;
+  } else {
+    const mod = await import('ws');
+    cachedCtor = mod.WebSocket;
+  }
+  return cachedCtor;
+}
+var WS_OPEN, cachedCtor, DEFAULT_TIMEOUT_MS, CdpConnection;
 var init_connection = __esm({
   "src/engine/cdp/connection.ts"() {
     init_net_timeout();
+    WS_OPEN = 1;
+    cachedCtor = null;
     DEFAULT_TIMEOUT_MS = 3e4;
     CdpConnection = class {
       ws = null;
@@ -754,8 +766,9 @@ var init_connection = __esm({
       async connect(wsUrl, options) {
         const timeoutMs = options?.timeoutMs ?? WS_CONNECT_TIMEOUT_MS;
         const started = Date.now();
+        const WebSocketImpl = await loadWebSocketCtor();
         return new Promise((resolve4, reject) => {
-          const ws = new WebSocket(wsUrl);
+          const ws = new WebSocketImpl(wsUrl);
           let settled = false;
           const timer = setTimeout(() => {
             if (settled) return;
@@ -791,7 +804,7 @@ var init_connection = __esm({
         });
       }
       async send(method, params, sessionId) {
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        if (!this.ws || this.ws.readyState !== WS_OPEN) {
           throw new Error("Not connected");
         }
         const id = ++this.nextId;
@@ -869,7 +882,7 @@ var init_connection = __esm({
         this.pending.clear();
       }
       get connected() {
-        return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+        return this.ws !== null && this.ws.readyState === WS_OPEN;
       }
     };
   }
@@ -6881,11 +6894,49 @@ function relativeLuminance(r, g, b) {
   };
   return 0.2126 * linearize2(r) + 0.7152 * linearize2(g) + 0.0722 * linearize2(b);
 }
+function colorAlpha(color) {
+  if (!color || color === "transparent") return 0;
+  const m = color.match(/rgba\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*,\s*([\d.]+)\s*\)/i);
+  return m ? Number(m[1]) : 1;
+}
+function compositeLuminance(color, backdrop) {
+  const parsed = parseColor(color);
+  if (!parsed) return null;
+  const a = colorAlpha(color);
+  const mix = (c, d) => c * a + d * (1 - a);
+  return relativeLuminance(mix(parsed.r, backdrop.r), mix(parsed.g, backdrop.g), mix(parsed.b, backdrop.b));
+}
+function resolvePageBackground(input) {
+  const canvas = parseColor(input.canvas) ?? { r: 255, g: 255, b: 255 };
+  for (const [color, image] of [[input.bodyColor, input.bodyImage], [input.htmlColor, input.htmlImage]]) {
+    if (colorAlpha(color) >= 1) return { color, luminance: compositeLuminance(color, canvas) };
+    if (image && image !== "none") {
+      if (/url\(/i.test(image)) return { color: image, luminance: null };
+      const stops = image.match(/rgba?\([^)]*\)|#[0-9a-f]{3,8}\b/gi) ?? [];
+      const values = stops.map((stop) => compositeLuminance(stop, canvas)).filter((v) => v !== null);
+      if (values.length) return { color: image, luminance: values.reduce((sum, v) => sum + v, 0) / values.length };
+      return { color: image, luminance: null };
+    }
+    if (colorAlpha(color) > 0) return { color, luminance: compositeLuminance(color, canvas) };
+  }
+  return { color: input.canvas, luminance: compositeLuminance(input.canvas, canvas) };
+}
 async function analyzeThemeConsistency(page) {
   const data = await page.evaluate(() => {
-    const bodyBg = window.getComputedStyle(document.body).backgroundColor;
-    const htmlBg = window.getComputedStyle(document.documentElement).backgroundColor;
-    const pageBg = bodyBg && bodyBg !== "rgba(0, 0, 0, 0)" && bodyBg !== "transparent" ? bodyBg : htmlBg;
+    const bodyStyle = window.getComputedStyle(document.body);
+    const htmlStyle = window.getComputedStyle(document.documentElement);
+    const probe = document.createElement("div");
+    probe.style.cssText = "position:absolute;width:0;height:0;background-color:Canvas";
+    document.documentElement.appendChild(probe);
+    const canvas = window.getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    const background = {
+      bodyColor: bodyStyle.backgroundColor,
+      htmlColor: htmlStyle.backgroundColor,
+      bodyImage: bodyStyle.backgroundImage,
+      htmlImage: htmlStyle.backgroundImage,
+      canvas
+    };
     const containerSelectors = [
       '[class*="card"]',
       '[class*="form"]',
@@ -6916,11 +6967,11 @@ async function analyzeThemeConsistency(page) {
       }
       if (cards.length >= 10) break;
     }
-    return { pageBg, cards };
+    return { background, cards };
   });
-  const pageParsed = parseColor(data.pageBg);
-  const pageLuminance = pageParsed ? relativeLuminance(pageParsed.r, pageParsed.g, pageParsed.b) : 0.5;
-  const pageBackground = { color: data.pageBg, luminance: pageLuminance };
+  const resolved = resolvePageBackground(data.background);
+  const pageLuminance = resolved.luminance ?? 0.5;
+  const pageBackground = { color: resolved.color, luminance: pageLuminance };
   const contentCards = data.cards.map((c) => {
     const parsed = parseColor(c.color);
     const luminance = parsed ? relativeLuminance(parsed.r, parsed.g, parsed.b) : 0.5;
@@ -7360,6 +7411,35 @@ __export(interactivity_exports, {
   formatInteractivityResult: () => formatInteractivityResult,
   testInteractivity: () => testInteractivity
 });
+async function enrichFormSubmitListeners(page, forms) {
+  const pending = forms.map((f, i) => f.hasSubmitHandler ? -1 : i).filter((i) => i >= 0);
+  const evalWithApi = page.evaluateWithCommandLineAPI;
+  if (pending.length === 0 || typeof evalWithApi !== "function") return;
+  const expression = `
+    (function () {
+      const forms = Array.from(document.querySelectorAll('form'));
+      const hasSubmit = (node) => {
+        try {
+          const l = getEventListeners(node);
+          return !!(l && Array.isArray(l.submit) && l.submit.length > 0);
+        } catch (e) { return false; }
+      };
+      return ${JSON.stringify(pending)}.map((i) => {
+        let node = forms[i];
+        if (!node) return false;
+        while (node) { if (hasSubmit(node)) return true; node = node.parentNode; }
+        return hasSubmit(window);
+      });
+    })()`;
+  try {
+    const found = await evalWithApi.call(page, expression);
+    if (!Array.isArray(found)) return;
+    pending.forEach((formIndex, k) => {
+      if (found[k] === true) forms[formIndex].hasSubmitHandler = true;
+    });
+  } catch {
+  }
+}
 async function testInteractivity(page) {
   const data = await page.evaluate(() => {
     const results = {
@@ -7482,7 +7562,7 @@ async function testInteractivity(page) {
           buttonType: "submit"
         };
       }
-      const hasSubmitHandler = hasEventHandler(el) || el.getAttribute("action") !== null || submitBtn !== null;
+      const hasSubmitHandler = hasEventHandler(el) || typeof el.onsubmit === "function" || el.getAttribute("onsubmit") !== null || el.getAttribute("action") !== null || submitBtn !== null;
       results.forms.push({
         selector: getSelector(el),
         action: el.action || void 0,
@@ -7495,6 +7575,7 @@ async function testInteractivity(page) {
     }
     return results;
   });
+  await enrichFormSubmitListeners(page, data.forms);
   const issues = [];
   for (const btn of data.buttons) {
     if (!btn.hasHandler && !btn.isDisabled) {

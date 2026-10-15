@@ -2,7 +2,11 @@ import { defineConfig } from 'tsup';
 
 // Every runtime dependency the executables reach for. Kept as one list so the
 // CLI and the MCP server cannot drift apart on what they carry.
-const RUNTIME_DEPS = ['commander', 'nanoid', 'pixelmatch', 'pngjs', 'zod'];
+const RUNTIME_DEPS = ['commander', 'nanoid', 'pixelmatch', 'pngjs', 'ws', 'zod'];
+
+// ws requires these optionally inside try/catch (native speedups). Leave them
+// external so esbuild does not try to resolve them; ws falls back to pure JS.
+const WS_OPTIONAL_NATIVE = ['bufferutil', 'utf-8-validate'];
 
 function suppressExpectedImportMetaWarning(options: { logOverride?: Record<string, 'silent'> }): void {
   // runtime-path.mts guards import.meta behind a CJS __dirname branch. esbuild
@@ -62,7 +66,7 @@ export default defineConfig([
     banner: {
       js: '#!/usr/bin/env node',
     },
-    external: ['playwright'],
+    external: ['playwright', ...WS_OPTIONAL_NATIVE],
     noExternal: RUNTIME_DEPS,
     esbuildOptions: suppressExpectedImportMetaWarning,
   },
@@ -75,7 +79,7 @@ export default defineConfig([
     outDir: 'dist/mcp',
     clean: false,
     sourcemap: true,
-    external: ['playwright'],
+    external: ['playwright', ...WS_OPTIONAL_NATIVE],
     noExternal: RUNTIME_DEPS,
     esbuildOptions: suppressExpectedImportMetaWarning,
   },

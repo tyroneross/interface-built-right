@@ -1,3 +1,4 @@
+import './node-version-guard.js';
 import { Command } from 'commander';
 import { readFile } from 'fs/promises';
 import { join } from 'path';

@@ -326,6 +326,18 @@ function isAbort(err) {
 }
 
 // src/engine/cdp/connection.ts
+var WS_OPEN = 1;
+var cachedCtor = null;
+async function loadWebSocketCtor() {
+  if (cachedCtor) return cachedCtor;
+  if (typeof globalThis.WebSocket !== "undefined") {
+    cachedCtor = globalThis.WebSocket;
+  } else {
+    const mod = await import('ws');
+    cachedCtor = mod.WebSocket;
+  }
+  return cachedCtor;
+}
 var DEFAULT_TIMEOUT_MS = 3e4;
 var CdpConnection = class {
   ws = null;
@@ -349,8 +361,9 @@ var CdpConnection = class {
   async connect(wsUrl, options) {
     const timeoutMs = options?.timeoutMs ?? WS_CONNECT_TIMEOUT_MS;
     const started = Date.now();
+    const WebSocketImpl = await loadWebSocketCtor();
     return new Promise((resolve2, reject) => {
-      const ws = new WebSocket(wsUrl);
+      const ws = new WebSocketImpl(wsUrl);
       let settled = false;
       const timer = setTimeout(() => {
         if (settled) return;
@@ -386,7 +399,7 @@ var CdpConnection = class {
     });
   }
   async send(method, params, sessionId) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    if (!this.ws || this.ws.readyState !== WS_OPEN) {
       throw new Error("Not connected");
     }
     const id = ++this.nextId;
@@ -464,7 +477,7 @@ var CdpConnection = class {
     this.pending.clear();
   }
   get connected() {
-    return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+    return this.ws !== null && this.ws.readyState === WS_OPEN;
   }
 };
 var CHROME_PATHS = [

@@ -1,12 +1,34 @@
 /**
  * CDP WebSocket transport layer.
  * Forked from Spectra — adapted for IBR engine.
- * Uses Node.js 22+ built-in WebSocket (no ws package).
+ * Uses the Node 22+ built-in WebSocket, falling back to the `ws` package on older Node.
  */
 
 import { ConnectTimeoutError, WS_CONNECT_TIMEOUT_MS } from '../net-timeout.js'
 
 type EventHandler = (params: unknown) => void
+
+// WS_OPEN — the global may not exist on Node < 22, so use the constant.
+const WS_OPEN = 1
+
+type WebSocketCtor = typeof WebSocket
+
+let cachedCtor: WebSocketCtor | null = null
+
+/**
+ * Resolve a WebSocket constructor: the Node 22+ global when defined, else the
+ * `ws` package. The import specifier is a string literal so esbuild bundles it.
+ */
+export async function loadWebSocketCtor(): Promise<WebSocketCtor> {
+  if (cachedCtor) return cachedCtor
+  if (typeof globalThis.WebSocket !== 'undefined') {
+    cachedCtor = globalThis.WebSocket
+  } else {
+    const mod = await import('ws')
+    cachedCtor = mod.WebSocket as unknown as WebSocketCtor
+  }
+  return cachedCtor
+}
 
 const DEFAULT_TIMEOUT_MS = 30_000
 
@@ -38,8 +60,9 @@ export class CdpConnection {
   async connect(wsUrl: string, options?: { timeoutMs?: number }): Promise<void> {
     const timeoutMs = options?.timeoutMs ?? WS_CONNECT_TIMEOUT_MS
     const started = Date.now()
+    const WebSocketImpl = await loadWebSocketCtor()
     return new Promise<void>((resolve, reject) => {
-      const ws = new WebSocket(wsUrl)
+      const ws = new WebSocketImpl(wsUrl)
       let settled = false
       const timer = setTimeout(() => {
         if (settled) return
@@ -81,7 +104,7 @@ export class CdpConnection {
     params?: Record<string, unknown>,
     sessionId?: string,
   ): Promise<T> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    if (!this.ws || this.ws.readyState !== WS_OPEN) {
       throw new Error('Not connected')
     }
     const id = ++this.nextId
@@ -168,6 +191,6 @@ export class CdpConnection {
   }
 
   get connected(): boolean {
-    return this.ws !== null && this.ws.readyState === WebSocket.OPEN
+    return this.ws !== null && this.ws.readyState === WS_OPEN
   }
 }
