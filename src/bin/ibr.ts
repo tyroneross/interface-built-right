@@ -4084,6 +4084,33 @@ program
   });
 
 program
+  .command('native:ax-stress')
+  .description('Read a running macOS app\'s whole accessibility tree several times per UI state and report whether it survived (reproduces label-read crashes; can crash the target)')
+  .requiredOption('--pid <n>', 'Target process ID (explicit pid only)')
+  .option('--steps <list>', 'Comma-separated steps: "walk" reads only, anything else is an AX identifier to press first', 'walk')
+  .option('--walks <n>', 'Full tree reads per step (1-100)', '5')
+  .option('--max-nodes <n>', 'Node cap per read (reported as truncated)', '50000')
+  .option('--settle <seconds>', 'Wait after a press before reading', '1')
+  .option('--json', 'Output the full report as JSON')
+  .action(async (options: { pid: string; steps: string; walks: string; maxNodes: string; settle: string; json?: boolean }) => {
+    try {
+      const { runAxStress, formatAxStressReport } = await import('../native/ax-stress.js');
+      const report = await runAxStress({
+        pid: Number(options.pid),
+        steps: options.steps.split(',').map((s) => s.trim()),
+        walksPerStep: Number(options.walks),
+        maxNodes: Number(options.maxNodes),
+        settleSeconds: Number(options.settle),
+      });
+      console.log(options.json ? JSON.stringify(report, null, 2) : formatAxStressReport(report));
+      process.exit(report.survived ? 0 : 1);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(EXIT_TOOL_ERROR);
+    }
+  });
+
+program
   .command('native:scan [device]')
   .description('Scan a running simulator for accessibility and design issues')
   .option('--no-screenshot', 'Skip screenshot capture')

@@ -18,6 +18,8 @@ export { NATIVE_VIEWPORTS, getDeviceViewport } from './viewports.js';
 export { listDevices, findDevice, getBootedDevices, bootDevice, formatDevice } from './simulator.js';
 export { captureNativeScreenshot } from './capture.js';
 export { extractNativeElements, mapToEnhancedElements, isExtractorAvailable, ensureExtractor, requestAccessibilityPermission } from './extract.js';
+export { runAxStress, buildAxStressArgs, formatAxStressReport } from './ax-stress.js';
+export type { AxStressReport, AxStressStep, AxStressWalk, AxStressOptions } from './ax-stress.js';
 export type { AccessibilityPermissionResult } from './extract.js';
 export { auditNativeElements } from './rules.js';
 export { scanNative, formatNativeScanResult, scanMacOS, formatMacOSScanResult } from './scan.js';

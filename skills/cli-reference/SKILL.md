@@ -202,6 +202,11 @@ npx ibr native:check                             # compare vs baseline
 # Scan macOS native app
 npx ibr scan:macos                               # scans frontmost app
 npx ibr scan:macos --app "Local Smartz"           # specific app
+
+# Accessibility stress: read the whole AX tree N times per UI state, report survival
+# (reproduces crashes triggered by outside AX readers; CAN crash the target — use a test build)
+npx ibr native:ax-stress --pid <PID> --steps walk,<ax-id-to-press>,walk --walks 5
+# exit 0 survived · 1 target died (report names step + walk) · 2 tool error
 ```
 
 ---

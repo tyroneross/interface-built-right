@@ -28,6 +28,10 @@ var keystrokeChord: String? = nil
 var keystrokeForeground: Bool = false
 var menuPathJSON: String? = nil
 var requestPermission: Bool = false
+var stressStepsJSON: String? = nil
+var stressWalks: Int = 5
+var stressMaxNodes: Int = 50000
+var stressSettle: Double = 1.0
 
 var i = 1
 while i < args.count {
@@ -73,6 +77,18 @@ while i < args.count {
     case "--menu-path":
         i += 1
         if i < args.count { menuPathJSON = args[i] }
+    case "--stress-steps":
+        i += 1
+        if i < args.count { stressStepsJSON = args[i] }
+    case "--stress-walks":
+        i += 1
+        if i < args.count, let n = Int(args[i]) { stressWalks = n }
+    case "--stress-max-nodes":
+        i += 1
+        if i < args.count, let n = Int(args[i]) { stressMaxNodes = n }
+    case "--stress-settle":
+        i += 1
+        if i < args.count, let t = Double(args[i]) { stressSettle = t }
     default:
         break
     }
@@ -141,6 +157,42 @@ if let chord = keystrokeChord {
         print(str)
     }
     exit(success ? 0 : 1)
+}
+
+// --- Mode: Accessibility stress (--stress-steps --pid) ---
+// Reads the whole AX tree several times per UI state and reports whether the
+// target survived. See Stress.swift. Requires an explicit --pid (it can crash
+// the target) and AX permission; exits 0 survived, 3 crashed, 1 bad input.
+if let stepsJSON = stressStepsJSON {
+    guard let pid = targetPid else {
+        fputs("{\"error\":\"--pid is required for stress mode\"}\n", stderr)
+        exit(1)
+    }
+    guard let data = stepsJSON.data(using: .utf8),
+          let steps = (try? JSONSerialization.jsonObject(with: data)) as? [String], !steps.isEmpty else {
+        fputs("{\"error\":\"--stress-steps must be a non-empty JSON array of strings\"}\n", stderr)
+        exit(1)
+    }
+    guard (1...100).contains(stressWalks), (1...1_000_000).contains(stressMaxNodes),
+          (0...30).contains(stressSettle) else {
+        fputs("{\"error\":\"--stress-walks must be 1-100, --stress-max-nodes 1-1000000, --stress-settle 0-30\"}\n", stderr)
+        exit(1)
+    }
+    guard AXIsProcessTrusted() else {
+        fputs("{\"error\":\"Accessibility permission not granted\"}\n", stderr)
+        exit(1)
+    }
+    guard stressProcessAlive(pid) else {
+        fputs("{\"error\":\"no running process with that pid\"}\n", stderr)
+        exit(1)
+    }
+    let report = runStress(pid: pid, steps: steps, walksPerStep: stressWalks,
+                           maxNodes: stressMaxNodes, settleSeconds: stressSettle)
+    if let out = try? JSONSerialization.data(withJSONObject: report),
+       let str = String(data: out, encoding: .utf8) {
+        print(str)
+    }
+    exit((report["survived"] as? Bool) == true ? 0 : 3)
 }
 
 // --- Mode: Menu traversal (--menu-path --pid) ---
