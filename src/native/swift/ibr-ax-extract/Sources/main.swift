@@ -186,6 +186,14 @@ if let stepsJSON = stressStepsJSON {
         fputs("{\"error\":\"no running process with that pid\"}\n", stderr)
         exit(1)
     }
+    guard !stressScreenLocked() else {
+        fputs("{\"error\":\"screen is locked: macOS hides app windows from accessibility clients, so the walk would read only menu bars\"}\n", stderr)
+        exit(1)
+    }
+    guard stressWindowCount(AXUIElementCreateApplication(pid)) > 0 else {
+        fputs("{\"error\":\"target exposes no windows to accessibility; open a window first\"}\n", stderr)
+        exit(1)
+    }
     let report = runStress(pid: pid, steps: steps, walksPerStep: stressWalks,
                            maxNodes: stressMaxNodes, settleSeconds: stressSettle)
     if let out = try? JSONSerialization.data(withJSONObject: report),

@@ -8474,6 +8474,9 @@ interface AxStressWalk {
     reads: number;
     failedReads: number;
     truncated: boolean;
+    /** Windows the target exposed during this read; 0 means only menus were read. */
+    windows?: number;
+    screenLocked?: boolean;
 }
 interface AxStressStep {
     index: number;

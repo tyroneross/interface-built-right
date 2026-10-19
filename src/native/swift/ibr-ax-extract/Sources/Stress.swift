@@ -20,6 +20,26 @@ func stressProcessAlive(_ pid: pid_t) -> Bool {
     kill(pid, 0) == 0 || errno == EPERM
 }
 
+/// True while the login session's screen is locked. macOS then hides every
+/// app's windows from accessibility clients, so a walk reads only menu bars
+/// and a "survived" result would prove nothing.
+func stressScreenLocked() -> Bool {
+    let session = CGSessionCopyCurrentDictionary() as? [String: Any]
+    return (session?["CGSSessionScreenIsLocked"] as? Bool) == true
+}
+
+/// Number of windows the target exposes to accessibility clients right now.
+func stressWindowCount(_ root: AXUIElement) -> Int {
+    var windows: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(root, kAXWindowsAttribute as CFString, &windows) == .success,
+          let list = windows as? [AXUIElement] else { return 0 }
+    var role: CFTypeRef?
+    return list.filter {
+        AXUIElementCopyAttributeValue($0, kAXRoleAttribute as CFString, &role) == .success
+            && (role as? String) == kAXWindowRole
+    }.count
+}
+
 private let stressAttributes: [String] = [
     kAXRoleAttribute, kAXSubroleAttribute, kAXTitleAttribute, kAXDescriptionAttribute,
     kAXHelpAttribute, kAXValueAttribute as String, "AXIdentifier", "AXPlaceholderValue",
@@ -102,7 +122,8 @@ func runStress(pid: pid_t, steps: [String], walksPerStep: Int, maxNodes: Int, se
             }
             let walk = stressWalk(root: root, maxNodes: maxNodes)
             walks.append(["nodes": walk.nodes, "reads": walk.reads,
-                          "failedReads": walk.failedReads, "truncated": walk.truncated])
+                          "failedReads": walk.failedReads, "truncated": walk.truncated,
+                          "windows": stressWindowCount(root), "screenLocked": stressScreenLocked()])
             Thread.sleep(forTimeInterval: 0.2)
         }
         report["walks"] = walks

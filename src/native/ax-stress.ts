@@ -20,6 +20,9 @@ export interface AxStressWalk {
   reads: number;
   failedReads: number;
   truncated: boolean;
+  /** Windows the target exposed during this read; 0 means only menus were read. */
+  windows?: number;
+  screenLocked?: boolean;
 }
 
 export interface AxStressStep {
@@ -105,7 +108,8 @@ export function formatAxStressReport(report: AxStressReport): string {
     const nodes = s.walks.map((w) => w.nodes).join(',');
     const failed = s.walks.reduce((sum, w) => sum + w.failedReads, 0);
     const truncated = s.walks.some((w) => w.truncated) ? ' TRUNCATED' : '';
-    return `${s.index}. ${s.step}${press}: ${s.walks.length} walks, nodes ${nodes}, failed reads ${failed}${truncated}`;
+    const blind = s.walks.some((w) => w.windows === 0 || w.screenLocked) ? ' NO-WINDOWS (menus only; result proves nothing)' : '';
+    return `${s.index}. ${s.step}${press}: ${s.walks.length} walks, nodes ${nodes}, failed reads ${failed}${truncated}${blind}`;
   });
   if (report.survived) {
     lines.push(`SURVIVED: pid ${report.pid} is still running`);
