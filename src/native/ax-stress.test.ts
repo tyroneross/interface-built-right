@@ -74,6 +74,17 @@ describe('formatAxStressReport', () => {
     expect(formatAxStressReport(blind).split('\n')[0]).toBe('1. walk: 1 walks, nodes 5, failed reads 0 NO-WINDOWS (menus only; result proves nothing)');
   });
 
+  it('counts failed whole-tree hierarchy reads', () => {
+    const text = formatAxStressReport({
+      pid: 42, survived: true,
+      steps: [{ index: 1, step: 'walk', walks: [
+        { nodes: 10, reads: 80, failedReads: 0, truncated: false, windows: 1, hierarchy: 'ok' },
+        { nodes: 10, reads: 80, failedReads: 0, truncated: false, windows: 1, hierarchy: 'error -25204' },
+      ] }],
+    });
+    expect(text.split('\n')[0]).toBe('1. walk: 2 walks, nodes 10,10, failed reads 0 hierarchy errors 1');
+  });
+
   it('names where the target died', () => {
     const text = formatAxStressReport({ ...survived, survived: false, crash: { step: 'app.toggle', index: 2, walk: 3, phase: 'walk' } });
     expect(text.split('\n').pop()).toBe('CRASHED: pid 42 exited during step 2 (app.toggle), walk 3');

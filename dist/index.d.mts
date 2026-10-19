@@ -8474,6 +8474,8 @@ interface AxStressWalk {
     reads: number;
     failedReads: number;
     truncated: boolean;
+    /** Whole-tree batch read: "ok", "unavailable", "skipped" or "error <code>". */
+    hierarchy?: string;
     /** Windows the target exposed during this read; 0 means only menus were read. */
     windows?: number;
     screenLocked?: boolean;

@@ -45,6 +45,25 @@ private let stressAttributes: [String] = [
     kAXHelpAttribute, kAXValueAttribute as String, "AXIdentifier", "AXPlaceholderValue",
 ]
 
+/// Whole-tree read in one request, the path crashing outside readers took
+/// (`_XCopyHierarchy` in the target's crash stack). AppKit resolves overrides
+/// differently there than for single-attribute reads. The symbol is exported
+/// but undocumented, so it is loaded at runtime and skipped when absent.
+private typealias CopyHierarchyFn = @convention(c) (AXUIElement, CFArray, CFDictionary?, UnsafeMutablePointer<CFTypeRef?>) -> AXError
+private let copyHierarchy: CopyHierarchyFn? = {
+    guard let handle = dlopen("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices", RTLD_NOW),
+          let symbol = dlsym(handle, "AXUIElementCopyHierarchy") else { return nil }
+    return unsafeBitCast(symbol, to: CopyHierarchyFn.self)
+}()
+
+/// "ok", "unavailable", or "error <AXError>".
+func stressHierarchyRead(_ root: AXUIElement) -> String {
+    guard let copyHierarchy else { return "unavailable" }
+    var result: CFTypeRef?
+    let error = copyHierarchy(root, (stressAttributes + [kAXChildrenAttribute]) as CFArray, nil, &result)
+    return error == .success ? "ok" : "error \(error.rawValue)"
+}
+
 struct StressWalk {
     var nodes = 0
     var reads = 0
@@ -121,7 +140,8 @@ func runStress(pid: pid_t, steps: [String], walksPerStep: Int, maxNodes: Int, se
                 break stepLoop
             }
             let walk = stressWalk(root: root, maxNodes: maxNodes)
-            walks.append(["nodes": walk.nodes, "reads": walk.reads,
+            let hierarchy = stressProcessAlive(pid) ? stressHierarchyRead(root) : "skipped"
+            walks.append(["nodes": walk.nodes, "reads": walk.reads, "hierarchy": hierarchy,
                           "failedReads": walk.failedReads, "truncated": walk.truncated,
                           "windows": stressWindowCount(root), "screenLocked": stressScreenLocked()])
             Thread.sleep(forTimeInterval: 0.2)
