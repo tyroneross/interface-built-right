@@ -60,6 +60,11 @@ export function observe(
     }
   }
 
+  // Apply the requested limit before allocating and serializing descriptors.
+  if (options.limit && filtered.length > options.limit) {
+    filtered = filtered.slice(0, options.limit)
+  }
+
   // Map to action descriptors
   const descriptors = filtered.map((el): ActionDescriptor => ({
     elementId: el.id,
@@ -69,10 +74,6 @@ export function observe(
     label: el.label,
     serialized: serializeElement(el),
   }))
-
-  if (options.limit && descriptors.length > options.limit) {
-    return descriptors.slice(0, options.limit)
-  }
 
   return descriptors
 }

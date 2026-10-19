@@ -3156,6 +3156,9 @@ function observe(elements, options = {}) {
       });
     }
   }
+  if (options.limit && filtered.length > options.limit) {
+    filtered = filtered.slice(0, options.limit);
+  }
   const descriptors = filtered.map((el) => ({
     elementId: el.id,
     description: describeAction(el),
@@ -3164,9 +3167,6 @@ function observe(elements, options = {}) {
     label: el.label,
     serialized: serializeElement(el)
   }));
-  if (options.limit && descriptors.length > options.limit) {
-    return descriptors.slice(0, options.limit);
-  }
   return descriptors;
 }
 function describeAction(el) {

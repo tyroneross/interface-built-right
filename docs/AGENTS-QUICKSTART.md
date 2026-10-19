@@ -24,6 +24,25 @@ Generated IBR specs start with `source.reviewed: false`; edit the rules before s
 
 ## Scan a page, keep the output on disk
 
+For agent review, request compact JSON first:
+
+```bash
+ibr scan http://localhost:3000 --format compact
+```
+
+This emits one JSON object with every finding, console error, partial-state reason,
+measurement coverage and a `fullReport` path. The complete scan is saved under
+`.ibr/reports/`; read it only when you need element styles, sensor inventories,
+content or custom probes. `--report /absolute/path.json` chooses the evidence
+location; an existing file is never overwritten. Existing `full`, `summary` and
+`raw` modes keep their behavior.
+Compact output reduces context size, not the checks performed by the scan.
+`--output compact` also works; prefer `--format` when using `-o` for a directory.
+
+Use read-only scans for validation. Leave a person's live design choices to them;
+do not click or submit their Groundwork answers to test saving. Exercise writes
+against disposable fixtures instead.
+
 ```bash
 ibr scan http://localhost:3000 --json > scan.json    # stdout is PURE JSON
 ibr scan http://localhost:3000 --json | jq '.verdict'

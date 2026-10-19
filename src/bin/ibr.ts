@@ -1,4 +1,6 @@
 import './node-version-guard.js';
+import { applyOutputMode, compactScanReport, saveFullScanReport, resolveScanOutput } from '../scan-output.js';
+import { randomUUID } from 'node:crypto';
 import { Command } from 'commander';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
@@ -1070,49 +1072,6 @@ program
     }
   });
 
-/**
- * Apply output mode filtering post-scan.
- * Keeps library API (scan()) unchanged — trimming happens in the CLI layer.
- *
- * full    — default, no change
- * summary — omits elements.all and interactivity.detailedResults; keeps sensors, verdict, issues, rulesApplied, contrastCoverage, console, semantic intent/state (~60% token reduction)
- * raw     — omits sensors; keeps everything else
- */
-function applyOutputMode(result: import('../scan.js').ScanResult, mode: string): Partial<import('../scan.js').ScanResult> {
-  if (mode === 'summary') {
-    return {
-      url: result.url,
-      route: result.route,
-      timestamp: result.timestamp,
-      verdict: result.verdict,
-      summary: result.summary,
-      issues: result.issues,
-      sensors: result.sensors,
-      // Summary mode kept `sensors` while dropping BOTH of these. The one mode
-      // designed for token-constrained model consumption was therefore the one
-      // mode that showed contrast numbers with no way to tell "clean page" from
-      // "measured nothing" — the exact ambiguity these fields exist to close.
-      // They are two small objects; the ~60% reduction comes from dropping
-      // elements.all, not from these.
-      rulesApplied: result.rulesApplied,
-      contrastCoverage: result.contrastCoverage,
-      console: result.console,
-      semantic: result.semantic ? {
-        pageIntent: (result.semantic as unknown as Record<string, unknown>).pageIntent,
-        state: (result.semantic as unknown as Record<string, unknown>).state,
-      } as import('../scan.js').ScanResult['semantic'] : undefined,
-      coverage: result.coverage,
-      hydration: result.hydration,
-    };
-  }
-  if (mode === 'raw') {
-
-    const { sensors: _sensors, ...rest } = result as unknown as Record<string, unknown>;
-    return rest as Partial<import('../scan.js').ScanResult>;
-  }
-  return result;
-}
-
 // Scan command - comprehensive end-to-end UI scan
 program
   .command('scan <url>')
@@ -1130,7 +1089,9 @@ program
   .option('--network-idle-timeout <ms>', 'Network idle timeout in ms (default: 10000)')
   .option('--rules <presets>', 'Rule presets to run. Defaults to touch-targets,wcag-contrast,calm-precision. Use "none" (or --no-rules) to run no preset rules.')
   .option('--no-rules', 'Run no preset rules — restores the pre-default silent behavior')
-  .option('--output <mode>', 'Output mode: full (default), summary (sensor summaries + verdict only, ~60% fewer tokens), raw (no sensors)', 'full')
+  .option('--output <mode>', 'Output mode: full (default), summary (sensor summaries + verdict only, ~60% fewer tokens), raw (no sensors), compact (findings + coverage; saves full report)', 'full')
+  .option('--report <path>', 'Save the complete JSON report (automatic in compact mode)')
+  .option('--format <mode>', 'Report format: full, summary, raw, compact (avoids the global --output directory flag)')
   .option('--content', 'Also extract content elements (headings/paragraphs/images/captions/quotes) and page metadata — adds scan.content.elements and scan.metadata')
   .option('--full-text', 'Capture uncapped element text and complete rendered body text for design-spec checks')
   .addHelpText('after', `
@@ -1142,8 +1103,10 @@ was never actually scanned). This split (FAIL-only, not ISSUES) is
 unchanged from prior versions — verdict ISSUES has always exited 0 here.
 `)
   .option('--no-layout-overflow', 'Skip the layout-overflow / clipped-content check')
-  .action(async (url: string, options: { viewport: string; device?: string; waitFor?: string; screenshot?: string; json?: boolean; timeout: string; patience?: string; networkIdleTimeout?: string; rules?: string | boolean; output: string; content?: boolean; fullText?: boolean; layoutOverflow?: boolean }) => {
+  .action(async (url: string, options: { viewport: string; device?: string; waitFor?: string; screenshot?: string; json?: boolean; timeout: string; patience?: string; networkIdleTimeout?: string; rules?: string | boolean; output: string; format?: string; report?: string; content?: boolean; fullText?: boolean; layoutOverflow?: boolean }) => {
     try {
+      const outputFlags = resolveScanOutput(options.output, options.format, program.opts().output);
+      const jsonOutput = options.json || outputFlags.mode === 'compact';
       const { scan, formatScanResult } = await import('../scan.js');
       const resolvedUrl = await resolveBaseUrl(url);
 
@@ -1152,7 +1115,7 @@ unchanged from prior versions — verdict ISSUES has always exited 0 here.
       // to stdout made the output un-parseable: every consumer had to know to
       // strip a human line first, and one that did not simply crashed.
       // stderr still shows it to a human watching the terminal.
-      if (options.json) {
+      if (jsonOutput) {
         process.stderr.write(`Scanning ${resolvedUrl}...\n`);
       } else {
         console.log(`Scanning ${resolvedUrl}...`);
@@ -1203,9 +1166,16 @@ unchanged from prior versions — verdict ISSUES has always exited 0 here.
         ...getBrowserConnectionOptions(),
       });
 
-      if (options.json) {
-        const output = applyOutputMode(result, options.output);
-        console.log(JSON.stringify(output, null, 2));
+      let reportPath: string | undefined;
+      if (options.report || outputFlags.mode === 'compact') {
+        reportPath = await saveFullScanReport(result, options.report ||
+          join(outputFlags.directory, 'reports', `scan-${Date.now()}-${randomUUID()}.json`));
+      }
+      if (jsonOutput) {
+        const output = outputFlags.mode === 'compact'
+          ? compactScanReport(result, reportPath!)
+          : applyOutputMode(result, outputFlags.mode);
+        console.log(outputFlags.mode === 'compact' ? JSON.stringify(output) : JSON.stringify(output, null, 2));
       } else {
         console.log(formatScanResult(result));
       }

@@ -46,7 +46,7 @@ captures provide different evidence.
 
 ## Primary Tool: `ibr scan`
 
-Call `ibr scan` to read the full state of a live page.
+Start with `ibr scan <url> --format compact` for findings and coverage. The complete scan remains on disk at `fullReport`; read selected fields instead of loading the full JSON into model context. The same checks still run. Use observe/extract for targeted questions and reuse saved evidence before rescanning. Do not automate a person's live design selections; test write behavior in disposable fixtures.
 
 **Input:** `url` (required), `format` (optional: "json"), `viewport` (optional), `waitFor` (optional CSS selector)
 
