@@ -38526,14 +38526,14 @@ var init_webdriver = __esm({
 });
 
 // src/engine/safari/session.ts
-var import_child_process14, import_util14, execFileAsync12, PORT_RANGE_START, PORT_RANGE_END, READY_POLL_INTERVAL_MS, READY_TIMEOUT_MS, SafariSession;
+var import_child_process15, import_util15, execFileAsync13, PORT_RANGE_START, PORT_RANGE_END, READY_POLL_INTERVAL_MS, READY_TIMEOUT_MS, SafariSession;
 var init_session2 = __esm({
   "src/engine/safari/session.ts"() {
     "use strict";
-    import_child_process14 = require("child_process");
-    import_util14 = require("util");
+    import_child_process15 = require("child_process");
+    import_util15 = require("util");
     init_net_timeout();
-    execFileAsync12 = (0, import_util14.promisify)(import_child_process14.execFile);
+    execFileAsync13 = (0, import_util15.promisify)(import_child_process15.execFile);
     PORT_RANGE_START = 9500;
     PORT_RANGE_END = 9599;
     READY_POLL_INTERVAL_MS = 200;
@@ -38551,7 +38551,7 @@ var init_session2 = __esm({
           return this.port;
         }
         this.port = port ?? await this.findFreePort();
-        this.process = (0, import_child_process14.spawn)("safaridriver", ["--port", String(this.port)], {
+        this.process = (0, import_child_process15.spawn)("safaridriver", ["--port", String(this.port)], {
           stdio: ["ignore", "pipe", "pipe"]
         });
         this.process.on("exit", (code) => {
@@ -38589,7 +38589,7 @@ var init_session2 = __esm({
        */
       static async isEnabled() {
         try {
-          await execFileAsync12("safaridriver", ["--version"], { timeout: 5e3 });
+          await execFileAsync13("safaridriver", ["--version"], { timeout: 5e3 });
           return true;
         } catch {
           return false;
@@ -38641,17 +38641,17 @@ var driver_exports = {};
 __export(driver_exports, {
   SafariDriver: () => SafariDriver
 });
-var import_child_process15, import_util15, execFileAsync13, SafariDriver;
+var import_child_process16, import_util16, execFileAsync14, SafariDriver;
 var init_driver2 = __esm({
   "src/engine/safari/driver.ts"() {
     "use strict";
-    import_child_process15 = require("child_process");
-    import_util15 = require("util");
+    import_child_process16 = require("child_process");
+    import_util16 = require("util");
     init_webdriver();
     init_session2();
     init_extract3();
     init_serialize();
-    execFileAsync13 = (0, import_util15.promisify)(import_child_process15.execFile);
+    execFileAsync14 = (0, import_util16.promisify)(import_child_process16.execFile);
     SafariDriver = class {
       client = null;
       session = null;
@@ -38665,7 +38665,7 @@ var init_driver2 = __esm({
         await this.client.createSession();
         const vp = options.viewport ?? { width: 1920, height: 1080 };
         await this.client.setWindowRect({ ...vp, x: -9999, y: -9999 });
-        (0, import_child_process15.exec)(`osascript -e 'tell application "System Events" to set visible of process "Safari" to false'`, () => {
+        (0, import_child_process16.exec)(`osascript -e 'tell application "System Events" to set visible of process "Safari" to false'`, () => {
         });
       }
       async close() {
@@ -38846,7 +38846,7 @@ var init_driver2 = __esm({
       async _fetchAXElements() {
         try {
           const extractorPath = await ensureExtractor();
-          const { stdout } = await execFileAsync13(
+          const { stdout } = await execFileAsync14(
             extractorPath,
             ["--app", "Safari"],
             { timeout: 15e3 }
@@ -43138,21 +43138,29 @@ init_viewports();
 init_simulator();
 init_capture();
 init_extract3();
+
+// src/native/ax-stress.ts
+var import_child_process6 = require("child_process");
+var import_util7 = require("util");
+init_extract3();
+var execFileAsync5 = (0, import_util7.promisify)(import_child_process6.execFile);
+
+// src/native/index.ts
 init_rules2();
 init_scan2();
 
 // src/native/idb.ts
-var import_child_process7 = require("child_process");
-var import_util8 = require("util");
+var import_child_process8 = require("child_process");
+var import_util9 = require("util");
 
 // src/native/sim-driver.ts
-var import_child_process6 = require("child_process");
+var import_child_process7 = require("child_process");
 var import_fs6 = require("fs");
 var import_promises16 = require("fs/promises");
 var import_path18 = require("path");
-var import_util7 = require("util");
+var import_util8 = require("util");
 init_runtime_path();
-var execFileAsync5 = (0, import_util7.promisify)(import_child_process6.execFile);
+var execFileAsync6 = (0, import_util8.promisify)(import_child_process7.execFile);
 var DRIVER_NAME = "ibr-sim-driver";
 var CACHE_DIR = (0, import_path18.join)(process.cwd(), ".ibr", "bin");
 var CACHE_PATH = (0, import_path18.join)(CACHE_DIR, DRIVER_NAME);
@@ -43212,7 +43220,7 @@ async function ensureSimDriver() {
   }
   if (buildError) throw new Error(buildError);
   try {
-    await execFileAsync5("swift", ["build", "--package-path", sourceDir, "-c", "release"], {
+    await execFileAsync6("swift", ["build", "--package-path", sourceDir, "-c", "release"], {
       timeout: 12e4
     });
     const builtPath = (0, import_path18.join)(sourceDir, ".build", "release", DRIVER_NAME);
@@ -43232,7 +43240,7 @@ async function ensureSimDriver() {
 async function runSimDriver(args, action) {
   try {
     const driverPath = await ensureSimDriver();
-    await execFileAsync5(driverPath, args, { timeout: 15e3 });
+    await execFileAsync6(driverPath, args, { timeout: 15e3 });
     return { success: true, action };
   } catch (err) {
     return { success: false, action, error: errorMessage(err) };
@@ -43269,7 +43277,7 @@ function simDriverSwipe(udid, x1, y1, x2, y2, duration3, opts) {
 }
 
 // src/native/idb.ts
-var execFileAsync6 = (0, import_util8.promisify)(import_child_process7.execFile);
+var execFileAsync7 = (0, import_util9.promisify)(import_child_process8.execFile);
 var SIMULATOR_DRIVER_ENV = "IBR_SIMULATOR_DRIVER";
 var INSTALL_HINT = "Install IDB: brew tap facebook/fb && brew install idb-companion && pipx install fb-idb. IBR also ships a bundled native-window fallback (requires Accessibility permission and a visible Simulator window).";
 var DRIVER_LABELS = {
@@ -43303,7 +43311,7 @@ function formatSimulatorDriver(driver2) {
 }
 async function isIdbCliAvailable() {
   try {
-    await execFileAsync6("which", ["idb"]);
+    await execFileAsync7("which", ["idb"]);
     return true;
   } catch {
     return false;
@@ -43311,7 +43319,7 @@ async function isIdbCliAvailable() {
 }
 async function isSimctlAvailable() {
   try {
-    await execFileAsync6("which", ["xcrun"]);
+    await execFileAsync7("which", ["xcrun"]);
     return true;
   } catch {
     return false;
@@ -43392,7 +43400,7 @@ async function idbTap(udid, x, y) {
       }
     } else {
       try {
-        await execFileAsync6("idb", ["ui", "tap", String(x), String(y), "--udid", udid], { timeout: 1e4 });
+        await execFileAsync7("idb", ["ui", "tap", String(x), String(y), "--udid", udid], { timeout: 1e4 });
         return { success: true, action: "tap", driver: "idb" };
       } catch (err) {
         return { success: false, action: "tap", error: err.message, driver: "idb" };
@@ -43429,7 +43437,7 @@ async function idbType(udid, text) {
       }
     } else {
       try {
-        await execFileAsync6("idb", ["ui", "text", text, "--udid", udid], { timeout: 1e4 });
+        await execFileAsync7("idb", ["ui", "text", text, "--udid", udid], { timeout: 1e4 });
         return { success: true, action: "type", driver: "idb" };
       } catch (err) {
         return { success: false, action: "type", error: err.message, driver: "idb" };
@@ -43468,7 +43476,7 @@ async function idbSwipe(udid, x1, y1, x2, y2, duration3) {
       try {
         const args = ["ui", "swipe", String(x1), String(y1), String(x2), String(y2), "--udid", udid];
         if (duration3) args.push("--duration", String(duration3));
-        await execFileAsync6("idb", args, { timeout: 1e4 });
+        await execFileAsync7("idb", args, { timeout: 1e4 });
         return { success: true, action: "swipe", driver: "idb" };
       } catch (err) {
         return { success: false, action: "swipe", error: err.message, driver: "idb" };
@@ -43494,7 +43502,7 @@ async function idbButton(udid, button) {
       }
     } else {
       try {
-        await execFileAsync6("idb", ["ui", "button", button, "--udid", udid], { timeout: 1e4 });
+        await execFileAsync7("idb", ["ui", "button", button, "--udid", udid], { timeout: 1e4 });
         return { success: true, action, driver: "idb" };
       } catch (err) {
         return { success: false, action, error: err.message, driver: "idb" };
@@ -43503,7 +43511,7 @@ async function idbButton(udid, button) {
   }
   if (button === "HOME" && shouldTryDriver("simctl", preference)) {
     try {
-      await execFileAsync6(
+      await execFileAsync7(
         "xcrun",
         ["simctl", "spawn", udid, "launchctl", "stop", "com.apple.SpringBoard"],
         { timeout: 1e4 }
@@ -43524,7 +43532,7 @@ async function idbButton(udid, button) {
 }
 async function idbOpenUrl(udid, url2) {
   try {
-    await execFileAsync6("xcrun", ["simctl", "openurl", udid, url2], { timeout: 1e4 });
+    await execFileAsync7("xcrun", ["simctl", "openurl", udid, url2], { timeout: 1e4 });
     return { success: true, action: "openUrl", driver: "simctl" };
   } catch (err) {
     return { success: false, action: "openUrl", error: err.message, driver: "simctl" };
@@ -43594,11 +43602,11 @@ async function sweepIdleSessions(maxIdleMs) {
 }
 
 // src/native/actions.ts
-var import_child_process8 = require("child_process");
-var import_util9 = require("util");
+var import_child_process9 = require("child_process");
+var import_util10 = require("util");
 init_extract3();
 init_role_map();
-var execFileAsync7 = (0, import_util9.promisify)(import_child_process8.execFile);
+var execFileAsync8 = (0, import_util10.promisify)(import_child_process9.execFile);
 async function performNativeAction(options) {
   const extractorPath = await ensureExtractor();
   const args = [
@@ -43616,7 +43624,7 @@ async function performNativeAction(options) {
     args.push("--value", options.value);
   }
   try {
-    const { stdout } = await execFileAsync7(extractorPath, args, { timeout: 1e4 });
+    const { stdout } = await execFileAsync8(extractorPath, args, { timeout: 1e4 });
     return JSON.parse(stdout);
   } catch (err) {
     if (err && typeof err === "object" && "stdout" in err) {
@@ -43752,7 +43760,7 @@ function findElementByLabel(elements, label2) {
 }
 
 // src/native/daemon.ts
-var import_child_process9 = require("child_process");
+var import_child_process10 = require("child_process");
 init_extract3();
 var DEFAULT_START_TIMEOUT = 1e4;
 var DEFAULT_REQUEST_TIMEOUT = 3e4;
@@ -43773,7 +43781,7 @@ var AXDaemon = class {
   requestTimeoutMs;
   constructor(opts = {}) {
     this.binaryPath = opts.binaryPath;
-    this.spawnFn = opts.spawnFn ?? import_child_process9.spawn;
+    this.spawnFn = opts.spawnFn ?? import_child_process10.spawn;
     this.startTimeoutMs = opts.startTimeoutMs ?? DEFAULT_START_TIMEOUT;
     this.requestTimeoutMs = opts.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT;
   }
@@ -43917,8 +43925,8 @@ var AXDaemon = class {
 };
 
 // src/native/keyboard.ts
-var import_child_process10 = require("child_process");
-var import_util10 = require("util");
+var import_child_process11 = require("child_process");
+var import_util11 = require("util");
 init_extract3();
 
 // src/native/ax-signature.ts
@@ -43986,7 +43994,7 @@ function axSignature(extraction) {
 }
 
 // src/native/keyboard.ts
-var execFileAsync8 = (0, import_util10.promisify)(import_child_process10.execFile);
+var execFileAsync9 = (0, import_util11.promisify)(import_child_process11.execFile);
 var SETTLE_MS = 220;
 async function resolveKeystrokeTargetPid(target) {
   if (target.kind === "macos") return target.pid;
@@ -43997,7 +44005,7 @@ var deliverKeystrokeOneShot = async (pid, chord, foreground) => {
   const args = ["--pid", String(pid), "--keystroke", chord];
   if (foreground) args.push("--foreground");
   try {
-    const { stdout } = await execFileAsync8(extractorPath, args, { timeout: 5e3 });
+    const { stdout } = await execFileAsync9(extractorPath, args, { timeout: 5e3 });
     return JSON.parse(stdout);
   } catch (err) {
     if (err && typeof err === "object" && "stdout" in err) {
@@ -44099,10 +44107,10 @@ async function runKeystrokeCapability(opts) {
 }
 
 // src/native/lifecycle.ts
-var import_child_process11 = require("child_process");
-var import_util11 = require("util");
+var import_child_process12 = require("child_process");
+var import_util12 = require("util");
 init_macos();
-var execFileAsync9 = (0, import_util11.promisify)(import_child_process11.execFile);
+var execFileAsync10 = (0, import_util12.promisify)(import_child_process12.execFile);
 var LAUNCH_TIMEOUT_MS = 8e3;
 var QUIT_TIMEOUT_MS = 6e3;
 var POLL_MS = 250;
@@ -44259,10 +44267,10 @@ async function runLifecycleCapability(target, spec, ops) {
 }
 async function defaultLaunch(app) {
   try {
-    await execFileAsync9("open", ["-a", app], { timeout: 8e3 });
+    await execFileAsync10("open", ["-a", app], { timeout: 8e3 });
   } catch (err) {
     if (BUNDLE_ID_RE.test(app)) {
-      await execFileAsync9("open", ["-b", app], { timeout: 8e3 });
+      await execFileAsync10("open", ["-b", app], { timeout: 8e3 });
       return;
     }
     throw err;
@@ -44270,7 +44278,7 @@ async function defaultLaunch(app) {
 }
 async function defaultFrontmostPid() {
   try {
-    const { stdout } = await execFileAsync9(
+    const { stdout } = await execFileAsync10(
       "osascript",
       ["-e", 'tell application "System Events" to get unix id of first application process whose frontmost is true'],
       { timeout: 3e3 }
@@ -44292,17 +44300,17 @@ async function defaultIsRunning(pid) {
 async function defaultQuit(target) {
   if (target.app) {
     const script = BUNDLE_ID_RE.test(target.app) ? `tell application id "${target.app}" to quit` : `tell application "${target.app}" to quit`;
-    await execFileAsync9("osascript", ["-e", script], { timeout: 5e3 });
+    await execFileAsync10("osascript", ["-e", script], { timeout: 5e3 });
     return;
   }
-  const { stdout } = await execFileAsync9(
+  const { stdout } = await execFileAsync10(
     "osascript",
     ["-e", `tell application "System Events" to get name of first application process whose unix id is ${target.pid}`],
     { timeout: 3e3 }
   );
   const name = stdout.trim();
   if (!name) throw new Error(`could not resolve an app name for pid ${target.pid}`);
-  await execFileAsync9("osascript", ["-e", `tell application "${name}" to quit`], { timeout: 5e3 });
+  await execFileAsync10("osascript", ["-e", `tell application "${name}" to quit`], { timeout: 5e3 });
 }
 var defaultLifecycleOps = {
   findProcess,
@@ -44314,10 +44322,10 @@ var defaultLifecycleOps = {
 };
 
 // src/native/menu.ts
-var import_child_process12 = require("child_process");
-var import_util12 = require("util");
+var import_child_process13 = require("child_process");
+var import_util13 = require("util");
 init_extract3();
-var execFileAsync10 = (0, import_util12.promisify)(import_child_process12.execFile);
+var execFileAsync11 = (0, import_util13.promisify)(import_child_process13.execFile);
 var SETTLE_MS2 = 250;
 async function resolveMenuTargetPid(target) {
   if (target.kind === "macos") return target.pid;
@@ -44327,7 +44335,7 @@ var deliverMenuOneShot = async (pid, menuPath) => {
   const extractorPath = await ensureExtractor();
   const args = ["--pid", String(pid), "--menu-path", JSON.stringify(menuPath)];
   try {
-    const { stdout } = await execFileAsync10(extractorPath, args, { timeout: 5e3 });
+    const { stdout } = await execFileAsync11(extractorPath, args, { timeout: 5e3 });
     return JSON.parse(stdout);
   } catch (err) {
     if (err && typeof err === "object" && "stdout" in err) {
@@ -44744,17 +44752,17 @@ function getNativeBackend() {
 }
 
 // src/native/preflight.ts
-var import_child_process13 = require("child_process");
-var import_util13 = require("util");
+var import_child_process14 = require("child_process");
+var import_util14 = require("util");
 var import_fs7 = require("fs");
 var import_path19 = require("path");
-var execFileAsync11 = (0, import_util13.promisify)(import_child_process13.execFile);
+var execFileAsync12 = (0, import_util14.promisify)(import_child_process14.execFile);
 function isMacOS(platformOverride) {
   return (platformOverride ?? process.platform) === "darwin";
 }
 async function defaultHasCommand(name) {
   try {
-    await execFileAsync11("which", [name]);
+    await execFileAsync12("which", [name]);
     return true;
   } catch {
     return false;

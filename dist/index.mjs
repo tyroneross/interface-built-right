@@ -22106,6 +22106,71 @@ init_viewports();
 init_simulator();
 init_capture();
 init_extract3();
+
+// src/native/ax-stress.ts
+init_extract3();
+var execFileAsync5 = promisify(execFile);
+var defaultRunner = (bin, args, timeoutMs) => execFileAsync5(bin, args, { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 });
+function buildAxStressArgs(opts) {
+  const walks = opts.walksPerStep ?? 5;
+  const maxNodes = opts.maxNodes ?? 5e4;
+  const settle = opts.settleSeconds ?? 1;
+  if (!Number.isInteger(opts.pid) || opts.pid <= 0) throw new Error("pid must be a positive integer");
+  if (opts.steps.length === 0 || opts.steps.some((s) => s.trim() === "")) throw new Error("steps must be non-empty");
+  if (!Number.isInteger(walks) || walks < 1 || walks > 100) throw new Error("walks per step must be 1-100");
+  if (!Number.isInteger(maxNodes) || maxNodes < 1 || maxNodes > 1e6) throw new Error("max nodes must be 1-1000000");
+  if (!(settle >= 0 && settle <= 30)) throw new Error("settle seconds must be 0-30");
+  return [
+    "--pid",
+    String(opts.pid),
+    "--stress-steps",
+    JSON.stringify(opts.steps),
+    "--stress-walks",
+    String(walks),
+    "--stress-max-nodes",
+    String(maxNodes),
+    "--stress-settle",
+    String(settle)
+  ];
+}
+async function runAxStress(opts, deps) {
+  const args = buildAxStressArgs(opts);
+  const binary = await (deps?.ensure ?? ensureExtractor)();
+  const run = deps?.run ?? defaultRunner;
+  const timeoutMs = Math.max(6e4, opts.steps.length * (opts.walksPerStep ?? 5) * 3e4);
+  let stdout;
+  try {
+    ({ stdout } = await run(binary, args, timeoutMs));
+  } catch (err) {
+    const out = String(err.stdout ?? "").trim();
+    if (out.startsWith("{")) {
+      stdout = out;
+    } else {
+      const stderr = String(err.stderr ?? "").trim();
+      throw new Error(stderr || (err instanceof Error ? err.message : String(err)));
+    }
+  }
+  return JSON.parse(stdout);
+}
+function formatAxStressReport(report) {
+  const lines = report.steps.map((s) => {
+    const press = s.step === "walk" ? "" : s.pressed ? " (pressed)" : ` (press failed: ${s.pressError ?? "unknown"})`;
+    const nodes = s.walks.map((w) => w.nodes).join(",");
+    const failed = s.walks.reduce((sum, w) => sum + w.failedReads, 0);
+    const truncated = s.walks.some((w) => w.truncated) ? " TRUNCATED" : "";
+    return `${s.index}. ${s.step}${press}: ${s.walks.length} walks, nodes ${nodes}, failed reads ${failed}${truncated}`;
+  });
+  if (report.survived) {
+    lines.push(`SURVIVED: pid ${report.pid} is still running`);
+  } else {
+    const c = report.crash;
+    const where = c?.step ? ` during step ${c.index} (${c.step})${c.walk ? `, walk ${c.walk}` : ""}` : ` (${c?.phase ?? "unknown"})`;
+    lines.push(`CRASHED: pid ${report.pid} exited${where}`);
+  }
+  return lines.join("\n");
+}
+
+// src/native/index.ts
 init_rules2();
 init_scan2();
 init_runtime_path();
@@ -22140,7 +22205,7 @@ function isSimDriverAvailable() {
 }
 
 // src/native/idb.ts
-var execFileAsync6 = promisify(execFile);
+var execFileAsync7 = promisify(execFile);
 var SIMULATOR_DRIVER_ENV = "IBR_SIMULATOR_DRIVER";
 var DRIVER_LABELS = {
   "native-window": "IBR native-window",
@@ -22159,7 +22224,7 @@ function formatSimulatorDriver(driver2) {
 }
 async function isIdbCliAvailable() {
   try {
-    await execFileAsync6("which", ["idb"]);
+    await execFileAsync7("which", ["idb"]);
     return true;
   } catch {
     return false;
@@ -22167,7 +22232,7 @@ async function isIdbCliAvailable() {
 }
 async function isSimctlAvailable() {
   try {
-    await execFileAsync6("which", ["xcrun"]);
+    await execFileAsync7("which", ["xcrun"]);
     return true;
   } catch {
     return false;
@@ -22530,7 +22595,7 @@ var sessions = /* @__PURE__ */ new Map();
 // src/native/actions.ts
 init_extract3();
 init_role_map();
-var execFileAsync7 = promisify(execFile);
+var execFileAsync8 = promisify(execFile);
 async function performNativeAction(options) {
   const extractorPath = await ensureExtractor();
   const args = [
@@ -22548,7 +22613,7 @@ async function performNativeAction(options) {
     args.push("--value", options.value);
   }
   try {
-    const { stdout } = await execFileAsync7(extractorPath, args, { timeout: 1e4 });
+    const { stdout } = await execFileAsync8(extractorPath, args, { timeout: 1e4 });
     return JSON.parse(stdout);
   } catch (err) {
     if (err && typeof err === "object" && "stdout" in err) {
@@ -22899,7 +22964,7 @@ function axSignature(extraction) {
 }
 
 // src/native/keyboard.ts
-var execFileAsync8 = promisify(execFile);
+var execFileAsync9 = promisify(execFile);
 var SETTLE_MS = 220;
 async function resolveKeystrokeTargetPid(target) {
   if (target.kind === "macos") return target.pid;
@@ -22910,7 +22975,7 @@ var deliverKeystrokeOneShot = async (pid, chord, foreground) => {
   const args = ["--pid", String(pid), "--keystroke", chord];
   if (foreground) args.push("--foreground");
   try {
-    const { stdout } = await execFileAsync8(extractorPath, args, { timeout: 5e3 });
+    const { stdout } = await execFileAsync9(extractorPath, args, { timeout: 5e3 });
     return JSON.parse(stdout);
   } catch (err) {
     if (err && typeof err === "object" && "stdout" in err) {
@@ -23011,7 +23076,7 @@ async function runKeystrokeCapability(opts) {
   }
 }
 init_macos();
-var execFileAsync9 = promisify(execFile);
+var execFileAsync10 = promisify(execFile);
 var LAUNCH_TIMEOUT_MS = 8e3;
 var QUIT_TIMEOUT_MS = 6e3;
 var POLL_MS = 250;
@@ -23168,10 +23233,10 @@ async function runLifecycleCapability(target, spec, ops) {
 }
 async function defaultLaunch(app) {
   try {
-    await execFileAsync9("open", ["-a", app], { timeout: 8e3 });
+    await execFileAsync10("open", ["-a", app], { timeout: 8e3 });
   } catch (err) {
     if (BUNDLE_ID_RE.test(app)) {
-      await execFileAsync9("open", ["-b", app], { timeout: 8e3 });
+      await execFileAsync10("open", ["-b", app], { timeout: 8e3 });
       return;
     }
     throw err;
@@ -23179,7 +23244,7 @@ async function defaultLaunch(app) {
 }
 async function defaultFrontmostPid() {
   try {
-    const { stdout } = await execFileAsync9(
+    const { stdout } = await execFileAsync10(
       "osascript",
       ["-e", 'tell application "System Events" to get unix id of first application process whose frontmost is true'],
       { timeout: 3e3 }
@@ -23201,17 +23266,17 @@ async function defaultIsRunning(pid) {
 async function defaultQuit(target) {
   if (target.app) {
     const script = BUNDLE_ID_RE.test(target.app) ? `tell application id "${target.app}" to quit` : `tell application "${target.app}" to quit`;
-    await execFileAsync9("osascript", ["-e", script], { timeout: 5e3 });
+    await execFileAsync10("osascript", ["-e", script], { timeout: 5e3 });
     return;
   }
-  const { stdout } = await execFileAsync9(
+  const { stdout } = await execFileAsync10(
     "osascript",
     ["-e", `tell application "System Events" to get name of first application process whose unix id is ${target.pid}`],
     { timeout: 3e3 }
   );
   const name = stdout.trim();
   if (!name) throw new Error(`could not resolve an app name for pid ${target.pid}`);
-  await execFileAsync9("osascript", ["-e", `tell application "${name}" to quit`], { timeout: 5e3 });
+  await execFileAsync10("osascript", ["-e", `tell application "${name}" to quit`], { timeout: 5e3 });
 }
 var defaultLifecycleOps = {
   findProcess,
@@ -23224,7 +23289,7 @@ var defaultLifecycleOps = {
 
 // src/native/menu.ts
 init_extract3();
-var execFileAsync10 = promisify(execFile);
+var execFileAsync11 = promisify(execFile);
 var SETTLE_MS2 = 250;
 async function resolveMenuTargetPid(target) {
   if (target.kind === "macos") return target.pid;
@@ -23234,7 +23299,7 @@ var deliverMenuOneShot = async (pid, menuPath) => {
   const extractorPath = await ensureExtractor();
   const args = ["--pid", String(pid), "--menu-path", JSON.stringify(menuPath)];
   try {
-    const { stdout } = await execFileAsync10(extractorPath, args, { timeout: 5e3 });
+    const { stdout } = await execFileAsync11(extractorPath, args, { timeout: 5e3 });
     return JSON.parse(stdout);
   } catch (err) {
     if (err && typeof err === "object" && "stdout" in err) {
@@ -23648,13 +23713,13 @@ function getNativeBackend() {
 function __setNativeBackend(backend) {
   defaultBackend = backend;
 }
-var execFileAsync11 = promisify(execFile);
+var execFileAsync12 = promisify(execFile);
 function isMacOS(platformOverride) {
   return (process.platform) === "darwin";
 }
 async function defaultHasCommand(name) {
   try {
-    await execFileAsync11("which", [name]);
+    await execFileAsync12("which", [name]);
     return true;
   } catch {
     return false;
@@ -24900,6 +24965,6 @@ var IBRSession = class {
   }
 };
 
-export { A11yAttributesSchema, ANDROID_CHROME_UA, AXDaemon, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, BreadcrumbContextSchema, BrowserPool, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_REGIONS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, DaemonBackend, DaemonError, DecisionEntrySchema, DecisionEntryWithChecksSchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, DesignChangeSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignElementSchema, DesignSpecSchema, DesignSystemResultSchema, DesignSystemViolationSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, ExternalActionEvidenceInputSchema, ExternalActionReceiptSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MAX_EXTERNAL_ACTION_ARTIFACT_BYTES, MOBILE_SAFARI_UA, MemorySourceSchema, MemorySummarySchema, NATIVE_REGIONS, NATIVE_VERDICT_POLICY, NATIVE_VIEWPORTS, NativeSessionController, NumberRuleSchema, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, ProvenancedThresholdSchema, ResolvedPathCache, RespawnBackend, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SIMULATOR_DRIVER_ENV, SessionQuerySchema, SessionSchema, SessionStatusSchema, TABLET_SAFARI_UA, TargetContextSchema, TextRuleSchema, ThresholdBasisSchema, ThresholdOverrideSchema, VERDICT_POLICY_KEYS, VIEWPORTS, VerdictPolicyOverrideSchema, VerdictPolicySchema, VerdictSchema, ViewportSchema, ViolationSchema, WEB_VERDICT_POLICY, __setNativeBackend, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureDesignSpec, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, checkDesignSpec, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createExternalActionReceipt, createMemoryPreset, createSession, deleteSession, designSpecFromFigmaFile, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeCandidate, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNativeBackend, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isDiffMarker, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapSessionActionToNative, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, nativeSessionController, nativeStateSignature, newDesignSpec, normalizeColor, notImplementedOutcome, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, recordExternalActionEvidence, regionalDiffCounts, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, requestAccessibilityPermission, resolveDevice, resolveVerdictPolicy, resolvedPathCache, runAllRules, runDesignSystemCheck, safeFilePart, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking, writeExternalActionReceipt };
+export { A11yAttributesSchema, ANDROID_CHROME_UA, AXDaemon, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, BreadcrumbContextSchema, BrowserPool, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_REGIONS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, DaemonBackend, DaemonError, DecisionEntrySchema, DecisionEntryWithChecksSchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, DesignChangeSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignElementSchema, DesignSpecSchema, DesignSystemResultSchema, DesignSystemViolationSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, ExternalActionEvidenceInputSchema, ExternalActionReceiptSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MAX_EXTERNAL_ACTION_ARTIFACT_BYTES, MOBILE_SAFARI_UA, MemorySourceSchema, MemorySummarySchema, NATIVE_REGIONS, NATIVE_VERDICT_POLICY, NATIVE_VIEWPORTS, NativeSessionController, NumberRuleSchema, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, ProvenancedThresholdSchema, ResolvedPathCache, RespawnBackend, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SIMULATOR_DRIVER_ENV, SessionQuerySchema, SessionSchema, SessionStatusSchema, TABLET_SAFARI_UA, TargetContextSchema, TextRuleSchema, ThresholdBasisSchema, ThresholdOverrideSchema, VERDICT_POLICY_KEYS, VIEWPORTS, VerdictPolicyOverrideSchema, VerdictPolicySchema, VerdictSchema, ViewportSchema, ViolationSchema, WEB_VERDICT_POLICY, __setNativeBackend, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildAxStressArgs, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureDesignSpec, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, checkDesignSpec, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createExternalActionReceipt, createMemoryPreset, createSession, deleteSession, designSpecFromFigmaFile, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatAxStressReport, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeCandidate, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNativeBackend, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isDiffMarker, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapSessionActionToNative, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, nativeSessionController, nativeStateSignature, newDesignSpec, normalizeColor, notImplementedOutcome, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, recordExternalActionEvidence, regionalDiffCounts, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, requestAccessibilityPermission, resolveDevice, resolveVerdictPolicy, resolvedPathCache, runAllRules, runAxStress, runDesignSystemCheck, safeFilePart, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking, writeExternalActionReceipt };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

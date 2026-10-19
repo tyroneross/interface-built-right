@@ -44661,6 +44661,83 @@ var init_principles = __esm({
   }
 });
 
+// src/native/ax-stress.ts
+var ax_stress_exports = {};
+__export(ax_stress_exports, {
+  buildAxStressArgs: () => buildAxStressArgs,
+  formatAxStressReport: () => formatAxStressReport,
+  runAxStress: () => runAxStress
+});
+function buildAxStressArgs(opts) {
+  const walks = opts.walksPerStep ?? 5;
+  const maxNodes = opts.maxNodes ?? 5e4;
+  const settle = opts.settleSeconds ?? 1;
+  if (!Number.isInteger(opts.pid) || opts.pid <= 0) throw new Error("pid must be a positive integer");
+  if (opts.steps.length === 0 || opts.steps.some((s) => s.trim() === "")) throw new Error("steps must be non-empty");
+  if (!Number.isInteger(walks) || walks < 1 || walks > 100) throw new Error("walks per step must be 1-100");
+  if (!Number.isInteger(maxNodes) || maxNodes < 1 || maxNodes > 1e6) throw new Error("max nodes must be 1-1000000");
+  if (!(settle >= 0 && settle <= 30)) throw new Error("settle seconds must be 0-30");
+  return [
+    "--pid",
+    String(opts.pid),
+    "--stress-steps",
+    JSON.stringify(opts.steps),
+    "--stress-walks",
+    String(walks),
+    "--stress-max-nodes",
+    String(maxNodes),
+    "--stress-settle",
+    String(settle)
+  ];
+}
+async function runAxStress(opts, deps) {
+  const args = buildAxStressArgs(opts);
+  const binary = await (deps?.ensure ?? ensureExtractor)();
+  const run = deps?.run ?? defaultRunner;
+  const timeoutMs = Math.max(6e4, opts.steps.length * (opts.walksPerStep ?? 5) * 3e4);
+  let stdout;
+  try {
+    ({ stdout } = await run(binary, args, timeoutMs));
+  } catch (err) {
+    const out = String(err.stdout ?? "").trim();
+    if (out.startsWith("{")) {
+      stdout = out;
+    } else {
+      const stderr = String(err.stderr ?? "").trim();
+      throw new Error(stderr || (err instanceof Error ? err.message : String(err)));
+    }
+  }
+  return JSON.parse(stdout);
+}
+function formatAxStressReport(report) {
+  const lines = report.steps.map((s) => {
+    const press = s.step === "walk" ? "" : s.pressed ? " (pressed)" : ` (press failed: ${s.pressError ?? "unknown"})`;
+    const nodes = s.walks.map((w) => w.nodes).join(",");
+    const failed = s.walks.reduce((sum, w) => sum + w.failedReads, 0);
+    const truncated = s.walks.some((w) => w.truncated) ? " TRUNCATED" : "";
+    return `${s.index}. ${s.step}${press}: ${s.walks.length} walks, nodes ${nodes}, failed reads ${failed}${truncated}`;
+  });
+  if (report.survived) {
+    lines.push(`SURVIVED: pid ${report.pid} is still running`);
+  } else {
+    const c = report.crash;
+    const where = c?.step ? ` during step ${c.index} (${c.step})${c.walk ? `, walk ${c.walk}` : ""}` : ` (${c?.phase ?? "unknown"})`;
+    lines.push(`CRASHED: pid ${report.pid} exited${where}`);
+  }
+  return lines.join("\n");
+}
+var import_child_process6, import_util7, execFileAsync5, defaultRunner;
+var init_ax_stress = __esm({
+  "src/native/ax-stress.ts"() {
+    "use strict";
+    import_child_process6 = require("child_process");
+    import_util7 = require("util");
+    init_extract3();
+    execFileAsync5 = (0, import_util7.promisify)(import_child_process6.execFile);
+    defaultRunner = (bin, args, timeoutMs) => execFileAsync5(bin, args, { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 });
+  }
+});
+
 // src/native/sim-driver.ts
 function existingBinaryCandidates() {
   return [
@@ -44716,7 +44793,7 @@ async function ensureSimDriver() {
   }
   if (buildError) throw new Error(buildError);
   try {
-    await execFileAsync5("swift", ["build", "--package-path", sourceDir, "-c", "release"], {
+    await execFileAsync6("swift", ["build", "--package-path", sourceDir, "-c", "release"], {
       timeout: 12e4
     });
     const builtPath = (0, import_path24.join)(sourceDir, ".build", "release", DRIVER_NAME);
@@ -44736,7 +44813,7 @@ async function ensureSimDriver() {
 async function runSimDriver(args, action) {
   try {
     const driverPath = await ensureSimDriver();
-    await execFileAsync5(driverPath, args, { timeout: 15e3 });
+    await execFileAsync6(driverPath, args, { timeout: 15e3 });
     return { success: true, action };
   } catch (err) {
     return { success: false, action, error: errorMessage(err) };
@@ -44771,17 +44848,17 @@ function simDriverSwipe(udid, x1, y1, x2, y2, duration3, opts) {
   if (duration3) args.push("--duration", String(duration3));
   return runSimDriver(args, "swipe");
 }
-var import_child_process6, import_fs14, import_promises22, import_path24, import_util7, execFileAsync5, DRIVER_NAME, CACHE_DIR, CACHE_PATH, cachedPath, buildError;
+var import_child_process7, import_fs14, import_promises22, import_path24, import_util8, execFileAsync6, DRIVER_NAME, CACHE_DIR, CACHE_PATH, cachedPath, buildError;
 var init_sim_driver = __esm({
   "src/native/sim-driver.ts"() {
     "use strict";
-    import_child_process6 = require("child_process");
+    import_child_process7 = require("child_process");
     import_fs14 = require("fs");
     import_promises22 = require("fs/promises");
     import_path24 = require("path");
-    import_util7 = require("util");
+    import_util8 = require("util");
     init_runtime_path();
-    execFileAsync5 = (0, import_util7.promisify)(import_child_process6.execFile);
+    execFileAsync6 = (0, import_util8.promisify)(import_child_process7.execFile);
     DRIVER_NAME = "ibr-sim-driver";
     CACHE_DIR = (0, import_path24.join)(process.cwd(), ".ibr", "bin");
     CACHE_PATH = (0, import_path24.join)(CACHE_DIR, DRIVER_NAME);
@@ -44816,7 +44893,7 @@ function formatSimulatorDriver(driver3) {
 }
 async function isIdbCliAvailable() {
   try {
-    await execFileAsync6("which", ["idb"]);
+    await execFileAsync7("which", ["idb"]);
     return true;
   } catch {
     return false;
@@ -44824,7 +44901,7 @@ async function isIdbCliAvailable() {
 }
 async function isSimctlAvailable() {
   try {
-    await execFileAsync6("which", ["xcrun"]);
+    await execFileAsync7("which", ["xcrun"]);
     return true;
   } catch {
     return false;
@@ -44905,7 +44982,7 @@ async function idbTap(udid, x, y) {
       }
     } else {
       try {
-        await execFileAsync6("idb", ["ui", "tap", String(x), String(y), "--udid", udid], { timeout: 1e4 });
+        await execFileAsync7("idb", ["ui", "tap", String(x), String(y), "--udid", udid], { timeout: 1e4 });
         return { success: true, action: "tap", driver: "idb" };
       } catch (err) {
         return { success: false, action: "tap", error: err.message, driver: "idb" };
@@ -44942,7 +45019,7 @@ async function idbType(udid, text) {
       }
     } else {
       try {
-        await execFileAsync6("idb", ["ui", "text", text, "--udid", udid], { timeout: 1e4 });
+        await execFileAsync7("idb", ["ui", "text", text, "--udid", udid], { timeout: 1e4 });
         return { success: true, action: "type", driver: "idb" };
       } catch (err) {
         return { success: false, action: "type", error: err.message, driver: "idb" };
@@ -44981,7 +45058,7 @@ async function idbSwipe(udid, x1, y1, x2, y2, duration3) {
       try {
         const args = ["ui", "swipe", String(x1), String(y1), String(x2), String(y2), "--udid", udid];
         if (duration3) args.push("--duration", String(duration3));
-        await execFileAsync6("idb", args, { timeout: 1e4 });
+        await execFileAsync7("idb", args, { timeout: 1e4 });
         return { success: true, action: "swipe", driver: "idb" };
       } catch (err) {
         return { success: false, action: "swipe", error: err.message, driver: "idb" };
@@ -45007,7 +45084,7 @@ async function idbButton(udid, button) {
       }
     } else {
       try {
-        await execFileAsync6("idb", ["ui", "button", button, "--udid", udid], { timeout: 1e4 });
+        await execFileAsync7("idb", ["ui", "button", button, "--udid", udid], { timeout: 1e4 });
         return { success: true, action, driver: "idb" };
       } catch (err) {
         return { success: false, action, error: err.message, driver: "idb" };
@@ -45016,7 +45093,7 @@ async function idbButton(udid, button) {
   }
   if (button === "HOME" && shouldTryDriver("simctl", preference)) {
     try {
-      await execFileAsync6(
+      await execFileAsync7(
         "xcrun",
         ["simctl", "spawn", udid, "launchctl", "stop", "com.apple.SpringBoard"],
         { timeout: 1e4 }
@@ -45037,20 +45114,20 @@ async function idbButton(udid, button) {
 }
 async function idbOpenUrl(udid, url2) {
   try {
-    await execFileAsync6("xcrun", ["simctl", "openurl", udid, url2], { timeout: 1e4 });
+    await execFileAsync7("xcrun", ["simctl", "openurl", udid, url2], { timeout: 1e4 });
     return { success: true, action: "openUrl", driver: "simctl" };
   } catch (err) {
     return { success: false, action: "openUrl", error: err.message, driver: "simctl" };
   }
 }
-var import_child_process7, import_util8, execFileAsync6, SIMULATOR_DRIVER_ENV, INSTALL_HINT, DRIVER_LABELS;
+var import_child_process8, import_util9, execFileAsync7, SIMULATOR_DRIVER_ENV, INSTALL_HINT, DRIVER_LABELS;
 var init_idb = __esm({
   "src/native/idb.ts"() {
     "use strict";
-    import_child_process7 = require("child_process");
-    import_util8 = require("util");
+    import_child_process8 = require("child_process");
+    import_util9 = require("util");
     init_sim_driver();
-    execFileAsync6 = (0, import_util8.promisify)(import_child_process7.execFile);
+    execFileAsync7 = (0, import_util9.promisify)(import_child_process8.execFile);
     SIMULATOR_DRIVER_ENV = "IBR_SIMULATOR_DRIVER";
     INSTALL_HINT = "Install IDB: brew tap facebook/fb && brew install idb-companion && pipx install fb-idb. IBR also ships a bundled native-window fallback (requires Accessibility permission and a visible Simulator window).";
     DRIVER_LABELS = {
@@ -45372,6 +45449,7 @@ __export(native_exports, {
   annotateScreenshot: () => annotateScreenshot,
   auditNativeElements: () => auditNativeElements,
   bootDevice: () => bootDevice,
+  buildAxStressArgs: () => buildAxStressArgs,
   buildNativeInteractivity: () => buildNativeInteractivity,
   buildNativeSemantic: () => buildNativeSemantic,
   captureMacOSScreenshot: () => captureMacOSScreenshot,
@@ -45381,6 +45459,7 @@ __export(native_exports, {
   extractNativeElements: () => extractNativeElements,
   findDevice: () => findDevice,
   findProcess: () => findProcess,
+  formatAxStressReport: () => formatAxStressReport,
   formatDevice: () => formatDevice,
   formatMacOSScanResult: () => formatMacOSScanResult,
   formatNativeScanResult: () => formatNativeScanResult,
@@ -45395,6 +45474,7 @@ __export(native_exports, {
   mapToEnhancedElements: () => mapToEnhancedElements,
   reportElementSizes: () => reportElementSizes,
   requestAccessibilityPermission: () => requestAccessibilityPermission,
+  runAxStress: () => runAxStress,
   scanMacOS: () => scanMacOS,
   scanNative: () => scanNative
 });
@@ -45405,6 +45485,7 @@ var init_native = __esm({
     init_simulator();
     init_capture3();
     init_extract3();
+    init_ax_stress();
     init_rules2();
     init_scan2();
     init_idb();
@@ -45501,7 +45582,7 @@ async function performNativeAction(options) {
     args.push("--value", options.value);
   }
   try {
-    const { stdout } = await execFileAsync7(extractorPath, args, { timeout: 1e4 });
+    const { stdout } = await execFileAsync8(extractorPath, args, { timeout: 1e4 });
     return JSON.parse(stdout);
   } catch (err) {
     if (err && typeof err === "object" && "stdout" in err) {
@@ -45635,24 +45716,24 @@ function findElementByLabel(elements, label2) {
     (el) => el.label && el.label.toLowerCase().includes(needle) || el.identifier && el.identifier.toLowerCase().includes(needle)
   ) ?? null;
 }
-var import_child_process8, import_util9, execFileAsync7;
+var import_child_process9, import_util10, execFileAsync8;
 var init_actions = __esm({
   "src/native/actions.ts"() {
     "use strict";
-    import_child_process8 = require("child_process");
-    import_util9 = require("util");
+    import_child_process9 = require("child_process");
+    import_util10 = require("util");
     init_extract3();
     init_role_map();
-    execFileAsync7 = (0, import_util9.promisify)(import_child_process8.execFile);
+    execFileAsync8 = (0, import_util10.promisify)(import_child_process9.execFile);
   }
 });
 
 // src/native/daemon.ts
-var import_child_process9, DEFAULT_START_TIMEOUT, DEFAULT_REQUEST_TIMEOUT, DaemonError, AXDaemon;
+var import_child_process10, DEFAULT_START_TIMEOUT, DEFAULT_REQUEST_TIMEOUT, DaemonError, AXDaemon;
 var init_daemon = __esm({
   "src/native/daemon.ts"() {
     "use strict";
-    import_child_process9 = require("child_process");
+    import_child_process10 = require("child_process");
     init_extract3();
     DEFAULT_START_TIMEOUT = 1e4;
     DEFAULT_REQUEST_TIMEOUT = 3e4;
@@ -45673,7 +45754,7 @@ var init_daemon = __esm({
       requestTimeoutMs;
       constructor(opts = {}) {
         this.binaryPath = opts.binaryPath;
-        this.spawnFn = opts.spawnFn ?? import_child_process9.spawn;
+        this.spawnFn = opts.spawnFn ?? import_child_process10.spawn;
         this.startTimeoutMs = opts.startTimeoutMs ?? DEFAULT_START_TIMEOUT;
         this.requestTimeoutMs = opts.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT;
       }
@@ -45976,23 +46057,23 @@ async function runKeystrokeCapability(opts) {
     return keystrokeFailure(chord, "unavailable", "unavailable", `keystroke capability failed: ${message2}`);
   }
 }
-var import_child_process10, import_util10, execFileAsync8, SETTLE_MS, deliverKeystrokeOneShot;
+var import_child_process11, import_util11, execFileAsync9, SETTLE_MS, deliverKeystrokeOneShot;
 var init_keyboard = __esm({
   "src/native/keyboard.ts"() {
     "use strict";
-    import_child_process10 = require("child_process");
-    import_util10 = require("util");
+    import_child_process11 = require("child_process");
+    import_util11 = require("util");
     init_extract3();
     init_native();
     init_ax_signature();
-    execFileAsync8 = (0, import_util10.promisify)(import_child_process10.execFile);
+    execFileAsync9 = (0, import_util11.promisify)(import_child_process11.execFile);
     SETTLE_MS = 220;
     deliverKeystrokeOneShot = async (pid, chord, foreground) => {
       const extractorPath = await ensureExtractor();
       const args = ["--pid", String(pid), "--keystroke", chord];
       if (foreground) args.push("--foreground");
       try {
-        const { stdout } = await execFileAsync8(extractorPath, args, { timeout: 5e3 });
+        const { stdout } = await execFileAsync9(extractorPath, args, { timeout: 5e3 });
         return JSON.parse(stdout);
       } catch (err) {
         if (err && typeof err === "object" && "stdout" in err) {
@@ -46165,10 +46246,10 @@ async function runLifecycleCapability(target, spec, ops) {
 }
 async function defaultLaunch(app) {
   try {
-    await execFileAsync9("open", ["-a", app], { timeout: 8e3 });
+    await execFileAsync10("open", ["-a", app], { timeout: 8e3 });
   } catch (err) {
     if (BUNDLE_ID_RE.test(app)) {
-      await execFileAsync9("open", ["-b", app], { timeout: 8e3 });
+      await execFileAsync10("open", ["-b", app], { timeout: 8e3 });
       return;
     }
     throw err;
@@ -46176,7 +46257,7 @@ async function defaultLaunch(app) {
 }
 async function defaultFrontmostPid() {
   try {
-    const { stdout } = await execFileAsync9(
+    const { stdout } = await execFileAsync10(
       "osascript",
       ["-e", 'tell application "System Events" to get unix id of first application process whose frontmost is true'],
       { timeout: 3e3 }
@@ -46198,27 +46279,27 @@ async function defaultIsRunning(pid) {
 async function defaultQuit(target) {
   if (target.app) {
     const script = BUNDLE_ID_RE.test(target.app) ? `tell application id "${target.app}" to quit` : `tell application "${target.app}" to quit`;
-    await execFileAsync9("osascript", ["-e", script], { timeout: 5e3 });
+    await execFileAsync10("osascript", ["-e", script], { timeout: 5e3 });
     return;
   }
-  const { stdout } = await execFileAsync9(
+  const { stdout } = await execFileAsync10(
     "osascript",
     ["-e", `tell application "System Events" to get name of first application process whose unix id is ${target.pid}`],
     { timeout: 3e3 }
   );
   const name = stdout.trim();
   if (!name) throw new Error(`could not resolve an app name for pid ${target.pid}`);
-  await execFileAsync9("osascript", ["-e", `tell application "${name}" to quit`], { timeout: 5e3 });
+  await execFileAsync10("osascript", ["-e", `tell application "${name}" to quit`], { timeout: 5e3 });
 }
-var import_child_process11, import_util11, execFileAsync9, LAUNCH_TIMEOUT_MS, QUIT_TIMEOUT_MS, POLL_MS, BUNDLE_ID_RE, defaultLifecycleOps;
+var import_child_process12, import_util12, execFileAsync10, LAUNCH_TIMEOUT_MS, QUIT_TIMEOUT_MS, POLL_MS, BUNDLE_ID_RE, defaultLifecycleOps;
 var init_lifecycle = __esm({
   "src/native/lifecycle.ts"() {
     "use strict";
-    import_child_process11 = require("child_process");
-    import_util11 = require("util");
+    import_child_process12 = require("child_process");
+    import_util12 = require("util");
     init_native();
     init_macos();
-    execFileAsync9 = (0, import_util11.promisify)(import_child_process11.execFile);
+    execFileAsync10 = (0, import_util12.promisify)(import_child_process12.execFile);
     LAUNCH_TIMEOUT_MS = 8e3;
     QUIT_TIMEOUT_MS = 6e3;
     POLL_MS = 250;
@@ -46315,22 +46396,22 @@ async function runMenuCapability(opts) {
     return menuFailure(menuPath, "unavailable", "unavailable", `menu capability failed: ${message2}`);
   }
 }
-var import_child_process12, import_util12, execFileAsync10, SETTLE_MS2, deliverMenuOneShot;
+var import_child_process13, import_util13, execFileAsync11, SETTLE_MS2, deliverMenuOneShot;
 var init_menu = __esm({
   "src/native/menu.ts"() {
     "use strict";
-    import_child_process12 = require("child_process");
-    import_util12 = require("util");
+    import_child_process13 = require("child_process");
+    import_util13 = require("util");
     init_extract3();
     init_native();
     init_ax_signature();
-    execFileAsync10 = (0, import_util12.promisify)(import_child_process12.execFile);
+    execFileAsync11 = (0, import_util13.promisify)(import_child_process13.execFile);
     SETTLE_MS2 = 250;
     deliverMenuOneShot = async (pid, menuPath) => {
       const extractorPath = await ensureExtractor();
       const args = ["--pid", String(pid), "--menu-path", JSON.stringify(menuPath)];
       try {
-        const { stdout } = await execFileAsync10(extractorPath, args, { timeout: 5e3 });
+        const { stdout } = await execFileAsync11(extractorPath, args, { timeout: 5e3 });
         return JSON.parse(stdout);
       } catch (err) {
         if (err && typeof err === "object" && "stdout" in err) {
@@ -46693,7 +46774,7 @@ function isMacOS(platformOverride) {
 }
 async function defaultHasCommand(name) {
   try {
-    await execFileAsync11("which", [name]);
+    await execFileAsync12("which", [name]);
     return true;
   } catch {
     return false;
@@ -46782,15 +46863,15 @@ function classifyExtractorError(err) {
   }
   return null;
 }
-var import_child_process13, import_util13, import_fs16, import_path25, execFileAsync11, _deps, SIMULATOR_CHROME_LABELS, HOST_CHROME_ROLES, ACCESSIBILITY_UNTRUSTED_EXIT_CODE, REQUEST_PERMISSION_COMMAND;
+var import_child_process14, import_util14, import_fs16, import_path25, execFileAsync12, _deps, SIMULATOR_CHROME_LABELS, HOST_CHROME_ROLES, ACCESSIBILITY_UNTRUSTED_EXIT_CODE, REQUEST_PERMISSION_COMMAND;
 var init_preflight = __esm({
   "src/native/preflight.ts"() {
     "use strict";
-    import_child_process13 = require("child_process");
-    import_util13 = require("util");
+    import_child_process14 = require("child_process");
+    import_util14 = require("util");
     import_fs16 = require("fs");
     import_path25 = require("path");
-    execFileAsync11 = (0, import_util13.promisify)(import_child_process13.execFile);
+    execFileAsync12 = (0, import_util14.promisify)(import_child_process14.execFile);
     _deps = {
       hasCommand: defaultHasCommand
     };
@@ -47537,6 +47618,7 @@ __export(index_exports, {
   askStream: () => askStream,
   auditNativeElements: () => auditNativeElements,
   bootDevice: () => bootDevice,
+  buildAxStressArgs: () => buildAxStressArgs,
   buildNativeInteractivity: () => buildNativeInteractivity,
   buildNativeSemantic: () => buildNativeSemantic,
   calculateComplianceScore: () => calculateComplianceScore,
@@ -47589,6 +47671,7 @@ __export(index_exports, {
   flows: () => flows,
   formFlow: () => formFlow,
   formatApiTimingResult: () => formatApiTimingResult,
+  formatAxStressReport: () => formatAxStressReport,
   formatConsistencyReport: () => formatConsistencyReport,
   formatDevice: () => formatDevice,
   formatGlobalMemory: () => formatGlobalMemory,
@@ -47693,6 +47776,7 @@ __export(index_exports, {
   resolveVerdictPolicy: () => resolveVerdictPolicy,
   resolvedPathCache: () => resolvedPathCache,
   runAllRules: () => runAllRules,
+  runAxStress: () => runAxStress,
   runDesignSystemCheck: () => runDesignSystemCheck,
   safeFilePart: () => safeFilePart,
   saveCompactContext: () => saveCompactContext,
@@ -48580,14 +48664,14 @@ var session_exports2 = {};
 __export(session_exports2, {
   SafariSession: () => SafariSession
 });
-var import_child_process15, import_util15, execFileAsync13, PORT_RANGE_START, PORT_RANGE_END, READY_POLL_INTERVAL_MS, READY_TIMEOUT_MS, SafariSession;
+var import_child_process16, import_util16, execFileAsync14, PORT_RANGE_START, PORT_RANGE_END, READY_POLL_INTERVAL_MS, READY_TIMEOUT_MS, SafariSession;
 var init_session2 = __esm({
   "src/engine/safari/session.ts"() {
     "use strict";
-    import_child_process15 = require("child_process");
-    import_util15 = require("util");
+    import_child_process16 = require("child_process");
+    import_util16 = require("util");
     init_net_timeout();
-    execFileAsync13 = (0, import_util15.promisify)(import_child_process15.execFile);
+    execFileAsync14 = (0, import_util16.promisify)(import_child_process16.execFile);
     PORT_RANGE_START = 9500;
     PORT_RANGE_END = 9599;
     READY_POLL_INTERVAL_MS = 200;
@@ -48605,7 +48689,7 @@ var init_session2 = __esm({
           return this.port;
         }
         this.port = port ?? await this.findFreePort();
-        this.process = (0, import_child_process15.spawn)("safaridriver", ["--port", String(this.port)], {
+        this.process = (0, import_child_process16.spawn)("safaridriver", ["--port", String(this.port)], {
           stdio: ["ignore", "pipe", "pipe"]
         });
         this.process.on("exit", (code) => {
@@ -48643,7 +48727,7 @@ var init_session2 = __esm({
        */
       static async isEnabled() {
         try {
-          await execFileAsync13("safaridriver", ["--version"], { timeout: 5e3 });
+          await execFileAsync14("safaridriver", ["--version"], { timeout: 5e3 });
           return true;
         } catch {
           return false;
@@ -48695,17 +48779,17 @@ var driver_exports2 = {};
 __export(driver_exports2, {
   SafariDriver: () => SafariDriver
 });
-var import_child_process16, import_util16, execFileAsync14, SafariDriver;
+var import_child_process17, import_util17, execFileAsync15, SafariDriver;
 var init_driver2 = __esm({
   "src/engine/safari/driver.ts"() {
     "use strict";
-    import_child_process16 = require("child_process");
-    import_util16 = require("util");
+    import_child_process17 = require("child_process");
+    import_util17 = require("util");
     init_webdriver();
     init_session2();
     init_extract3();
     init_serialize();
-    execFileAsync14 = (0, import_util16.promisify)(import_child_process16.execFile);
+    execFileAsync15 = (0, import_util17.promisify)(import_child_process17.execFile);
     SafariDriver = class {
       client = null;
       session = null;
@@ -48719,7 +48803,7 @@ var init_driver2 = __esm({
         await this.client.createSession();
         const vp = options.viewport ?? { width: 1920, height: 1080 };
         await this.client.setWindowRect({ ...vp, x: -9999, y: -9999 });
-        (0, import_child_process16.exec)(`osascript -e 'tell application "System Events" to set visible of process "Safari" to false'`, () => {
+        (0, import_child_process17.exec)(`osascript -e 'tell application "System Events" to set visible of process "Safari" to false'`, () => {
         });
       }
       async close() {
@@ -48900,7 +48984,7 @@ var init_driver2 = __esm({
       async _fetchAXElements() {
         try {
           const extractorPath = await ensureExtractor();
-          const { stdout } = await execFileAsync14(
+          const { stdout } = await execFileAsync15(
             extractorPath,
             ["--app", "Safari"],
             { timeout: 15e3 }
@@ -54837,7 +54921,7 @@ async function runScript(options) {
     let stderr = "";
     let exitCode = 0;
     await new Promise((resolvePromise) => {
-      const child = (0, import_child_process17.spawn)("python3", [wrapperPath], {
+      const child = (0, import_child_process18.spawn)("python3", [wrapperPath], {
         cwd: tmpDir,
         detached: true,
         shell: false,
@@ -54907,11 +54991,11 @@ function formatScriptResult(result) {
   }
   return lines.join("\n");
 }
-var import_child_process17, import_promises35, import_path41, import_os6, import_crypto7;
+var import_child_process18, import_promises35, import_path41, import_os6, import_crypto7;
 var init_script_runner = __esm({
   "src/script-runner.ts"() {
     "use strict";
-    import_child_process17 = require("child_process");
+    import_child_process18 = require("child_process");
     import_promises35 = require("fs/promises");
     import_path41 = require("path");
     import_os6 = require("os");
@@ -63533,12 +63617,12 @@ function deleteSession2(sessionId, baseDir = DEFAULT_SESSION_STORE_DIR) {
 }
 
 // src/native/computer-use.ts
-var import_child_process14 = require("child_process");
-var import_util14 = require("util");
+var import_child_process15 = require("child_process");
+var import_util15 = require("util");
 var import_fs19 = require("fs");
 var import_path30 = require("path");
 init_idb();
-var execFileAsync12 = (0, import_util14.promisify)(import_child_process14.execFile);
+var execFileAsync13 = (0, import_util15.promisify)(import_child_process15.execFile);
 var num2 = (v) => {
   const n = Number(v);
   if (!Number.isFinite(n)) throw new Error(`expected a number, got ${JSON.stringify(v)}`);
@@ -63624,7 +63708,7 @@ async function executeOnSimulator(udid, a, outDir) {
     case "screenshot": {
       (0, import_fs19.mkdirSync)(outDir, { recursive: true });
       const p = (0, import_path30.join)(outDir, `cu-${Date.now()}.png`);
-      await execFileAsync12("xcrun", ["simctl", "io", udid, "screenshot", p], { timeout: 15e3 });
+      await execFileAsync13("xcrun", ["simctl", "io", udid, "screenshot", p], { timeout: 15e3 });
       return { success: true, screenshot: p };
     }
     case "click": {
@@ -63664,7 +63748,7 @@ async function executeOnSimulator(udid, a, outDir) {
   }
 }
 async function readSimulatorElements(udid) {
-  const { stdout } = await execFileAsync12("idb", ["ui", "describe-all", "--udid", udid], { timeout: 15e3, maxBuffer: 16 * 1024 * 1024 });
+  const { stdout } = await execFileAsync13("idb", ["ui", "describe-all", "--udid", udid], { timeout: 15e3, maxBuffer: 16 * 1024 * 1024 });
   const nodes = JSON.parse(stdout);
   return nodes.map((n) => ({
     role: n.role ?? n.type ?? "unknown",
@@ -67379,6 +67463,23 @@ program2.command("native:request-permission").description("Open the macOS Access
     }
     console.error(result.message);
     process.exit(77);
+  } catch (error51) {
+    console.error("Error:", error51 instanceof Error ? error51.message : error51);
+    process.exit(EXIT_TOOL_ERROR);
+  }
+});
+program2.command("native:ax-stress").description("Read a running macOS app's whole accessibility tree several times per UI state and report whether it survived (reproduces label-read crashes; can crash the target)").requiredOption("--pid <n>", "Target process ID (explicit pid only)").option("--steps <list>", 'Comma-separated steps: "walk" reads only, anything else is an AX identifier to press first', "walk").option("--walks <n>", "Full tree reads per step (1-100)", "5").option("--max-nodes <n>", "Node cap per read (reported as truncated)", "50000").option("--settle <seconds>", "Wait after a press before reading", "1").option("--json", "Output the full report as JSON").action(async (options) => {
+  try {
+    const { runAxStress: runAxStress2, formatAxStressReport: formatAxStressReport2 } = await Promise.resolve().then(() => (init_ax_stress(), ax_stress_exports));
+    const report = await runAxStress2({
+      pid: Number(options.pid),
+      steps: options.steps.split(",").map((s) => s.trim()),
+      walksPerStep: Number(options.walks),
+      maxNodes: Number(options.maxNodes),
+      settleSeconds: Number(options.settle)
+    });
+    console.log(options.json ? JSON.stringify(report, null, 2) : formatAxStressReport2(report));
+    process.exit(report.survived ? 0 : 1);
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
     process.exit(EXIT_TOOL_ERROR);
