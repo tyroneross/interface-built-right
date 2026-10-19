@@ -177,6 +177,12 @@ if let actionName = actionName, let pathStr = elementPathStr {
         fputs("{\"error\":\"--pid is required for action mode\"}\n", stderr)
         exit(1)
     }
+    if actionName == "resizeWindow" {
+        let result: [String: Any] = deviceName == nil ? resizeNativeWindow(pid: pid, value: actionValue)
+            : ["success": false, "action": actionName, "error": "resizeWindow requires macOS"]
+        if let data = try? JSONSerialization.data(withJSONObject: result), let text = String(data: data, encoding: .utf8) { print(text) }
+        exit(result["success"] as? Bool == true ? 0 : 1)
+    }
     let path = pathStr.split(separator: ",").compactMap { Int($0) }
     let (success, error) = performAction(pid: pid, deviceName: deviceName, elementPath: path, action: actionName, value: actionValue)
     var result: [String: Any] = ["success": success, "action": actionName]

@@ -95,12 +95,11 @@ Response (`content[0].text`, live via `DaemonBackend`/`RespawnBackend` keystroke
 }
 ```
 
-`target` is optional for `keystroke` — omit it to send the chord to the
-currently focused element, or pass an accessible name to focus first. `app`
-(`op: launch|switch|quit`) and `menuPath` (an array of menu titles) accept the
-same request shape and are **live**: they execute the lifecycle / menu action and
-return a real `ActionOutcome` with a validator confirming the observed state
-change (`success: false` only when the action genuinely did not take effect).
+For `keystroke`, omit `target` and focus the intended element in a separate
+`focus` action first. Supplying `target` is rejected before delivery. `app`
+(`op: launch|switch|quit`) and `menuPath` (an array of menu titles) execute their
+lifecycle or menu action and return an `ActionOutcome`. A false result means
+failed or unverified effect; it does not prove that no input was delivered.
 
 ### CLI — the shell repro
 
@@ -153,13 +152,15 @@ ibr native:session:read <sessionId> [--what observe|extract|screenshot|state] [-
 ```
 ibr native:session:action <sessionId> --action <kind> [--target <name>] [--value <text>]
   [--role <role>] [--wait-for <name>] [--wait-timeout-ms <n>]
-  [--chord <chord>] [--op launch|switch|quit] [--app <name>] [--menu-path <items>] [--json]
+  [--chord <chord>] [--delivery background|foreground]
+  [--width <points>] [--height <points>] [--window-title <exact-title>]
+  [--op launch|switch|quit] [--app <name>] [--menu-path <items>] [--json]
 ```
 
 `--action` is required; one of `click | press | fill | type | focus | showMenu |
 increment | decrement | confirm | cancel | scroll | scrollToVisible | check |
-select | keystroke | app | menuPath`. Element verbs require `--target`;
-`keystroke`/`app`/`menuPath` accept `--target` optionally. `--menu-path` is a
+select | drag | keystroke | app | menuPath | resizeWindow`. Element verbs require `--target`;
+`app`/`menuPath` accept `--target` optionally. For `keystroke`, focus separately; a supplied target is rejected before delivery. `--menu-path` is a
 comma-separated list of AXMenu titles (e.g. `"File,New Window"`).
 
 ### `native:session:close <sessionId>`
@@ -222,3 +223,20 @@ target-required error it always did.
 
 See `CHANGELOG.md` for the web-side (`interact`/`session_action`)
 success-semantics change, which is a breaking behavior fix, not additive.
+
+### Exact macOS window resize and one-shot keys
+
+`native:session:action SESSION --action resizeWindow --width 900 --height 650 --json`
+sets outer AX window dimensions in points (finite 1..16384). Omission of
+`--window-title` requires exactly one AXWindow in the session PID; otherwise
+supply an exact unique title, including `--window-title ''` for an untitled
+window. The helper retains that window reference through write/readback.
+`resizeWindow` returns requested, before, and actual bounds. `validator.passed`
+requires measured width and height within 0.5 points; app clamping fails with
+actual bounds. Simulator sessions are rejected. No cursor movement or activation.
+
+Keyboard chords use one delivery, `--delivery background` by default or explicit
+`--delivery foreground` to activate the exact session PID before posting. Focus
+the intended element separately. An unchanged AX tree is an unverified effect,
+not permission to repeat: inspect before issuing another key. A lost daemon
+response never automatically replays a key or a resize.

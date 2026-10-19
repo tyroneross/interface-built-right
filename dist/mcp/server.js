@@ -246,9 +246,9 @@ function floatSafeRemainder(val, step) {
     return 0;
   return ratio - roundedRatio;
 }
-function defineLazy(object2, key, getter) {
+function defineLazy(object3, key, getter) {
   let value = void 0;
-  Object.defineProperty(object2, key, {
+  Object.defineProperty(object3, key, {
     get() {
       if (value === EVALUATING) {
         return void 0;
@@ -260,7 +260,7 @@ function defineLazy(object2, key, getter) {
       return value;
     },
     set(v) {
-      Object.defineProperty(object2, key, {
+      Object.defineProperty(object3, key, {
         value: v
         // configurable: true,
       });
@@ -22464,12 +22464,12 @@ var init_console = __esm({
         this.conn.on("Runtime.consoleAPICalled", (params) => {
           const data = params;
           const text = data.args.map((arg) => arg.value !== void 0 ? String(arg.value) : arg.description ?? "").join(" ");
-          const frame = data.stackTrace?.callFrames[0];
+          const frame2 = data.stackTrace?.callFrames[0];
           const message = {
             type: data.type,
             text,
-            url: frame?.url,
-            lineNumber: frame?.lineNumber,
+            url: frame2?.url,
+            lineNumber: frame2?.lineNumber,
             timestamp: data.timestamp
           };
           this.messages.push(message);
@@ -26478,12 +26478,12 @@ var init_driver = __esm({
         const elements = [];
         const unresolvedByUrl = /* @__PURE__ */ new Map();
         let reached = 0;
-        for (const frame of childFrames) {
-          const tag = this.tagForFrame(frame.id);
+        for (const frame2 of childFrames) {
+          const tag = this.tagForFrame(frame2.id);
           try {
             const result = await this.conn.send(
               "Accessibility.getFullAXTree",
-              { frameId: frame.id },
+              { frameId: frame2.id },
               this.sessionId
             );
             const nodes = result?.nodes ?? [];
@@ -26492,7 +26492,7 @@ var init_driver = __esm({
             continue;
           } catch {
           }
-          unresolvedByUrl.set(frame.url, frame.id);
+          unresolvedByUrl.set(frame2.url, frame2.id);
         }
         if (unresolvedByUrl.size > 0) {
           const oopifResult = await this.getOopifFrameElements(unresolvedByUrl);
@@ -44058,39 +44058,23 @@ async function runKeystrokeCapability(opts) {
   try {
     const pid = await resolvePid();
     const before = await safeSignature();
-    const backgroundDelivery = await deliver(pid, chord, false);
-    if (!backgroundDelivery.success) {
-      return keystrokeFailure(
-        chord,
-        before,
-        before,
-        `background delivery failed: ${backgroundDelivery.error ?? "unknown error"}`
-      );
+    if (spec.delivery !== void 0 && spec.delivery !== "background" && spec.delivery !== "foreground") {
+      return keystrokeFailure(chord, before, before, "delivery must be background or foreground; no key sent");
     }
+    if (before.startsWith("error:")) return keystrokeFailure(chord, before, before, "Pre-action AX observation failed; no key sent");
+    const foreground = spec.delivery === "foreground";
+    const delivery = await deliver(pid, chord, foreground);
+    if (delivery.success !== true) return keystrokeFailure(chord, before, before, `delivery failed or uncertain: ${delivery.error ?? "unknown error"}`);
     await sleep2(SETTLE_MS);
-    const afterBackground = await safeSignature();
-    if (afterBackground !== before) {
-      return keystrokeSuccess(chord, "cgevent-pid-background", before, afterBackground);
-    }
-    const foregroundDelivery = await deliver(pid, chord, true);
-    if (!foregroundDelivery.success) {
-      return keystrokeFailure(
-        chord,
-        before,
-        afterBackground,
-        `background delivery produced no observable change; foreground-activate retry failed: ${foregroundDelivery.error ?? "unknown error"}`
-      );
-    }
-    await sleep2(SETTLE_MS);
-    const afterForeground = await safeSignature();
-    if (afterForeground !== before) {
-      return keystrokeSuccess(chord, "cgevent-foreground-fallback", before, afterForeground);
+    const after = await safeSignature();
+    if (!after.startsWith("error:") && after !== before) {
+      return keystrokeSuccess(chord, foreground ? "cgevent-foreground" : "cgevent-pid-background", before, after);
     }
     return keystrokeFailure(
       chord,
       before,
-      afterForeground,
-      "no observable AX state change after background and foreground-activate delivery"
+      after,
+      "Chord delivered once; effect unobservable in AX. Inspect before another action; no automatic retry was sent."
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -44583,6 +44567,23 @@ var DaemonBackend = class {
     );
   }
   async performAction(target, input) {
+    if (input.action === "resizeWindow") {
+      if (!this.usable) return this.fallback.performAction(target, input);
+      try {
+        await this.daemon.start();
+      } catch {
+        this.usable = false;
+        return this.fallback.performAction(target, input);
+      }
+      try {
+        if (target.kind !== "macos") return { success: false, action: input.action, error: "resizeWindow requires macOS" };
+        const resp = await this.daemon.request({ op: "action", target: { kind: "macos", pid: target.pid }, ...input });
+        return resp.ok ? resp.result : { success: false, action: input.action, error: resp.error };
+      } catch (err) {
+        this.usable = false;
+        return { success: false, action: input.action, error: `Resize delivery uncertain; inspect before another action: ${String(err)}` };
+      }
+    }
     return this.withFallback(
       async () => {
         if (target.kind === "macos") {
@@ -44636,17 +44637,7 @@ var DaemonBackend = class {
       () => this.fallback.captureScreenshot(target, outputPath)
     );
   }
-  /**
-   * Deliver a keyboard chord via the daemon's `keystroke` op (E2-B). Unlike
-   * `extract`/`performAction`/`captureScreenshot`, this does not route through
-   * `withFallback` for the whole call — if the daemon is already unusable (or
-   * fails to start), the ENTIRE capability (delivery + AX-diff validation)
-   * delegates to `RespawnBackend.keystroke` so the before/after signatures
-   * come from one consistent backend. If the daemon dies mid-request (a
-   * request already in flight when it crashes), this attempt still completes
-   * by falling through to the one-shot binary for just the raw delivery,
-   * rather than aborting — the kill-9 auto-fallback, applied per-request.
-   */
+  /** A pre-dispatch startup failure may use respawn; a lost delivery response never replays. */
   async keystroke(target, spec) {
     if (!this.usable) return this.fallback.keystroke(target, spec);
     try {
@@ -44673,7 +44664,7 @@ var DaemonBackend = class {
         } catch (err) {
           if (err instanceof DaemonError) {
             this.usable = false;
-            return deliverKeystrokeOneShot(pid, chord, foreground);
+            return { success: false, error: "Keyboard delivery uncertain after daemon response loss; inspect before another action. No replay was sent." };
           }
           throw err;
         }
@@ -44868,6 +44859,40 @@ function classifyExtractorError(err) {
     };
   }
   return null;
+}
+
+// src/native/window-resize.ts
+function object2(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : void 0;
+}
+function frame(value) {
+  const v = object2(value);
+  return !!v && ["x", "y", "width", "height"].every((k) => typeof v[k] === "number" && Number.isFinite(v[k])) && Number(v.width) > 0 && Number(v.height) > 0;
+}
+async function runResizeWindowCapability(backend, target, spec) {
+  const expected = "Exact session PID and unique AXWindow reach requested outer size within 0.5 points";
+  const fail = (message, readback) => ({
+    success: false,
+    validator: { expected, observed: message, passed: false },
+    provenance: {},
+    evidence: { beforeSignature: "window-resize", afterSignature: JSON.stringify(readback ?? null), diff: message, alternatives: [] },
+    ...readback !== void 0 ? { resizeWindow: readback } : {}
+  });
+  if (target.kind !== "macos") return fail("resizeWindow requires a macOS session; no action sent");
+  if (![spec.width, spec.height].every((n) => typeof n === "number" && Number.isFinite(n) && n >= 1 && n <= 16384) || spec.windowTitle !== void 0 && typeof spec.windowTitle !== "string") return fail("width/height must be finite numbers in 1..16384; windowTitle must be a string; no action sent");
+  try {
+    const result = await backend.performAction(target, { action: "resizeWindow", elementPath: [], value: JSON.stringify({ width: spec.width, height: spec.height, windowTitle: spec.windowTitle }) });
+    const e = object2(result.resizeWindow);
+    const requested = object2(e?.requested);
+    const valid = e && e.pid === target.pid && typeof e.windowTitle === "string" && (spec.windowTitle === void 0 || e.windowTitle === spec.windowTitle) && requested?.width === spec.width && requested?.height === spec.height && e.tolerance === 0.5 && frame(e.before) && frame(e.actual);
+    if (result.success !== true || result.action !== "resizeWindow") return fail(result.error ?? "Resize failed or returned an invalid result envelope", result.resizeWindow);
+    if (!valid) return fail("Resize returned missing or mismatched measured evidence", result.resizeWindow);
+    const actual = e.actual;
+    if (Math.abs(actual.width - spec.width) > 0.5 || Math.abs(actual.height - spec.height) > 0.5) return fail("Measured size differs from requested size; app may have clamped it", e);
+    return { success: true, validator: { expected, observed: JSON.stringify(e), passed: true }, provenance: { waitResult: "same-AXWindow-readback" }, resizeWindow: e };
+  } catch (error51) {
+    return fail(`Resize outcome uncertain; inspect before another action: ${String(error51)}`);
+  }
 }
 
 // src/native/session-controller.ts
@@ -45186,8 +45211,12 @@ var NativeSessionController = class {
   async dispatchCapability(target, request) {
     let outcome;
     switch (request.action) {
+      case "resizeWindow":
+        outcome = await runResizeWindowCapability(this.backend, target, request);
+        break;
       case "keystroke":
-        outcome = await this.backend.keystroke(target, { chord: request.chord ?? request.value ?? "" });
+        if (request.target !== void 0) return errorResult("keystroke uses the focused element. Perform focus separately; no key was sent.");
+        outcome = await this.backend.keystroke(target, { chord: request.chord ?? request.value ?? "", delivery: request.delivery });
         break;
       case "app":
         outcome = await this.backend.lifecycle(target, { op: request.op ?? "switch", app: request.app });
@@ -46449,7 +46478,8 @@ var NATIVE_ACTION_KIND_VALUES = [
   "drag",
   "keystroke",
   "app",
-  "menuPath"
+  "menuPath",
+  "resizeWindow"
 ];
 function errorResponse(text) {
   return { content: [{ type: "text", text }], isError: true };
@@ -46534,13 +46564,17 @@ async function handleNativeSessionAction(args) {
     waitFor,
     waitTimeoutMs,
     chord,
+    delivery,
+    width,
+    height,
+    windowTitle,
     op,
     app,
     menuPath
   } = args;
   const entry = sessions.get(sessionId);
   if (!entry) return errorResponse("Session not found. Use native_session_start first.");
-  const request = { action, target, value, role, waitFor, waitTimeoutMs, chord, op, app, menuPath };
+  const request = { action, target, value, role, waitFor, waitTimeoutMs, chord, delivery, width, height, windowTitle, op, app, menuPath };
   if (entry.type === "macos") return await runMacOSSessionAction(entry, request);
   if (entry.type === "simulator") return await runSimulatorSessionAction(entry, request);
   return errorResponse(`Session ${sessionId} is a ${entry.type} web session. Use session_action for web sessions.`);
@@ -46619,7 +46653,7 @@ var NATIVE_SESSION_TOOLS = [
   },
   {
     name: "native_session_action",
-    description: 'Perform a cursor-free native action by accessible name: click/press, fill/type, focus, showMenu, increment, decrement, confirm, cancel, scrollToVisible, check, select \u2014 or an Epic-2 capability kind: keystroke (live chord synthesis to the focused element), app (live lifecycle op: launch/switch/quit), menuPath (live AXMenu traversal). Uses Accessibility APIs instead of moving the host cursor. Element verbs require `target`; keystroke/app/menuPath accept an optional `target`. `drag` (target + `value` "dx,dy" point delta) is the one non-cursor-free verb \u2014 for split/inspector dividers with no settable AXValue \u2014 and is refused unless IBR_ALLOW_POINTER_INJECTION is set, because it moves the host cursor.',
+    description: 'Perform a cursor-free native action by accessible name: click/press, fill/type, focus, showMenu, increment, decrement, confirm, cancel, scrollToVisible, check, select \u2014 or an Epic-2 capability kind: keystroke (live chord synthesis to the focused element), app (live lifecycle op: launch/switch/quit), menuPath (live AXMenu traversal). Uses Accessibility APIs instead of moving the host cursor. Element verbs require `target`; app/menuPath accept an optional `target`; keystroke requires a separate focus action. resizeWindow uses width/height outer points and optional exact unique windowTitle. `drag` (target + `value` "dx,dy" point delta) is the one non-cursor-free verb \u2014 for split/inspector dividers with no settable AXValue \u2014 and is refused unless IBR_ALLOW_POINTER_INJECTION is set, because it moves the host cursor.',
     inputSchema: {
       type: "object",
       properties: {
@@ -46627,11 +46661,15 @@ var NATIVE_SESSION_TOOLS = [
         action: {
           type: "string",
           enum: [...NATIVE_ACTION_KIND_VALUES],
-          description: 'Native action to perform. Element verbs (click/press/fill/type/focus/showMenu/increment/decrement/confirm/cancel/scroll/scrollToVisible/check/select/drag) require `target`. `drag` (value="dx,dy" point delta) is opt-in via IBR_ALLOW_POINTER_INJECTION and moves the host cursor. Capability kinds keystroke/app/menuPath are live (Epic 2) and accept an optional `target`.'
+          description: 'Native action to perform. Element verbs (click/press/fill/type/focus/showMenu/increment/decrement/confirm/cancel/scroll/scrollToVisible/check/select/drag) require `target`. `drag` (value="dx,dy" point delta) is opt-in via IBR_ALLOW_POINTER_INJECTION and moves the host cursor. Capabilities include keystroke (focus separately), app/menuPath, and resizeWindow (macOS only, measured same-window readback).'
         },
-        target: { type: "string", description: "Accessible name, AX identifier, description, or visible value to target. Required for element verbs; optional for keystroke/app/menuPath." },
+        target: { type: "string", description: "Accessible name, AX identifier, description, or visible value to target. Required for element verbs; optional for app/menuPath. Focus separately for keystroke; resizeWindow uses windowTitle." },
         value: { type: "string", description: "Text for fill/type/setValue actions" },
         role: { type: "string", description: "Optional role filter (button, textbox, checkbox, AXButton, etc.)" },
+        delivery: { type: "string", enum: ["background", "foreground"], description: "Keyboard delivery mode; default background. Foreground activates exact session PID. One attempt only; inspect unobservable effects before another action." },
+        width: { type: "number", minimum: 1, maximum: 16384, description: "resizeWindow outer width in points" },
+        height: { type: "number", minimum: 1, maximum: 16384, description: "resizeWindow outer height in points" },
+        windowTitle: { type: "string", description: "resizeWindow exact unique AXWindow title (empty title allowed); omission requires exactly one window" },
         chord: {
           type: "string",
           description: "Keyboard chord for the `keystroke` action, e.g. 'Meta+n', 'Tab', 'Escape'. Live \u2014 synthesized as CGEvents to the focused element (E2-B)."

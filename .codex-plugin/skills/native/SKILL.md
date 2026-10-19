@@ -50,3 +50,18 @@ When native scan output needs a code fix, correlate runtime identifiers and labe
 ## Reporting
 
 Include the device or app scanned, the failing element, measured bounds or accessibility data, and the exact remaining manual prerequisite when the scan cannot run.
+
+## Native window control
+
+Use `native:session:action SESSION --action resizeWindow --width 900 --height 650 --json`
+for macOS outer window dimensions in points. Supply `--window-title` with an exact
+unique AXWindow title when the session PID has multiple windows. Omission requires
+one window; an empty title matches only untitled windows. Check measured actual
+bounds and `validator.passed`; minimum-size clamping is a failure with readback.
+This action does not activate the app or move the cursor.
+
+Focus the intended element separately before `keystroke`. Keys are delivered
+once using `--delivery background` (default) or explicit `--delivery foreground`.
+If the effect is unobservable or the daemon response is lost, inspect the UI
+before another action. Do not retry automatically: selection and IME changes may
+be invisible in the AX signature even when the first chord took effect.

@@ -195,6 +195,10 @@ private func daemonAction(_ req: [String: Any]) -> [String: Any] {
         return ["ok": false, "error": "unknown target kind: \(kind)"]
     }
 
+    if action == "resizeWindow" {
+        return ["ok": true, "result": kind == "macos" ? resizeNativeWindow(pid: pid, value: value)
+            : ["success": false, "action": action, "error": "resizeWindow requires macOS"]]
+    }
     let (success, error) = performAction(
         pid: pid, deviceName: deviceName, elementPath: path, action: action, value: value
     )

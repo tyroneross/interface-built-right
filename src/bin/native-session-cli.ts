@@ -322,6 +322,10 @@ export interface ActionOptions {
   waitFor?: string;
   waitTimeoutMs?: number;
   chord?: string;
+  delivery?: 'background' | 'foreground';
+  width?: number;
+  height?: number;
+  windowTitle?: string;
   op?: AppLifecycleOp;
   app?: string;
   menuPath?: string[];
@@ -370,6 +374,10 @@ export async function handleAction(opts: ActionOptions, deps: CliDeps = defaultC
     waitFor: opts.waitFor,
     waitTimeoutMs: opts.waitTimeoutMs,
     chord: opts.chord,
+    delivery: opts.delivery,
+    width: opts.width,
+    height: opts.height,
+    windowTitle: opts.windowTitle,
     op: opts.op,
     app: opts.app,
     menuPath: opts.menuPath,
@@ -671,7 +679,7 @@ export function registerNativeSessionCommands(program: Command): void {
   program
     .command('native:session:action <sessionId>')
     .description('Perform a native session action by accessible name (CLI parity for native_session_action)')
-    .requiredOption('--action <kind>', 'click|press|fill|type|focus|showMenu|increment|decrement|confirm|cancel|scroll|scrollToVisible|check|select|drag|keystroke|app|menuPath')
+    .requiredOption('--action <kind>', 'click|press|fill|type|focus|showMenu|increment|decrement|confirm|cancel|scroll|scrollToVisible|check|select|drag|keystroke|app|menuPath|resizeWindow')
     .option('--target <name>', 'Accessible name / AX identifier / description / value to target')
     .option('--ref <eN>', 'Short ref from `native:session:read --what refs`; prints only the AX diff after acting')
     .option('--value <text>', 'Text for fill/type actions')
@@ -679,6 +687,10 @@ export function registerNativeSessionCommands(program: Command): void {
     .option('--wait-for <name>', 'Expected post-action target to poll for; failing to settle is a non-zero exit')
     .option('--wait-timeout-ms <n>', 'Post-action settle timeout in ms, clamped 0..5000')
     .option('--chord <chord>', "Keyboard chord for the 'keystroke' action, e.g. 'Meta+n'")
+    .option('--delivery <mode>', 'Keyboard delivery: background (default) or explicit foreground; never retries')
+    .option('--width <points>', 'Requested outer window width for resizeWindow, 1..16384 points')
+    .option('--height <points>', 'Requested outer window height for resizeWindow, 1..16384 points')
+    .option('--window-title <title>', 'Exact unique AXWindow title; omission requires exactly one window')
     .option('--op <op>', "App lifecycle op for the 'app' action: launch|switch|quit")
     .option('--app <name>', "App name/bundle id for the 'app' action's lifecycle op")
     .option('--menu-path <items>', "Comma-separated AXMenu titles for the 'menuPath' action, e.g. 'File,New Window'")
@@ -692,6 +704,10 @@ export function registerNativeSessionCommands(program: Command): void {
       waitFor?: string;
       waitTimeoutMs?: string;
       chord?: string;
+      delivery?: string;
+      width?: string;
+      height?: string;
+      windowTitle?: string;
       op?: string;
       app?: string;
       menuPath?: string;
@@ -708,6 +724,10 @@ export function registerNativeSessionCommands(program: Command): void {
         waitFor: opts.waitFor,
         waitTimeoutMs: opts.waitTimeoutMs !== undefined ? parseInt(opts.waitTimeoutMs, 10) : undefined,
         chord: opts.chord,
+        delivery: opts.delivery as 'background' | 'foreground' | undefined,
+        width: opts.width !== undefined ? Number(opts.width) : undefined,
+        height: opts.height !== undefined ? Number(opts.height) : undefined,
+        windowTitle: opts.windowTitle,
         op: opts.op as AppLifecycleOp | undefined,
         app: opts.app,
         menuPath: opts.menuPath ? opts.menuPath.split(',').map((s) => s.trim()).filter(Boolean) : undefined,

@@ -26,7 +26,8 @@ export type NativeAction =
   | 'cancel'
   | 'focus'
   | 'scrollToVisible'
-  | 'drag';
+  | 'drag'
+  | 'resizeWindow';
 
 export interface NativeActionOptions {
   pid: number;
@@ -40,6 +41,8 @@ export interface NativeActionResult {
   success: boolean;
   action: string;
   error?: string;
+  /** Untrusted Swift readback; validated by window-resize.ts. */
+  resizeWindow?: unknown;
 }
 
 export interface NativeElementCandidate {

@@ -80,6 +80,8 @@ export type NativeScreenshotCapture =
 export interface KeystrokeSpec {
   /** Chord in `Modifier+Modifier+Key` form (e.g. "Meta+n", "Tab", "Escape"). */
   chord: string;
+  /** One delivery only. Foreground explicitly activates the session PID. */
+  delivery?: 'background' | 'foreground';
 }
 
 /** App lifecycle operation (Epic 2). */
@@ -337,6 +339,21 @@ export class DaemonBackend implements NativeBackend {
     target: NativeSessionTarget,
     input: NativePerformInput,
   ): Promise<NativeActionResult> {
+    // A lost response cannot prove whether the retained window was resized.
+    // Never replay against a fresh window selection after dispatch.
+    if (input.action === 'resizeWindow') {
+      if (!this.usable) return this.fallback.performAction(target, input);
+      try { await this.daemon.start(); }
+      catch { this.usable = false; return this.fallback.performAction(target, input); }
+      try {
+        if (target.kind !== 'macos') return { success: false, action: input.action, error: 'resizeWindow requires macOS' };
+        const resp = await this.daemon.request({ op: 'action', target: { kind: 'macos', pid: target.pid }, ...input });
+        return resp.ok ? resp.result as NativeActionResult : { success: false, action: input.action, error: resp.error };
+      } catch (err) {
+        this.usable = false;
+        return { success: false, action: input.action, error: `Resize delivery uncertain; inspect before another action: ${String(err)}` };
+      }
+    }
     return this.withFallback(
       async () => {
         if (target.kind === 'macos') {
@@ -397,17 +414,7 @@ export class DaemonBackend implements NativeBackend {
     );
   }
 
-  /**
-   * Deliver a keyboard chord via the daemon's `keystroke` op (E2-B). Unlike
-   * `extract`/`performAction`/`captureScreenshot`, this does not route through
-   * `withFallback` for the whole call — if the daemon is already unusable (or
-   * fails to start), the ENTIRE capability (delivery + AX-diff validation)
-   * delegates to `RespawnBackend.keystroke` so the before/after signatures
-   * come from one consistent backend. If the daemon dies mid-request (a
-   * request already in flight when it crashes), this attempt still completes
-   * by falling through to the one-shot binary for just the raw delivery,
-   * rather than aborting — the kill-9 auto-fallback, applied per-request.
-   */
+  /** A pre-dispatch startup failure may use respawn; a lost delivery response never replays. */
   async keystroke(target: NativeSessionTarget, spec: KeystrokeSpec): Promise<ActionOutcome> {
     if (!this.usable) return this.fallback.keystroke(target, spec);
     try {
@@ -437,9 +444,7 @@ export class DaemonBackend implements NativeBackend {
         } catch (err) {
           if (err instanceof DaemonError) {
             this.usable = false;
-            // Daemon died mid-request — finish this attempt via the one-shot
-            // binary rather than aborting the capability call outright.
-            return deliverKeystrokeOneShot(pid, chord, foreground);
+            return { success: false, error: 'Keyboard delivery uncertain after daemon response loss; inspect before another action. No replay was sent.' };
           }
           throw err;
         }
