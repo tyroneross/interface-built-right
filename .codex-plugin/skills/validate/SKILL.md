@@ -11,7 +11,7 @@ Resolve `IBR_BIN` from this installed `SKILL.md`: move up three directories to t
 
 ## Tool Choice
 
-- `node "$IBR_BIN" scan <url> --json`: full web page scan for layout, styles, semantic state, accessibility, handlers, and console issues.
+- `node "$IBR_BIN" scan <url> --format compact`: first-pass findings and coverage; the complete report is saved at `fullReport`. Read only the needed fields from that file for styles, inventories or custom probes. Existing `--json` keeps full output.
 - `node "$IBR_BIN" start <url>`: capture a before state before risky UI edits.
 - `node "$IBR_BIN" check [sessionId]`: verify whether current UI changes are expected or regressions.
 - `node "$IBR_BIN" observe <url>`: list actionable elements by accessible role and name.
@@ -20,6 +20,8 @@ Resolve `IBR_BIN` from this installed `SKILL.md`: move up three directories to t
 - `node "$IBR_BIN" flow search <url>`, `flow form <url>`, or `flow login <url>`: validate common task flows.
 - `node "$IBR_BIN" match <mockup.png> <url>`: compare an approved visual target against a live page.
 - Pixel evidence: `node "$IBR_BIN" start <url>` writes a baseline screenshot. The ad-hoc `screenshot` tool remains MCP-only; use it only when MCP is explicitly enabled.
+
+Prefer one read-only scan for initial validation; inspect its saved evidence before scanning again. Use semantic observe/extract for targeted questions. Use computer interaction only when the requested behavior requires it, and never choose or submit a person's live Groundwork decisions to test the interface. Test writes in isolated fixtures.
 
 ## Audit Order
 
