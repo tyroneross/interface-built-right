@@ -47,26 +47,6 @@ function mockExecFileError(message: string, stdout = '') {
   });
 }
 
-function macElement(overrides: Partial<MacOSAXElement> = {}): MacOSAXElement {
-  return {
-    role: 'AXButton',
-    subrole: null,
-    title: 'Save',
-    description: null,
-    identifier: null,
-    value: null,
-    placeholder: null,
-    enabled: true,
-    focused: false,
-    actions: ['AXPress'],
-    position: { x: 0, y: 0 },
-    size: { width: 10, height: 10 },
-    children: [],
-    path: [0],
-    ...overrides,
-  };
-}
-
 function macExtraction(overrides: {
   windowId?: number;
   title?: string;
@@ -163,31 +143,16 @@ describe('runKeystrokeCapability', () => {
     expect(deliver).toHaveBeenCalledWith(1, 'Meta+n', false);
   }, 10_000);
 
-  it('retries in foreground mode when background delivery produces no observable change, then succeeds', async () => {
-    const unchanged = macExtraction({ windowId: 1, title: 'Untitled' });
-    const changed = macExtraction({ windowId: 1, title: 'Untitled', elements: [macElement({ focused: true, path: [2] })] });
-    const extract = vi.fn()
-      .mockResolvedValueOnce(unchanged) // before
-      .mockResolvedValueOnce(unchanged) // after background (no change)
-      .mockResolvedValueOnce(changed);  // after foreground (changed)
-    const deliver = vi.fn(async (): Promise<KeystrokeDeliveryResult> => ({ success: true }));
-
-    const outcome = await runKeystrokeCapability({
-      target: { kind: 'macos', pid: 1 },
-      spec: { chord: 'Tab' },
-      resolvePid: async () => 1,
-      extract,
-      deliver,
-    });
-
+  it('delivers explicit foreground mode exactly once', async () => {
+    const extract = vi.fn().mockResolvedValueOnce(macExtraction()).mockResolvedValueOnce(macExtraction({ title: 'changed' }));
+    const deliver = vi.fn().mockResolvedValue({ success: true });
+    const outcome = await runKeystrokeCapability({ target: { kind: 'macos', pid: 1 }, spec: { chord: 'Tab', delivery: 'foreground' }, resolvePid: async () => 1, extract, deliver });
     expect(outcome.success).toBe(true);
-    expect(outcome.provenance.waitResult).toBe('cgevent-foreground-fallback');
-    expect(deliver).toHaveBeenCalledTimes(2);
-    expect(deliver).toHaveBeenNthCalledWith(1, 1, 'Tab', false);
-    expect(deliver).toHaveBeenNthCalledWith(2, 1, 'Tab', true);
-  }, 10_000);
+    expect(outcome.provenance.waitResult).toBe('cgevent-foreground');
+    expect(deliver).toHaveBeenCalledExactlyOnceWith(1, 'Tab', true);
+  });
 
-  it('fails with before/after evidence when neither background nor foreground produces a change', async () => {
+  it('fails with before/after evidence without retrying when a delivered key produces no observable change', async () => {
     const unchanged = macExtraction({ windowId: 1, title: 'Untitled' });
     const extract = vi.fn().mockResolvedValue(unchanged);
     const deliver = vi.fn(async (): Promise<KeystrokeDeliveryResult> => ({ success: true }));
@@ -205,7 +170,7 @@ describe('runKeystrokeCapability', () => {
     expect(outcome.evidence).toBeDefined();
     expect(outcome.evidence?.beforeSignature).toBe(outcome.evidence?.afterSignature);
     expect(outcome.evidence?.alternatives).toEqual([]);
-    expect(deliver).toHaveBeenCalledTimes(2);
+    expect(deliver).toHaveBeenCalledTimes(1);
   }, 10_000);
 
   it('fails immediately (no foreground retry) when delivery itself cannot be constructed', async () => {
@@ -224,7 +189,7 @@ describe('runKeystrokeCapability', () => {
     });
 
     expect(outcome.success).toBe(false);
-    expect(outcome.validator.observed).toMatch(/background delivery failed/);
+    expect(outcome.validator.observed).toMatch(/delivery failed or uncertain/);
     expect(deliver).toHaveBeenCalledTimes(1);
   });
 
@@ -259,5 +224,6 @@ describe('runKeystrokeCapability', () => {
 
     expect(outcome.success).toBe(false);
     expect(outcome.evidence?.beforeSignature).toMatch(/^error:/);
+    expect(deliver).not.toHaveBeenCalled();
   }, 10_000);
 });

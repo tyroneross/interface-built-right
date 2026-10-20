@@ -42,7 +42,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/zod/v4/core/core.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/core.js
 // @__NO_SIDE_EFFECTS__
 function $constructor(name, initializer3, params) {
   function init(inst, def) {
@@ -102,7 +102,7 @@ function config(newConfig) {
 }
 var _a, NEVER, $brand, $ZodAsyncError, $ZodEncodeError, globalConfig;
 var init_core = __esm({
-  "node_modules/zod/v4/core/core.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/core.js"() {
     "use strict";
     NEVER = /* @__PURE__ */ Object.freeze({
       status: "aborted"
@@ -124,7 +124,7 @@ var init_core = __esm({
   }
 });
 
-// node_modules/zod/v4/core/util.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/util.js
 var util_exports = {};
 __export(util_exports, {
   BIGINT_FORMAT_RANGES: () => BIGINT_FORMAT_RANGES,
@@ -246,9 +246,9 @@ function floatSafeRemainder(val, step) {
     return 0;
   return ratio - roundedRatio;
 }
-function defineLazy(object2, key, getter) {
+function defineLazy(object3, key, getter) {
   let value = void 0;
-  Object.defineProperty(object2, key, {
+  Object.defineProperty(object3, key, {
     get() {
       if (value === EVALUATING) {
         return void 0;
@@ -260,7 +260,7 @@ function defineLazy(object2, key, getter) {
       return value;
     },
     set(v) {
-      Object.defineProperty(object2, key, {
+      Object.defineProperty(object3, key, {
         value: v
         // configurable: true,
       });
@@ -735,7 +735,7 @@ function uint8ArrayToHex(bytes) {
 }
 var EVALUATING, captureStackTrace, allowsEval, getParsedType, propertyKeyTypes, primitiveTypes, NUMBER_FORMAT_RANGES, BIGINT_FORMAT_RANGES, Class;
 var init_util = __esm({
-  "node_modules/zod/v4/core/util.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/util.js"() {
     "use strict";
     init_core();
     EVALUATING = /* @__PURE__ */ Symbol("evaluating");
@@ -827,7 +827,7 @@ var init_util = __esm({
   }
 });
 
-// node_modules/zod/v4/core/errors.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/errors.js
 function flattenError(error51, mapper = (issue2) => issue2.message) {
   const fieldErrors = {};
   const formErrors = [];
@@ -949,7 +949,7 @@ function prettifyError(error51) {
 }
 var initializer, $ZodError, $ZodRealError;
 var init_errors = __esm({
-  "node_modules/zod/v4/core/errors.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/errors.js"() {
     "use strict";
     init_core();
     init_util();
@@ -974,10 +974,10 @@ var init_errors = __esm({
   }
 });
 
-// node_modules/zod/v4/core/parse.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/parse.js
 var _parse, parse, _parseAsync, parseAsync, _safeParse, safeParse, _safeParseAsync, safeParseAsync, _encode, encode, _decode, decode, _encodeAsync, encodeAsync, _decodeAsync, decodeAsync, _safeEncode, safeEncode, _safeDecode, safeDecode, _safeEncodeAsync, safeEncodeAsync, _safeDecodeAsync, safeDecodeAsync;
 var init_parse = __esm({
-  "node_modules/zod/v4/core/parse.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/parse.js"() {
     "use strict";
     init_core();
     init_errors();
@@ -1071,7 +1071,7 @@ var init_parse = __esm({
   }
 });
 
-// node_modules/zod/v4/core/regexes.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/regexes.js
 var regexes_exports = {};
 __export(regexes_exports, {
   base64: () => base64,
@@ -1163,7 +1163,7 @@ function fixedBase64url(length) {
 }
 var cuid, cuid2, ulid, xid, ksuid, nanoid, duration, extendedDuration, guid, uuid, uuid4, uuid6, uuid7, email, html5Email, rfc5322Email, unicodeEmail, idnEmail, browserEmail, _emoji, ipv4, ipv6, mac, cidrv4, cidrv6, base64, base64url, hostname, domain, httpProtocol, e164, dateSource, date, string, bigint, integer, number, boolean, _null, _undefined, lowercase, uppercase, hex, md5_hex, md5_base64, md5_base64url, sha1_hex, sha1_base64, sha1_base64url, sha256_hex, sha256_base64, sha256_base64url, sha384_hex, sha384_base64, sha384_base64url, sha512_hex, sha512_base64, sha512_base64url;
 var init_regexes = __esm({
-  "node_modules/zod/v4/core/regexes.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/regexes.js"() {
     "use strict";
     init_util();
     cuid = /^[cC][0-9a-z]{6,}$/;
@@ -1237,7 +1237,7 @@ var init_regexes = __esm({
   }
 });
 
-// node_modules/zod/v4/core/checks.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/checks.js
 function handleCheckPropertyResult(result, payload, property) {
   if (result.issues.length) {
     payload.issues.push(...prefixIssues(property, result.issues));
@@ -1245,7 +1245,7 @@ function handleCheckPropertyResult(result, payload, property) {
 }
 var $ZodCheck, numericOriginMap, $ZodCheckLessThan, $ZodCheckGreaterThan, $ZodCheckMultipleOf, $ZodCheckNumberFormat, $ZodCheckBigIntFormat, $ZodCheckMaxSize, $ZodCheckMinSize, $ZodCheckSizeEquals, $ZodCheckMaxLength, $ZodCheckMinLength, $ZodCheckLengthEquals, $ZodCheckStringFormat, $ZodCheckRegex, $ZodCheckLowerCase, $ZodCheckUpperCase, $ZodCheckIncludes, $ZodCheckStartsWith, $ZodCheckEndsWith, $ZodCheckProperty, $ZodCheckMimeType, $ZodCheckOverwrite;
 var init_checks = __esm({
-  "node_modules/zod/v4/core/checks.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/checks.js"() {
     "use strict";
     init_core();
     init_regexes();
@@ -1794,10 +1794,10 @@ var init_checks = __esm({
   }
 });
 
-// node_modules/zod/v4/core/doc.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/doc.js
 var Doc;
 var init_doc = __esm({
-  "node_modules/zod/v4/core/doc.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/doc.js"() {
     "use strict";
     Doc = class {
       constructor(args = []) {
@@ -1836,10 +1836,10 @@ var init_doc = __esm({
   }
 });
 
-// node_modules/zod/v4/core/versions.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/versions.js
 var version;
 var init_versions = __esm({
-  "node_modules/zod/v4/core/versions.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/versions.js"() {
     "use strict";
     version = {
       major: 4,
@@ -1849,7 +1849,7 @@ var init_versions = __esm({
   }
 });
 
-// node_modules/zod/v4/core/schemas.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/schemas.js
 function isValidBase64(data) {
   if (data === "")
     return true;
@@ -2255,7 +2255,7 @@ function handleRefineResult(result, payload, input, inst) {
 }
 var $ZodType, $ZodString, $ZodStringFormat, $ZodGUID, $ZodUUID, $ZodEmail, $ZodURL, $ZodEmoji, $ZodNanoID, $ZodCUID, $ZodCUID2, $ZodULID, $ZodXID, $ZodKSUID, $ZodISODateTime, $ZodISODate, $ZodISOTime, $ZodISODuration, $ZodIPv4, $ZodIPv6, $ZodMAC, $ZodCIDRv4, $ZodCIDRv6, $ZodBase64, $ZodBase64URL, $ZodE164, $ZodJWT, $ZodCustomStringFormat, $ZodNumber, $ZodNumberFormat, $ZodBoolean, $ZodBigInt, $ZodBigIntFormat, $ZodSymbol, $ZodUndefined, $ZodNull, $ZodAny, $ZodUnknown, $ZodNever, $ZodVoid, $ZodDate, $ZodArray, $ZodObject, $ZodObjectJIT, $ZodUnion, $ZodXor, $ZodDiscriminatedUnion, $ZodIntersection, $ZodTuple, $ZodRecord, $ZodMap, $ZodSet, $ZodEnum, $ZodLiteral, $ZodFile, $ZodTransform, $ZodOptional, $ZodExactOptional, $ZodNullable, $ZodDefault, $ZodPrefault, $ZodNonOptional, $ZodSuccess, $ZodCatch, $ZodNaN, $ZodPipe, $ZodCodec, $ZodPreprocess, $ZodReadonly, $ZodTemplateLiteral, $ZodFunction, $ZodPromise, $ZodLazy, $ZodCustom;
 var init_schemas = __esm({
-  "node_modules/zod/v4/core/schemas.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/schemas.js"() {
     "use strict";
     init_checks();
     init_core();
@@ -3956,7 +3956,7 @@ var init_schemas = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/ar.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ar.js
 function ar_default() {
   return {
     localeError: error()
@@ -3964,7 +3964,7 @@ function ar_default() {
 }
 var error;
 var init_ar = __esm({
-  "node_modules/zod/v4/locales/ar.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ar.js"() {
     "use strict";
     init_util();
     error = () => {
@@ -4070,7 +4070,7 @@ var init_ar = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/az.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/az.js
 function az_default() {
   return {
     localeError: error2()
@@ -4078,7 +4078,7 @@ function az_default() {
 }
 var error2;
 var init_az = __esm({
-  "node_modules/zod/v4/locales/az.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/az.js"() {
     "use strict";
     init_util();
     error2 = () => {
@@ -4183,7 +4183,7 @@ var init_az = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/be.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/be.js
 function getBelarusianPlural(count, one, few, many) {
   const absCount = Math.abs(count);
   const lastDigit = absCount % 10;
@@ -4206,7 +4206,7 @@ function be_default() {
 }
 var error3;
 var init_be = __esm({
-  "node_modules/zod/v4/locales/be.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/be.js"() {
     "use strict";
     init_util();
     error3 = () => {
@@ -4347,7 +4347,7 @@ var init_be = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/bg.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/bg.js
 function bg_default() {
   return {
     localeError: error4()
@@ -4355,7 +4355,7 @@ function bg_default() {
 }
 var error4;
 var init_bg = __esm({
-  "node_modules/zod/v4/locales/bg.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/bg.js"() {
     "use strict";
     init_util();
     error4 = () => {
@@ -4475,7 +4475,7 @@ var init_bg = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/ca.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ca.js
 function ca_default() {
   return {
     localeError: error5()
@@ -4483,7 +4483,7 @@ function ca_default() {
 }
 var error5;
 var init_ca = __esm({
-  "node_modules/zod/v4/locales/ca.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ca.js"() {
     "use strict";
     init_util();
     error5 = () => {
@@ -4591,7 +4591,7 @@ var init_ca = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/cs.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/cs.js
 function cs_default() {
   return {
     localeError: error6()
@@ -4599,7 +4599,7 @@ function cs_default() {
 }
 var error6;
 var init_cs = __esm({
-  "node_modules/zod/v4/locales/cs.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/cs.js"() {
     "use strict";
     init_util();
     error6 = () => {
@@ -4710,7 +4710,7 @@ var init_cs = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/da.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/da.js
 function da_default() {
   return {
     localeError: error7()
@@ -4718,7 +4718,7 @@ function da_default() {
 }
 var error7;
 var init_da = __esm({
-  "node_modules/zod/v4/locales/da.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/da.js"() {
     "use strict";
     init_util();
     error7 = () => {
@@ -4833,7 +4833,7 @@ var init_da = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/de.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/de.js
 function de_default() {
   return {
     localeError: error8()
@@ -4841,7 +4841,7 @@ function de_default() {
 }
 var error8;
 var init_de = __esm({
-  "node_modules/zod/v4/locales/de.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/de.js"() {
     "use strict";
     init_util();
     error8 = () => {
@@ -4949,7 +4949,7 @@ var init_de = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/el.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/el.js
 function el_default() {
   return {
     localeError: error9()
@@ -4957,7 +4957,7 @@ function el_default() {
 }
 var error9;
 var init_el = __esm({
-  "node_modules/zod/v4/locales/el.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/el.js"() {
     "use strict";
     init_util();
     error9 = () => {
@@ -5066,7 +5066,7 @@ var init_el = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/en.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/en.js
 function en_default() {
   return {
     localeError: error10()
@@ -5074,7 +5074,7 @@ function en_default() {
 }
 var error10;
 var init_en = __esm({
-  "node_modules/zod/v4/locales/en.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/en.js"() {
     "use strict";
     init_util();
     error10 = () => {
@@ -5186,7 +5186,7 @@ var init_en = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/eo.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/eo.js
 function eo_default() {
   return {
     localeError: error11()
@@ -5194,7 +5194,7 @@ function eo_default() {
 }
 var error11;
 var init_eo = __esm({
-  "node_modules/zod/v4/locales/eo.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/eo.js"() {
     "use strict";
     init_util();
     error11 = () => {
@@ -5303,7 +5303,7 @@ var init_eo = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/es.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/es.js
 function es_default() {
   return {
     localeError: error12()
@@ -5311,7 +5311,7 @@ function es_default() {
 }
 var error12;
 var init_es = __esm({
-  "node_modules/zod/v4/locales/es.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/es.js"() {
     "use strict";
     init_util();
     error12 = () => {
@@ -5443,7 +5443,7 @@ var init_es = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/fa.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fa.js
 function fa_default() {
   return {
     localeError: error13()
@@ -5451,7 +5451,7 @@ function fa_default() {
 }
 var error13;
 var init_fa = __esm({
-  "node_modules/zod/v4/locales/fa.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fa.js"() {
     "use strict";
     init_util();
     error13 = () => {
@@ -5565,7 +5565,7 @@ var init_fa = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/fi.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fi.js
 function fi_default() {
   return {
     localeError: error14()
@@ -5573,7 +5573,7 @@ function fi_default() {
 }
 var error14;
 var init_fi = __esm({
-  "node_modules/zod/v4/locales/fi.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fi.js"() {
     "use strict";
     init_util();
     error14 = () => {
@@ -5685,7 +5685,7 @@ var init_fi = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/fr.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fr.js
 function fr_default() {
   return {
     localeError: error15()
@@ -5693,7 +5693,7 @@ function fr_default() {
 }
 var error15;
 var init_fr = __esm({
-  "node_modules/zod/v4/locales/fr.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fr.js"() {
     "use strict";
     init_util();
     error15 = () => {
@@ -5818,7 +5818,7 @@ var init_fr = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/fr-CA.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fr-CA.js
 function fr_CA_default() {
   return {
     localeError: error16()
@@ -5826,7 +5826,7 @@ function fr_CA_default() {
 }
 var error16;
 var init_fr_CA = __esm({
-  "node_modules/zod/v4/locales/fr-CA.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fr-CA.js"() {
     "use strict";
     init_util();
     error16 = () => {
@@ -5933,7 +5933,7 @@ var init_fr_CA = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/he.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/he.js
 function he_default() {
   return {
     localeError: error17()
@@ -5941,7 +5941,7 @@ function he_default() {
 }
 var error17;
 var init_he = __esm({
-  "node_modules/zod/v4/locales/he.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/he.js"() {
     "use strict";
     init_util();
     error17 = () => {
@@ -6135,7 +6135,7 @@ var init_he = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/hr.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/hr.js
 function hr_default() {
   return {
     localeError: error18()
@@ -6143,7 +6143,7 @@ function hr_default() {
 }
 var error18;
 var init_hr = __esm({
-  "node_modules/zod/v4/locales/hr.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/hr.js"() {
     "use strict";
     init_util();
     error18 = () => {
@@ -6265,7 +6265,7 @@ var init_hr = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/hu.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/hu.js
 function hu_default() {
   return {
     localeError: error19()
@@ -6273,7 +6273,7 @@ function hu_default() {
 }
 var error19;
 var init_hu = __esm({
-  "node_modules/zod/v4/locales/hu.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/hu.js"() {
     "use strict";
     init_util();
     error19 = () => {
@@ -6381,7 +6381,7 @@ var init_hu = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/hy.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/hy.js
 function getArmenianPlural(count, one, many) {
   return Math.abs(count) === 1 ? one : many;
 }
@@ -6399,7 +6399,7 @@ function hy_default() {
 }
 var error20;
 var init_hy = __esm({
-  "node_modules/zod/v4/locales/hy.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/hy.js"() {
     "use strict";
     init_util();
     error20 = () => {
@@ -6536,7 +6536,7 @@ var init_hy = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/id.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/id.js
 function id_default() {
   return {
     localeError: error21()
@@ -6544,7 +6544,7 @@ function id_default() {
 }
 var error21;
 var init_id = __esm({
-  "node_modules/zod/v4/locales/id.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/id.js"() {
     "use strict";
     init_util();
     error21 = () => {
@@ -6650,7 +6650,7 @@ var init_id = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/is.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/is.js
 function is_default() {
   return {
     localeError: error22()
@@ -6658,7 +6658,7 @@ function is_default() {
 }
 var error22;
 var init_is = __esm({
-  "node_modules/zod/v4/locales/is.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/is.js"() {
     "use strict";
     init_util();
     error22 = () => {
@@ -6767,7 +6767,7 @@ var init_is = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/it.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/it.js
 function it_default() {
   return {
     localeError: error23()
@@ -6775,7 +6775,7 @@ function it_default() {
 }
 var error23;
 var init_it = __esm({
-  "node_modules/zod/v4/locales/it.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/it.js"() {
     "use strict";
     init_util();
     error23 = () => {
@@ -6883,7 +6883,7 @@ var init_it = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/ja.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ja.js
 function ja_default() {
   return {
     localeError: error24()
@@ -6891,7 +6891,7 @@ function ja_default() {
 }
 var error24;
 var init_ja = __esm({
-  "node_modules/zod/v4/locales/ja.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ja.js"() {
     "use strict";
     init_util();
     error24 = () => {
@@ -6998,7 +6998,7 @@ var init_ja = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/ka.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ka.js
 function ka_default() {
   return {
     localeError: error25()
@@ -7006,7 +7006,7 @@ function ka_default() {
 }
 var error25;
 var init_ka = __esm({
-  "node_modules/zod/v4/locales/ka.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ka.js"() {
     "use strict";
     init_util();
     error25 = () => {
@@ -7118,7 +7118,7 @@ var init_ka = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/km.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/km.js
 function km_default() {
   return {
     localeError: error26()
@@ -7126,7 +7126,7 @@ function km_default() {
 }
 var error26;
 var init_km = __esm({
-  "node_modules/zod/v4/locales/km.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/km.js"() {
     "use strict";
     init_util();
     error26 = () => {
@@ -7236,18 +7236,18 @@ var init_km = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/kh.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/kh.js
 function kh_default() {
   return km_default();
 }
 var init_kh = __esm({
-  "node_modules/zod/v4/locales/kh.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/kh.js"() {
     "use strict";
     init_km();
   }
 });
 
-// node_modules/zod/v4/locales/ko.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ko.js
 function ko_default() {
   return {
     localeError: error27()
@@ -7255,7 +7255,7 @@ function ko_default() {
 }
 var error27;
 var init_ko = __esm({
-  "node_modules/zod/v4/locales/ko.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ko.js"() {
     "use strict";
     init_util();
     error27 = () => {
@@ -7366,7 +7366,7 @@ var init_ko = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/lt.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/lt.js
 function getUnitTypeFromNumber(number4) {
   const abs = Math.abs(number4);
   const last = abs % 10;
@@ -7384,7 +7384,7 @@ function lt_default() {
 }
 var capitalizeFirstCharacter, error28;
 var init_lt = __esm({
-  "node_modules/zod/v4/locales/lt.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/lt.js"() {
     "use strict";
     init_util();
     capitalizeFirstCharacter = (text) => {
@@ -7577,7 +7577,7 @@ var init_lt = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/mk.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/mk.js
 function mk_default() {
   return {
     localeError: error29()
@@ -7585,7 +7585,7 @@ function mk_default() {
 }
 var error29;
 var init_mk = __esm({
-  "node_modules/zod/v4/locales/mk.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/mk.js"() {
     "use strict";
     init_util();
     error29 = () => {
@@ -7694,7 +7694,7 @@ var init_mk = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/ms.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ms.js
 function ms_default() {
   return {
     localeError: error30()
@@ -7702,7 +7702,7 @@ function ms_default() {
 }
 var error30;
 var init_ms = __esm({
-  "node_modules/zod/v4/locales/ms.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ms.js"() {
     "use strict";
     init_util();
     error30 = () => {
@@ -7809,7 +7809,7 @@ var init_ms = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/nl.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/nl.js
 function nl_default() {
   return {
     localeError: error31()
@@ -7817,7 +7817,7 @@ function nl_default() {
 }
 var error31;
 var init_nl = __esm({
-  "node_modules/zod/v4/locales/nl.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/nl.js"() {
     "use strict";
     init_util();
     error31 = () => {
@@ -7927,7 +7927,7 @@ var init_nl = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/no.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/no.js
 function no_default() {
   return {
     localeError: error32()
@@ -7935,7 +7935,7 @@ function no_default() {
 }
 var error32;
 var init_no = __esm({
-  "node_modules/zod/v4/locales/no.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/no.js"() {
     "use strict";
     init_util();
     error32 = () => {
@@ -8043,7 +8043,7 @@ var init_no = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/ota.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ota.js
 function ota_default() {
   return {
     localeError: error33()
@@ -8051,7 +8051,7 @@ function ota_default() {
 }
 var error33;
 var init_ota = __esm({
-  "node_modules/zod/v4/locales/ota.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ota.js"() {
     "use strict";
     init_util();
     error33 = () => {
@@ -8160,7 +8160,7 @@ var init_ota = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/ps.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ps.js
 function ps_default() {
   return {
     localeError: error34()
@@ -8168,7 +8168,7 @@ function ps_default() {
 }
 var error34;
 var init_ps = __esm({
-  "node_modules/zod/v4/locales/ps.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ps.js"() {
     "use strict";
     init_util();
     error34 = () => {
@@ -8282,7 +8282,7 @@ var init_ps = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/pl.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/pl.js
 function pl_default() {
   return {
     localeError: error35()
@@ -8290,7 +8290,7 @@ function pl_default() {
 }
 var error35;
 var init_pl = __esm({
-  "node_modules/zod/v4/locales/pl.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/pl.js"() {
     "use strict";
     init_util();
     error35 = () => {
@@ -8399,7 +8399,7 @@ var init_pl = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/pt.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/pt.js
 function pt_default() {
   return {
     localeError: error36()
@@ -8407,7 +8407,7 @@ function pt_default() {
 }
 var error36;
 var init_pt = __esm({
-  "node_modules/zod/v4/locales/pt.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/pt.js"() {
     "use strict";
     init_util();
     error36 = () => {
@@ -8515,7 +8515,7 @@ var init_pt = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/ro.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ro.js
 function ro_default() {
   return {
     localeError: error37()
@@ -8523,7 +8523,7 @@ function ro_default() {
 }
 var error37;
 var init_ro = __esm({
-  "node_modules/zod/v4/locales/ro.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ro.js"() {
     "use strict";
     init_util();
     error37 = () => {
@@ -8642,7 +8642,7 @@ var init_ro = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/ru.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ru.js
 function getRussianPlural(count, one, few, many) {
   const absCount = Math.abs(count);
   const lastDigit = absCount % 10;
@@ -8665,7 +8665,7 @@ function ru_default() {
 }
 var error38;
 var init_ru = __esm({
-  "node_modules/zod/v4/locales/ru.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ru.js"() {
     "use strict";
     init_util();
     error38 = () => {
@@ -8806,7 +8806,7 @@ var init_ru = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/sl.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/sl.js
 function sl_default() {
   return {
     localeError: error39()
@@ -8814,7 +8814,7 @@ function sl_default() {
 }
 var error39;
 var init_sl = __esm({
-  "node_modules/zod/v4/locales/sl.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/sl.js"() {
     "use strict";
     init_util();
     error39 = () => {
@@ -8923,7 +8923,7 @@ var init_sl = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/sv.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/sv.js
 function sv_default() {
   return {
     localeError: error40()
@@ -8931,7 +8931,7 @@ function sv_default() {
 }
 var error40;
 var init_sv = __esm({
-  "node_modules/zod/v4/locales/sv.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/sv.js"() {
     "use strict";
     init_util();
     error40 = () => {
@@ -9041,7 +9041,7 @@ var init_sv = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/ta.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ta.js
 function ta_default() {
   return {
     localeError: error41()
@@ -9049,7 +9049,7 @@ function ta_default() {
 }
 var error41;
 var init_ta = __esm({
-  "node_modules/zod/v4/locales/ta.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ta.js"() {
     "use strict";
     init_util();
     error41 = () => {
@@ -9159,7 +9159,7 @@ var init_ta = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/th.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/th.js
 function th_default() {
   return {
     localeError: error42()
@@ -9167,7 +9167,7 @@ function th_default() {
 }
 var error42;
 var init_th = __esm({
-  "node_modules/zod/v4/locales/th.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/th.js"() {
     "use strict";
     init_util();
     error42 = () => {
@@ -9277,7 +9277,7 @@ var init_th = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/tr.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/tr.js
 function tr_default() {
   return {
     localeError: error43()
@@ -9285,7 +9285,7 @@ function tr_default() {
 }
 var error43;
 var init_tr = __esm({
-  "node_modules/zod/v4/locales/tr.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/tr.js"() {
     "use strict";
     init_util();
     error43 = () => {
@@ -9390,7 +9390,7 @@ var init_tr = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/uk.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/uk.js
 function uk_default() {
   return {
     localeError: error44()
@@ -9398,7 +9398,7 @@ function uk_default() {
 }
 var error44;
 var init_uk = __esm({
-  "node_modules/zod/v4/locales/uk.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/uk.js"() {
     "use strict";
     init_util();
     error44 = () => {
@@ -9506,18 +9506,18 @@ var init_uk = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/ua.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ua.js
 function ua_default() {
   return uk_default();
 }
 var init_ua = __esm({
-  "node_modules/zod/v4/locales/ua.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ua.js"() {
     "use strict";
     init_uk();
   }
 });
 
-// node_modules/zod/v4/locales/ur.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ur.js
 function ur_default() {
   return {
     localeError: error45()
@@ -9525,7 +9525,7 @@ function ur_default() {
 }
 var error45;
 var init_ur = __esm({
-  "node_modules/zod/v4/locales/ur.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ur.js"() {
     "use strict";
     init_util();
     error45 = () => {
@@ -9635,7 +9635,7 @@ var init_ur = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/uz.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/uz.js
 function uz_default() {
   return {
     localeError: error46()
@@ -9643,7 +9643,7 @@ function uz_default() {
 }
 var error46;
 var init_uz = __esm({
-  "node_modules/zod/v4/locales/uz.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/uz.js"() {
     "use strict";
     init_util();
     error46 = () => {
@@ -9753,7 +9753,7 @@ var init_uz = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/vi.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/vi.js
 function vi_default() {
   return {
     localeError: error47()
@@ -9761,7 +9761,7 @@ function vi_default() {
 }
 var error47;
 var init_vi = __esm({
-  "node_modules/zod/v4/locales/vi.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/vi.js"() {
     "use strict";
     init_util();
     error47 = () => {
@@ -9869,7 +9869,7 @@ var init_vi = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/zh-CN.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/zh-CN.js
 function zh_CN_default() {
   return {
     localeError: error48()
@@ -9877,7 +9877,7 @@ function zh_CN_default() {
 }
 var error48;
 var init_zh_CN = __esm({
-  "node_modules/zod/v4/locales/zh-CN.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/zh-CN.js"() {
     "use strict";
     init_util();
     error48 = () => {
@@ -9986,7 +9986,7 @@ var init_zh_CN = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/zh-TW.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/zh-TW.js
 function zh_TW_default() {
   return {
     localeError: error49()
@@ -9994,7 +9994,7 @@ function zh_TW_default() {
 }
 var error49;
 var init_zh_TW = __esm({
-  "node_modules/zod/v4/locales/zh-TW.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/zh-TW.js"() {
     "use strict";
     init_util();
     error49 = () => {
@@ -10101,7 +10101,7 @@ var init_zh_TW = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/yo.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/yo.js
 function yo_default() {
   return {
     localeError: error50()
@@ -10109,7 +10109,7 @@ function yo_default() {
 }
 var error50;
 var init_yo = __esm({
-  "node_modules/zod/v4/locales/yo.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/yo.js"() {
     "use strict";
     init_util();
     error50 = () => {
@@ -10216,7 +10216,7 @@ var init_yo = __esm({
   }
 });
 
-// node_modules/zod/v4/locales/index.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/index.js
 var locales_exports = {};
 __export(locales_exports, {
   ar: () => ar_default,
@@ -10273,7 +10273,7 @@ __export(locales_exports, {
   zhTW: () => zh_TW_default
 });
 var init_locales = __esm({
-  "node_modules/zod/v4/locales/index.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/index.js"() {
     "use strict";
     init_ar();
     init_az();
@@ -10330,13 +10330,13 @@ var init_locales = __esm({
   }
 });
 
-// node_modules/zod/v4/core/registries.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/registries.js
 function registry() {
   return new $ZodRegistry();
 }
 var _a2, $output, $input, $ZodRegistry, globalRegistry;
 var init_registries = __esm({
-  "node_modules/zod/v4/core/registries.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/registries.js"() {
     "use strict";
     $output = /* @__PURE__ */ Symbol("ZodOutput");
     $input = /* @__PURE__ */ Symbol("ZodInput");
@@ -10385,7 +10385,7 @@ var init_registries = __esm({
   }
 });
 
-// node_modules/zod/v4/core/api.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/api.js
 // @__NO_SIDE_EFFECTS__
 function _string(Class2, params) {
   return new Class2({
@@ -11418,7 +11418,7 @@ function _stringFormat(Class2, format, fnOrRegex, _params = {}) {
 }
 var TimePrecision;
 var init_api = __esm({
-  "node_modules/zod/v4/core/api.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/api.js"() {
     "use strict";
     init_checks();
     init_registries();
@@ -11434,7 +11434,7 @@ var init_api = __esm({
   }
 });
 
-// node_modules/zod/v4/core/to-json-schema.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/to-json-schema.js
 function initializeContext(params) {
   let target = params?.target ?? "draft-2020-12";
   if (target === "draft-4")
@@ -11781,7 +11781,7 @@ function isTransforming(_schema, _ctx) {
 }
 var createToJSONSchemaMethod, createStandardJSONSchemaMethod;
 var init_to_json_schema = __esm({
-  "node_modules/zod/v4/core/to-json-schema.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/to-json-schema.js"() {
     "use strict";
     init_registries();
     createToJSONSchemaMethod = (schema, processors = {}) => (params) => {
@@ -11800,7 +11800,7 @@ var init_to_json_schema = __esm({
   }
 });
 
-// node_modules/zod/v4/core/json-schema-processors.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/json-schema-processors.js
 function toJSONSchema(input, params) {
   if ("_idmap" in input) {
     const registry2 = input;
@@ -11837,7 +11837,7 @@ function toJSONSchema(input, params) {
 }
 var formatMap, stringProcessor, numberProcessor, booleanProcessor, bigintProcessor, symbolProcessor, nullProcessor, undefinedProcessor, voidProcessor, neverProcessor, anyProcessor, unknownProcessor, dateProcessor, enumProcessor, literalProcessor, nanProcessor, templateLiteralProcessor, fileProcessor, successProcessor, customProcessor, functionProcessor, transformProcessor, mapProcessor, setProcessor, arrayProcessor, objectProcessor, unionProcessor, intersectionProcessor, tupleProcessor, recordProcessor, nullableProcessor, nonoptionalProcessor, defaultProcessor, prefaultProcessor, catchProcessor, pipeProcessor, readonlyProcessor, promiseProcessor, optionalProcessor, lazyProcessor, allProcessors;
 var init_json_schema_processors = __esm({
-  "node_modules/zod/v4/core/json-schema-processors.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/json-schema-processors.js"() {
     "use strict";
     init_to_json_schema();
     init_util();
@@ -12352,10 +12352,10 @@ var init_json_schema_processors = __esm({
   }
 });
 
-// node_modules/zod/v4/core/json-schema-generator.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/json-schema-generator.js
 var JSONSchemaGenerator;
 var init_json_schema_generator = __esm({
-  "node_modules/zod/v4/core/json-schema-generator.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/json-schema-generator.js"() {
     "use strict";
     init_json_schema_processors();
     init_to_json_schema();
@@ -12435,15 +12435,15 @@ var init_json_schema_generator = __esm({
   }
 });
 
-// node_modules/zod/v4/core/json-schema.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/json-schema.js
 var json_schema_exports = {};
 var init_json_schema = __esm({
-  "node_modules/zod/v4/core/json-schema.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/json-schema.js"() {
     "use strict";
   }
 });
 
-// node_modules/zod/v4/core/index.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/index.js
 var core_exports2 = {};
 __export(core_exports2, {
   $ZodAny: () => $ZodAny,
@@ -12722,7 +12722,7 @@ __export(core_exports2, {
   version: () => version
 });
 var init_core2 = __esm({
-  "node_modules/zod/v4/core/index.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/index.js"() {
     "use strict";
     init_core();
     init_parse();
@@ -12743,7 +12743,7 @@ var init_core2 = __esm({
   }
 });
 
-// node_modules/zod/v4/classic/checks.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/checks.js
 var checks_exports2 = {};
 __export(checks_exports2, {
   endsWith: () => _endsWith,
@@ -12777,13 +12777,13 @@ __export(checks_exports2, {
   uppercase: () => _uppercase
 });
 var init_checks2 = __esm({
-  "node_modules/zod/v4/classic/checks.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/checks.js"() {
     "use strict";
     init_core2();
   }
 });
 
-// node_modules/zod/v4/classic/iso.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/iso.js
 var iso_exports = {};
 __export(iso_exports, {
   ZodISODate: () => ZodISODate,
@@ -12809,7 +12809,7 @@ function duration2(params) {
 }
 var ZodISODateTime, ZodISODate, ZodISOTime, ZodISODuration;
 var init_iso = __esm({
-  "node_modules/zod/v4/classic/iso.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/iso.js"() {
     "use strict";
     init_core2();
     init_schemas2();
@@ -12832,10 +12832,10 @@ var init_iso = __esm({
   }
 });
 
-// node_modules/zod/v4/classic/errors.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/errors.js
 var initializer2, ZodError, ZodRealError;
 var init_errors2 = __esm({
-  "node_modules/zod/v4/classic/errors.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/errors.js"() {
     "use strict";
     init_core2();
     init_core2();
@@ -12881,10 +12881,10 @@ var init_errors2 = __esm({
   }
 });
 
-// node_modules/zod/v4/classic/parse.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/parse.js
 var parse2, parseAsync2, safeParse2, safeParseAsync2, encode2, decode2, encodeAsync2, decodeAsync2, safeEncode2, safeDecode2, safeEncodeAsync2, safeDecodeAsync2;
 var init_parse2 = __esm({
-  "node_modules/zod/v4/classic/parse.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/parse.js"() {
     "use strict";
     init_core2();
     init_errors2();
@@ -12903,7 +12903,7 @@ var init_parse2 = __esm({
   }
 });
 
-// node_modules/zod/v4/classic/schemas.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/schemas.js
 var schemas_exports2 = {};
 __export(schemas_exports2, {
   ZodAny: () => ZodAny,
@@ -13587,7 +13587,7 @@ function preprocess(fn, schema) {
 }
 var _installedGroups, ZodType, _ZodString, ZodString, ZodStringFormat, ZodEmail, ZodGUID, ZodUUID, ZodURL, ZodEmoji, ZodNanoID, ZodCUID, ZodCUID2, ZodULID, ZodXID, ZodKSUID, ZodIPv4, ZodMAC, ZodIPv6, ZodCIDRv4, ZodCIDRv6, ZodBase64, ZodBase64URL, ZodE164, ZodJWT, ZodCustomStringFormat, ZodNumber, ZodNumberFormat, ZodBoolean, ZodBigInt, ZodBigIntFormat, ZodSymbol, ZodUndefined, ZodNull, ZodAny, ZodUnknown, ZodNever, ZodVoid, ZodDate, ZodArray, ZodObject, ZodUnion, ZodXor, ZodDiscriminatedUnion, ZodIntersection, ZodTuple, ZodRecord, ZodMap, ZodSet, ZodEnum, ZodLiteral, ZodFile, ZodTransform, ZodOptional, ZodExactOptional, ZodNullable, ZodDefault, ZodPrefault, ZodNonOptional, ZodSuccess, ZodCatch, ZodNaN, ZodPipe, ZodCodec, ZodPreprocess, ZodReadonly, ZodTemplateLiteral, ZodLazy, ZodPromise, ZodFunction, ZodCustom, describe2, meta2, stringbool;
 var init_schemas2 = __esm({
-  "node_modules/zod/v4/classic/schemas.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/schemas.js"() {
     "use strict";
     init_core2();
     init_core2();
@@ -14375,7 +14375,7 @@ var init_schemas2 = __esm({
   }
 });
 
-// node_modules/zod/v4/classic/compat.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/compat.js
 function setErrorMap(map2) {
   config({
     customError: map2
@@ -14386,7 +14386,7 @@ function getErrorMap() {
 }
 var ZodIssueCode, ZodFirstPartyTypeKind;
 var init_compat = __esm({
-  "node_modules/zod/v4/classic/compat.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/compat.js"() {
     "use strict";
     init_core2();
     ZodIssueCode = {
@@ -14407,7 +14407,7 @@ var init_compat = __esm({
   }
 });
 
-// node_modules/zod/v4/classic/from-json-schema.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/from-json-schema.js
 function detectVersion(schema, defaultTarget) {
   const $schema = schema.$schema;
   if ($schema === "https://json-schema.org/draft/2020-12/schema") {
@@ -14812,7 +14812,7 @@ function fromJSONSchema(schema, params) {
 }
 var z, RECOGNIZED_KEYS;
 var init_from_json_schema = __esm({
-  "node_modules/zod/v4/classic/from-json-schema.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/from-json-schema.js"() {
     "use strict";
     init_registries();
     init_checks2();
@@ -14897,7 +14897,7 @@ var init_from_json_schema = __esm({
   }
 });
 
-// node_modules/zod/v4/classic/coerce.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/coerce.js
 var coerce_exports = {};
 __export(coerce_exports, {
   bigint: () => bigint3,
@@ -14922,14 +14922,14 @@ function date4(params) {
   return _coercedDate(ZodDate, params);
 }
 var init_coerce = __esm({
-  "node_modules/zod/v4/classic/coerce.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/coerce.js"() {
     "use strict";
     init_core2();
     init_schemas2();
   }
 });
 
-// node_modules/zod/v4/classic/external.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/external.js
 var external_exports = {};
 __export(external_exports, {
   $brand: () => $brand,
@@ -15172,7 +15172,7 @@ __export(external_exports, {
   xor: () => xor
 });
 var init_external = __esm({
-  "node_modules/zod/v4/classic/external.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/external.js"() {
     "use strict";
     init_core2();
     init_schemas2();
@@ -15193,9 +15193,9 @@ var init_external = __esm({
   }
 });
 
-// node_modules/zod/index.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/zod/index.js
 var init_zod = __esm({
-  "node_modules/zod/index.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/zod/index.js"() {
     "use strict";
     init_external();
     init_external();
@@ -16645,9 +16645,9 @@ var init_net_timeout = __esm({
   }
 });
 
-// node_modules/ws/lib/constants.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/constants.js
 var require_constants = __commonJS({
-  "node_modules/ws/lib/constants.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/constants.js"(exports2, module2) {
     "use strict";
     var BINARY_TYPES = ["nodebuffer", "arraybuffer", "fragments"];
     var hasBlob = typeof Blob !== "undefined";
@@ -16668,9 +16668,9 @@ var require_constants = __commonJS({
   }
 });
 
-// node_modules/ws/lib/buffer-util.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/buffer-util.js
 var require_buffer_util = __commonJS({
-  "node_modules/ws/lib/buffer-util.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/buffer-util.js"(exports2, module2) {
     "use strict";
     var { EMPTY_BUFFER } = require_constants();
     var FastBuffer = Buffer[Symbol.species];
@@ -16743,9 +16743,9 @@ var require_buffer_util = __commonJS({
   }
 });
 
-// node_modules/ws/lib/limiter.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/limiter.js
 var require_limiter = __commonJS({
-  "node_modules/ws/lib/limiter.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/limiter.js"(exports2, module2) {
     "use strict";
     var kDone = /* @__PURE__ */ Symbol("kDone");
     var kRun = /* @__PURE__ */ Symbol("kRun");
@@ -16793,9 +16793,9 @@ var require_limiter = __commonJS({
   }
 });
 
-// node_modules/ws/lib/permessage-deflate.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/permessage-deflate.js
 var require_permessage_deflate = __commonJS({
-  "node_modules/ws/lib/permessage-deflate.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/permessage-deflate.js"(exports2, module2) {
     "use strict";
     var zlib = require("zlib");
     var bufferUtil = require_buffer_util();
@@ -17176,9 +17176,9 @@ var require_permessage_deflate = __commonJS({
   }
 });
 
-// node_modules/ws/lib/validation.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/validation.js
 var require_validation = __commonJS({
-  "node_modules/ws/lib/validation.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/validation.js"(exports2, module2) {
     "use strict";
     var { isUtf8 } = require("buffer");
     var { hasBlob } = require_constants();
@@ -17377,9 +17377,9 @@ var require_validation = __commonJS({
   }
 });
 
-// node_modules/ws/lib/receiver.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/receiver.js
 var require_receiver = __commonJS({
-  "node_modules/ws/lib/receiver.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/receiver.js"(exports2, module2) {
     "use strict";
     var { Writable } = require("stream");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -18000,9 +18000,9 @@ var require_receiver = __commonJS({
   }
 });
 
-// node_modules/ws/lib/sender.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/sender.js
 var require_sender = __commonJS({
-  "node_modules/ws/lib/sender.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/sender.js"(exports2, module2) {
     "use strict";
     var { Duplex } = require("stream");
     var { randomFillSync } = require("crypto");
@@ -18493,9 +18493,9 @@ var require_sender = __commonJS({
   }
 });
 
-// node_modules/ws/lib/event-target.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/event-target.js
 var require_event_target = __commonJS({
-  "node_modules/ws/lib/event-target.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/event-target.js"(exports2, module2) {
     "use strict";
     var { kForOnEventAttribute, kListener } = require_constants();
     var kCode = /* @__PURE__ */ Symbol("kCode");
@@ -18722,9 +18722,9 @@ var require_event_target = __commonJS({
   }
 });
 
-// node_modules/ws/lib/extension.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/extension.js
 var require_extension = __commonJS({
-  "node_modules/ws/lib/extension.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/extension.js"(exports2, module2) {
     "use strict";
     var { tokenChars } = require_validation();
     function push(dest, name, elem) {
@@ -18875,9 +18875,9 @@ var require_extension = __commonJS({
   }
 });
 
-// node_modules/ws/lib/websocket.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/websocket.js
 var require_websocket = __commonJS({
-  "node_modules/ws/lib/websocket.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/websocket.js"(exports2, module2) {
     "use strict";
     var EventEmitter = require("events");
     var https = require("https");
@@ -19784,9 +19784,9 @@ var require_websocket = __commonJS({
   }
 });
 
-// node_modules/ws/lib/stream.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/stream.js
 var require_stream = __commonJS({
-  "node_modules/ws/lib/stream.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/stream.js"(exports2, module2) {
     "use strict";
     var WebSocket2 = require_websocket();
     var { Duplex } = require("stream");
@@ -19882,9 +19882,9 @@ var require_stream = __commonJS({
   }
 });
 
-// node_modules/ws/lib/subprotocol.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/subprotocol.js
 var require_subprotocol = __commonJS({
-  "node_modules/ws/lib/subprotocol.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/subprotocol.js"(exports2, module2) {
     "use strict";
     var { tokenChars } = require_validation();
     function parse3(header) {
@@ -19927,9 +19927,9 @@ var require_subprotocol = __commonJS({
   }
 });
 
-// node_modules/ws/lib/websocket-server.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/websocket-server.js
 var require_websocket_server = __commonJS({
-  "node_modules/ws/lib/websocket-server.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/websocket-server.js"(exports2, module2) {
     "use strict";
     var EventEmitter = require("events");
     var http = require("http");
@@ -20328,7 +20328,7 @@ var require_websocket_server = __commonJS({
   }
 });
 
-// node_modules/ws/wrapper.mjs
+// ../../../../dev/git-folder/interface-built-right/node_modules/ws/wrapper.mjs
 var wrapper_exports = {};
 __export(wrapper_exports, {
   PerMessageDeflate: () => import_permessage_deflate.default,
@@ -20343,7 +20343,7 @@ __export(wrapper_exports, {
 });
 var import_stream, import_extension, import_permessage_deflate, import_receiver, import_sender, import_subprotocol, import_websocket, import_websocket_server, wrapper_default;
 var init_wrapper = __esm({
-  "node_modules/ws/wrapper.mjs"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/ws/wrapper.mjs"() {
     "use strict";
     import_stream = __toESM(require_stream(), 1);
     import_extension = __toESM(require_extension(), 1);
@@ -22464,12 +22464,12 @@ var init_console = __esm({
         this.conn.on("Runtime.consoleAPICalled", (params) => {
           const data = params;
           const text = data.args.map((arg) => arg.value !== void 0 ? String(arg.value) : arg.description ?? "").join(" ");
-          const frame = data.stackTrace?.callFrames[0];
+          const frame2 = data.stackTrace?.callFrames[0];
           const message = {
             type: data.type,
             text,
-            url: frame?.url,
-            lineNumber: frame?.lineNumber,
+            url: frame2?.url,
+            lineNumber: frame2?.lineNumber,
             timestamp: data.timestamp
           };
           this.messages.push(message);
@@ -22799,7 +22799,7 @@ var init_actionability = __esm({
   }
 });
 
-// node_modules/pixelmatch/index.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/pixelmatch/index.js
 function pixelmatch(img1, img2, output, width, height, options = {}) {
   const {
     threshold = 0.1,
@@ -22982,14 +22982,14 @@ function drawGrayPixel(img, i, alpha, output) {
   drawPixel(output, i, val, val, val);
 }
 var init_pixelmatch = __esm({
-  "node_modules/pixelmatch/index.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/pixelmatch/index.js"() {
     "use strict";
   }
 });
 
-// node_modules/pngjs/lib/chunkstream.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/chunkstream.js
 var require_chunkstream = __commonJS({
-  "node_modules/pngjs/lib/chunkstream.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/chunkstream.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var Stream = require("stream");
@@ -23125,9 +23125,9 @@ var require_chunkstream = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/interlace.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/interlace.js
 var require_interlace = __commonJS({
-  "node_modules/pngjs/lib/interlace.js"(exports2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/interlace.js"(exports2) {
     "use strict";
     var imagePasses = [
       {
@@ -23208,9 +23208,9 @@ var require_interlace = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/paeth-predictor.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/paeth-predictor.js
 var require_paeth_predictor = __commonJS({
-  "node_modules/pngjs/lib/paeth-predictor.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/paeth-predictor.js"(exports2, module2) {
     "use strict";
     module2.exports = function paethPredictor(left, above, upLeft) {
       let paeth = left + above - upLeft;
@@ -23228,9 +23228,9 @@ var require_paeth_predictor = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/filter-parse.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse.js
 var require_filter_parse = __commonJS({
-  "node_modules/pngjs/lib/filter-parse.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse.js"(exports2, module2) {
     "use strict";
     var interlaceUtils = require_interlace();
     var paethPredictor = require_paeth_predictor();
@@ -23369,9 +23369,9 @@ var require_filter_parse = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/filter-parse-async.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse-async.js
 var require_filter_parse_async = __commonJS({
-  "node_modules/pngjs/lib/filter-parse-async.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse-async.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var ChunkStream = require_chunkstream();
@@ -23395,9 +23395,9 @@ var require_filter_parse_async = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/constants.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/constants.js
 var require_constants2 = __commonJS({
-  "node_modules/pngjs/lib/constants.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/constants.js"(exports2, module2) {
     "use strict";
     module2.exports = {
       PNG_SIGNATURE: [137, 80, 78, 71, 13, 10, 26, 10],
@@ -23430,9 +23430,9 @@ var require_constants2 = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/crc.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/crc.js
 var require_crc = __commonJS({
-  "node_modules/pngjs/lib/crc.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/crc.js"(exports2, module2) {
     "use strict";
     var crcTable = [];
     (function() {
@@ -23470,9 +23470,9 @@ var require_crc = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/parser.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/parser.js
 var require_parser = __commonJS({
-  "node_modules/pngjs/lib/parser.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/parser.js"(exports2, module2) {
     "use strict";
     var constants = require_constants2();
     var CrcCalculator = require_crc();
@@ -23691,9 +23691,9 @@ var require_parser = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/bitmapper.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/bitmapper.js
 var require_bitmapper = __commonJS({
-  "node_modules/pngjs/lib/bitmapper.js"(exports2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/bitmapper.js"(exports2) {
     "use strict";
     var interlaceUtils = require_interlace();
     var pixelBppMapper = [
@@ -23939,9 +23939,9 @@ var require_bitmapper = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/format-normaliser.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/format-normaliser.js
 var require_format_normaliser = __commonJS({
-  "node_modules/pngjs/lib/format-normaliser.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/format-normaliser.js"(exports2, module2) {
     "use strict";
     function dePalette(indata, outdata, width, height, palette) {
       let pxPos = 0;
@@ -24020,9 +24020,9 @@ var require_format_normaliser = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/parser-async.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/parser-async.js
 var require_parser_async = __commonJS({
-  "node_modules/pngjs/lib/parser-async.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/parser-async.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var zlib = require("zlib");
@@ -24150,9 +24150,9 @@ var require_parser_async = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/bitpacker.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/bitpacker.js
 var require_bitpacker = __commonJS({
-  "node_modules/pngjs/lib/bitpacker.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/bitpacker.js"(exports2, module2) {
     "use strict";
     var constants = require_constants2();
     module2.exports = function(dataIn, width, height, options) {
@@ -24300,9 +24300,9 @@ var require_bitpacker = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/filter-pack.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-pack.js
 var require_filter_pack = __commonJS({
-  "node_modules/pngjs/lib/filter-pack.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-pack.js"(exports2, module2) {
     "use strict";
     var paethPredictor = require_paeth_predictor();
     function filterNone(pxData, pxPos, byteWidth, rawData, rawPos) {
@@ -24442,9 +24442,9 @@ var require_filter_pack = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/packer.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/packer.js
 var require_packer = __commonJS({
-  "node_modules/pngjs/lib/packer.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/packer.js"(exports2, module2) {
     "use strict";
     var constants = require_constants2();
     var CrcStream = require_crc();
@@ -24542,9 +24542,9 @@ var require_packer = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/packer-async.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/packer-async.js
 var require_packer_async = __commonJS({
-  "node_modules/pngjs/lib/packer-async.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/packer-async.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var Stream = require("stream");
@@ -24584,9 +24584,9 @@ var require_packer_async = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/sync-inflate.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/sync-inflate.js
 var require_sync_inflate = __commonJS({
-  "node_modules/pngjs/lib/sync-inflate.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/sync-inflate.js"(exports2, module2) {
     "use strict";
     var assert2 = require("assert").ok;
     var zlib = require("zlib");
@@ -24721,9 +24721,9 @@ var require_sync_inflate = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/sync-reader.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/sync-reader.js
 var require_sync_reader = __commonJS({
-  "node_modules/pngjs/lib/sync-reader.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/sync-reader.js"(exports2, module2) {
     "use strict";
     var SyncReader = module2.exports = function(buffer2) {
       this._buffer = buffer2;
@@ -24759,9 +24759,9 @@ var require_sync_reader = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/filter-parse-sync.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse-sync.js
 var require_filter_parse_sync = __commonJS({
-  "node_modules/pngjs/lib/filter-parse-sync.js"(exports2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse-sync.js"(exports2) {
     "use strict";
     var SyncReader = require_sync_reader();
     var Filter = require_filter_parse();
@@ -24783,9 +24783,9 @@ var require_filter_parse_sync = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/parser-sync.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/parser-sync.js
 var require_parser_sync = __commonJS({
-  "node_modules/pngjs/lib/parser-sync.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/parser-sync.js"(exports2, module2) {
     "use strict";
     var hasSyncZlib = true;
     var zlib = require("zlib");
@@ -24878,9 +24878,9 @@ var require_parser_sync = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/packer-sync.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/packer-sync.js
 var require_packer_sync = __commonJS({
-  "node_modules/pngjs/lib/packer-sync.js"(exports2, module2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/packer-sync.js"(exports2, module2) {
     "use strict";
     var hasSyncZlib = true;
     var zlib = require("zlib");
@@ -24923,9 +24923,9 @@ var require_packer_sync = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/png-sync.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/png-sync.js
 var require_png_sync = __commonJS({
-  "node_modules/pngjs/lib/png-sync.js"(exports2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/png-sync.js"(exports2) {
     "use strict";
     var parse3 = require_parser_sync();
     var pack = require_packer_sync();
@@ -24938,9 +24938,9 @@ var require_png_sync = __commonJS({
   }
 });
 
-// node_modules/pngjs/lib/png.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/png.js
 var require_png = __commonJS({
-  "node_modules/pngjs/lib/png.js"(exports2) {
+  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/png.js"(exports2) {
     "use strict";
     var util = require("util");
     var Stream = require("stream");
@@ -26478,12 +26478,12 @@ var init_driver = __esm({
         const elements = [];
         const unresolvedByUrl = /* @__PURE__ */ new Map();
         let reached = 0;
-        for (const frame of childFrames) {
-          const tag = this.tagForFrame(frame.id);
+        for (const frame2 of childFrames) {
+          const tag = this.tagForFrame(frame2.id);
           try {
             const result = await this.conn.send(
               "Accessibility.getFullAXTree",
-              { frameId: frame.id },
+              { frameId: frame2.id },
               this.sessionId
             );
             const nodes = result?.nodes ?? [];
@@ -26492,7 +26492,7 @@ var init_driver = __esm({
             continue;
           } catch {
           }
-          unresolvedByUrl.set(frame.url, frame.id);
+          unresolvedByUrl.set(frame2.url, frame2.id);
         }
         if (unresolvedByUrl.size > 0) {
           const oopifResult = await this.getOopifFrameElements(unresolvedByUrl);
@@ -35370,16 +35370,16 @@ var init_scan = __esm({
   }
 });
 
-// node_modules/nanoid/url-alphabet/index.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/nanoid/url-alphabet/index.js
 var urlAlphabet;
 var init_url_alphabet = __esm({
-  "node_modules/nanoid/url-alphabet/index.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/nanoid/url-alphabet/index.js"() {
     "use strict";
     urlAlphabet = "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict";
   }
 });
 
-// node_modules/nanoid/index.js
+// ../../../../dev/git-folder/interface-built-right/node_modules/nanoid/index.js
 function fillPool(bytes) {
   if (bytes < 0) throw new RangeError("Wrong ID size");
   try {
@@ -35407,7 +35407,7 @@ function nanoid3(size = 21) {
 }
 var import_node_crypto, POOL_SIZE_MULTIPLIER, pool, poolOffset;
 var init_nanoid = __esm({
-  "node_modules/nanoid/index.js"() {
+  "../../../../dev/git-folder/interface-built-right/node_modules/nanoid/index.js"() {
     "use strict";
     import_node_crypto = require("crypto");
     init_url_alphabet();
@@ -44066,39 +44066,23 @@ async function runKeystrokeCapability(opts) {
   try {
     const pid = await resolvePid();
     const before = await safeSignature();
-    const backgroundDelivery = await deliver(pid, chord, false);
-    if (!backgroundDelivery.success) {
-      return keystrokeFailure(
-        chord,
-        before,
-        before,
-        `background delivery failed: ${backgroundDelivery.error ?? "unknown error"}`
-      );
+    if (spec.delivery !== void 0 && spec.delivery !== "background" && spec.delivery !== "foreground") {
+      return keystrokeFailure(chord, before, before, "delivery must be background or foreground; no key sent");
     }
+    if (before.startsWith("error:")) return keystrokeFailure(chord, before, before, "Pre-action AX observation failed; no key sent");
+    const foreground = spec.delivery === "foreground";
+    const delivery = await deliver(pid, chord, foreground);
+    if (delivery.success !== true) return keystrokeFailure(chord, before, before, `delivery failed or uncertain: ${delivery.error ?? "unknown error"}`);
     await sleep2(SETTLE_MS);
-    const afterBackground = await safeSignature();
-    if (afterBackground !== before) {
-      return keystrokeSuccess(chord, "cgevent-pid-background", before, afterBackground);
-    }
-    const foregroundDelivery = await deliver(pid, chord, true);
-    if (!foregroundDelivery.success) {
-      return keystrokeFailure(
-        chord,
-        before,
-        afterBackground,
-        `background delivery produced no observable change; foreground-activate retry failed: ${foregroundDelivery.error ?? "unknown error"}`
-      );
-    }
-    await sleep2(SETTLE_MS);
-    const afterForeground = await safeSignature();
-    if (afterForeground !== before) {
-      return keystrokeSuccess(chord, "cgevent-foreground-fallback", before, afterForeground);
+    const after = await safeSignature();
+    if (!after.startsWith("error:") && after !== before) {
+      return keystrokeSuccess(chord, foreground ? "cgevent-foreground" : "cgevent-pid-background", before, after);
     }
     return keystrokeFailure(
       chord,
       before,
-      afterForeground,
-      "no observable AX state change after background and foreground-activate delivery"
+      after,
+      "Chord delivered once; effect unobservable in AX. Inspect before another action; no automatic retry was sent."
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -44591,6 +44575,23 @@ var DaemonBackend = class {
     );
   }
   async performAction(target, input) {
+    if (input.action === "resizeWindow") {
+      if (!this.usable) return this.fallback.performAction(target, input);
+      try {
+        await this.daemon.start();
+      } catch {
+        this.usable = false;
+        return this.fallback.performAction(target, input);
+      }
+      try {
+        if (target.kind !== "macos") return { success: false, action: input.action, error: "resizeWindow requires macOS" };
+        const resp = await this.daemon.request({ op: "action", target: { kind: "macos", pid: target.pid }, ...input });
+        return resp.ok ? resp.result : { success: false, action: input.action, error: resp.error };
+      } catch (err) {
+        this.usable = false;
+        return { success: false, action: input.action, error: `Resize delivery uncertain; inspect before another action: ${String(err)}` };
+      }
+    }
     return this.withFallback(
       async () => {
         if (target.kind === "macos") {
@@ -44644,17 +44645,7 @@ var DaemonBackend = class {
       () => this.fallback.captureScreenshot(target, outputPath)
     );
   }
-  /**
-   * Deliver a keyboard chord via the daemon's `keystroke` op (E2-B). Unlike
-   * `extract`/`performAction`/`captureScreenshot`, this does not route through
-   * `withFallback` for the whole call — if the daemon is already unusable (or
-   * fails to start), the ENTIRE capability (delivery + AX-diff validation)
-   * delegates to `RespawnBackend.keystroke` so the before/after signatures
-   * come from one consistent backend. If the daemon dies mid-request (a
-   * request already in flight when it crashes), this attempt still completes
-   * by falling through to the one-shot binary for just the raw delivery,
-   * rather than aborting — the kill-9 auto-fallback, applied per-request.
-   */
+  /** A pre-dispatch startup failure may use respawn; a lost delivery response never replays. */
   async keystroke(target, spec) {
     if (!this.usable) return this.fallback.keystroke(target, spec);
     try {
@@ -44681,7 +44672,7 @@ var DaemonBackend = class {
         } catch (err) {
           if (err instanceof DaemonError) {
             this.usable = false;
-            return deliverKeystrokeOneShot(pid, chord, foreground);
+            return { success: false, error: "Keyboard delivery uncertain after daemon response loss; inspect before another action. No replay was sent." };
           }
           throw err;
         }
@@ -44876,6 +44867,40 @@ function classifyExtractorError(err) {
     };
   }
   return null;
+}
+
+// src/native/window-resize.ts
+function object2(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : void 0;
+}
+function frame(value) {
+  const v = object2(value);
+  return !!v && ["x", "y", "width", "height"].every((k) => typeof v[k] === "number" && Number.isFinite(v[k])) && Number(v.width) > 0 && Number(v.height) > 0;
+}
+async function runResizeWindowCapability(backend, target, spec) {
+  const expected = "Exact session PID and unique AXWindow reach requested outer size within 0.5 points";
+  const fail = (message, readback) => ({
+    success: false,
+    validator: { expected, observed: message, passed: false },
+    provenance: {},
+    evidence: { beforeSignature: "window-resize", afterSignature: JSON.stringify(readback ?? null), diff: message, alternatives: [] },
+    ...readback !== void 0 ? { resizeWindow: readback } : {}
+  });
+  if (target.kind !== "macos") return fail("resizeWindow requires a macOS session; no action sent");
+  if (![spec.width, spec.height].every((n) => typeof n === "number" && Number.isFinite(n) && n >= 1 && n <= 16384) || spec.windowTitle !== void 0 && typeof spec.windowTitle !== "string") return fail("width/height must be finite numbers in 1..16384; windowTitle must be a string; no action sent");
+  try {
+    const result = await backend.performAction(target, { action: "resizeWindow", elementPath: [], value: JSON.stringify({ width: spec.width, height: spec.height, windowTitle: spec.windowTitle }) });
+    const e = object2(result.resizeWindow);
+    const requested = object2(e?.requested);
+    const valid = e && e.pid === target.pid && typeof e.windowTitle === "string" && (spec.windowTitle === void 0 || e.windowTitle === spec.windowTitle) && requested?.width === spec.width && requested?.height === spec.height && e.tolerance === 0.5 && frame(e.before) && frame(e.actual);
+    if (result.success !== true || result.action !== "resizeWindow") return fail(result.error ?? "Resize failed or returned an invalid result envelope", result.resizeWindow);
+    if (!valid) return fail("Resize returned missing or mismatched measured evidence", result.resizeWindow);
+    const actual = e.actual;
+    if (Math.abs(actual.width - spec.width) > 0.5 || Math.abs(actual.height - spec.height) > 0.5) return fail("Measured size differs from requested size; app may have clamped it", e);
+    return { success: true, validator: { expected, observed: JSON.stringify(e), passed: true }, provenance: { waitResult: "same-AXWindow-readback" }, resizeWindow: e };
+  } catch (error51) {
+    return fail(`Resize outcome uncertain; inspect before another action: ${String(error51)}`);
+  }
 }
 
 // src/native/session-controller.ts
@@ -45194,8 +45219,12 @@ var NativeSessionController = class {
   async dispatchCapability(target, request) {
     let outcome;
     switch (request.action) {
+      case "resizeWindow":
+        outcome = await runResizeWindowCapability(this.backend, target, request);
+        break;
       case "keystroke":
-        outcome = await this.backend.keystroke(target, { chord: request.chord ?? request.value ?? "" });
+        if (request.target !== void 0) return errorResult("keystroke uses the focused element. Perform focus separately; no key was sent.");
+        outcome = await this.backend.keystroke(target, { chord: request.chord ?? request.value ?? "", delivery: request.delivery });
         break;
       case "app":
         outcome = await this.backend.lifecycle(target, { op: request.op ?? "switch", app: request.app });
@@ -46457,7 +46486,8 @@ var NATIVE_ACTION_KIND_VALUES = [
   "drag",
   "keystroke",
   "app",
-  "menuPath"
+  "menuPath",
+  "resizeWindow"
 ];
 function errorResponse(text) {
   return { content: [{ type: "text", text }], isError: true };
@@ -46542,13 +46572,17 @@ async function handleNativeSessionAction(args) {
     waitFor,
     waitTimeoutMs,
     chord,
+    delivery,
+    width,
+    height,
+    windowTitle,
     op,
     app,
     menuPath
   } = args;
   const entry = sessions.get(sessionId);
   if (!entry) return errorResponse("Session not found. Use native_session_start first.");
-  const request = { action, target, value, role, waitFor, waitTimeoutMs, chord, op, app, menuPath };
+  const request = { action, target, value, role, waitFor, waitTimeoutMs, chord, delivery, width, height, windowTitle, op, app, menuPath };
   if (entry.type === "macos") return await runMacOSSessionAction(entry, request);
   if (entry.type === "simulator") return await runSimulatorSessionAction(entry, request);
   return errorResponse(`Session ${sessionId} is a ${entry.type} web session. Use session_action for web sessions.`);
@@ -46627,7 +46661,7 @@ var NATIVE_SESSION_TOOLS = [
   },
   {
     name: "native_session_action",
-    description: 'Perform a cursor-free native action by accessible name: click/press, fill/type, focus, showMenu, increment, decrement, confirm, cancel, scrollToVisible, check, select \u2014 or an Epic-2 capability kind: keystroke (live chord synthesis to the focused element), app (live lifecycle op: launch/switch/quit), menuPath (live AXMenu traversal). Uses Accessibility APIs instead of moving the host cursor. Element verbs require `target`; keystroke/app/menuPath accept an optional `target`. `drag` (target + `value` "dx,dy" point delta) is the one non-cursor-free verb \u2014 for split/inspector dividers with no settable AXValue \u2014 and is refused unless IBR_ALLOW_POINTER_INJECTION is set, because it moves the host cursor.',
+    description: 'Perform a cursor-free native action by accessible name: click/press, fill/type, focus, showMenu, increment, decrement, confirm, cancel, scrollToVisible, check, select \u2014 or an Epic-2 capability kind: keystroke (live chord synthesis to the focused element), app (live lifecycle op: launch/switch/quit), menuPath (live AXMenu traversal). Uses Accessibility APIs instead of moving the host cursor. Element verbs require `target`; app/menuPath accept an optional `target`; keystroke requires a separate focus action. resizeWindow uses width/height outer points and optional exact unique windowTitle. `drag` (target + `value` "dx,dy" point delta) is the one non-cursor-free verb \u2014 for split/inspector dividers with no settable AXValue \u2014 and is refused unless IBR_ALLOW_POINTER_INJECTION is set, because it moves the host cursor.',
     inputSchema: {
       type: "object",
       properties: {
@@ -46635,11 +46669,15 @@ var NATIVE_SESSION_TOOLS = [
         action: {
           type: "string",
           enum: [...NATIVE_ACTION_KIND_VALUES],
-          description: 'Native action to perform. Element verbs (click/press/fill/type/focus/showMenu/increment/decrement/confirm/cancel/scroll/scrollToVisible/check/select/drag) require `target`. `drag` (value="dx,dy" point delta) is opt-in via IBR_ALLOW_POINTER_INJECTION and moves the host cursor. Capability kinds keystroke/app/menuPath are live (Epic 2) and accept an optional `target`.'
+          description: 'Native action to perform. Element verbs (click/press/fill/type/focus/showMenu/increment/decrement/confirm/cancel/scroll/scrollToVisible/check/select/drag) require `target`. `drag` (value="dx,dy" point delta) is opt-in via IBR_ALLOW_POINTER_INJECTION and moves the host cursor. Capabilities include keystroke (focus separately), app/menuPath, and resizeWindow (macOS only, measured same-window readback).'
         },
-        target: { type: "string", description: "Accessible name, AX identifier, description, or visible value to target. Required for element verbs; optional for keystroke/app/menuPath." },
+        target: { type: "string", description: "Accessible name, AX identifier, description, or visible value to target. Required for element verbs; optional for app/menuPath. Focus separately for keystroke; resizeWindow uses windowTitle." },
         value: { type: "string", description: "Text for fill/type/setValue actions" },
         role: { type: "string", description: "Optional role filter (button, textbox, checkbox, AXButton, etc.)" },
+        delivery: { type: "string", enum: ["background", "foreground"], description: "Keyboard delivery mode; default background. Foreground activates exact session PID. One attempt only; inspect unobservable effects before another action." },
+        width: { type: "number", minimum: 1, maximum: 16384, description: "resizeWindow outer width in points" },
+        height: { type: "number", minimum: 1, maximum: 16384, description: "resizeWindow outer height in points" },
+        windowTitle: { type: "string", description: "resizeWindow exact unique AXWindow title (empty title allowed); omission requires exactly one window" },
         chord: {
           type: "string",
           description: "Keyboard chord for the `keystroke` action, e.g. 'Meta+n', 'Tab', 'Escape'. Live \u2014 synthesized as CGEvents to the focused element (E2-B)."

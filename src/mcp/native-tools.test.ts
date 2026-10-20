@@ -617,3 +617,23 @@ describe('E4-B: per-kind target requiredness', () => {
     expect(mnu.deliverMenuOneShot).toHaveBeenCalled();
   });
 });
+
+describe('native window control MCP parity', () => {
+  it('exposes resize dimensions, exact title and one-shot delivery mode', async () => {
+    const tool = await getTool('native_session_action');
+    const props = tool.inputSchema.properties as Record<string, { type?: string; enum?: string[] }>;
+    expect(props.action.enum).toContain('resizeWindow');
+    expect(props.width.type).toBe('number');
+    expect(props.height.type).toBe('number');
+    expect(props.windowTitle.type).toBe('string');
+    expect(props.delivery.enum).toEqual(['background', 'foreground']);
+  });
+  it('routes exact empty title and measured readback through the real controller', async () => {
+    await seed('resize-test', { driver: null, type: 'macos', app: 'Editor', pid: 9999, createdAt: Date.now() });
+    const frame = { x: 10, y: 20, width: 900, height: 650 };
+    act.performNativeAction.mockResolvedValue({ success: true, action: 'resizeWindow', resizeWindow: { pid: 9999, windowTitle: '', requested: { width: 900, height: 650 }, before: frame, actual: frame, tolerance: 0.5 } });
+    const result = await call('native_session_action', { sessionId: 'resize-test', action: 'resizeWindow', width: 900, height: 650, windowTitle: '' });
+    expect(result.isError).toBeUndefined();
+    expect(act.performNativeAction).toHaveBeenLastCalledWith(expect.objectContaining({ pid: 9999, action: 'resizeWindow', value: '{"width":900,"height":650,"windowTitle":""}' }));
+  });
+});

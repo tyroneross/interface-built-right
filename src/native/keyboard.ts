@@ -1,30 +1,5 @@
-/**
- * Keyboard synthesis capability (E2-B) — chord delivery + the before/after AX
- * diff that turns a raw CGEvent post into a validated `ActionOutcome`.
- *
- * Delivery is a two-phase attempt, mirroring the 3e9375a foreground-retry
- * machinery already used for extraction (`macos.ts`'s `activateMacOSProcess` /
- * `retryMacOSExtractionAfterActivation`):
- *   1. Background — `CGEventPostToPid` (Swift `deliverKeystroke(foreground:
- *      false)`). Does not steal focus, but `CGEventPostToPid` has no return
- *      value — Apple's own developer forums document apps that ignore or
- *      misroute events posted this way, so "success" here only means the
- *      event was constructed and posted, not that anything reacted.
- *   2. Foreground — only attempted when (1) produced no observable change:
- *      activates the target app, then posts via the global HID tap (the same
- *      mechanism `mobile-ui/sim-driver` already uses, generalized from a
- *      hardcoded simulator bundle id to an arbitrary pid).
- *
- * The validator is a generic AX-state diff (window id/title + focused element
- * path + element count) taken before and after each attempt — no semantic
- * knowledge of what a given chord is "supposed" to do. `passed` is true the
- * first time the signature changes; if neither attempt produces an observable
- * change, the outcome is a structured failure with before/after evidence —
- * the same honesty contract as F-09's "click that changes nothing" case.
- *
- * `runKeystrokeCapability` never throws: any failure (bad chord, missing
- * target process, AX I/O error) is folded into a failing `ActionOutcome`, so
- * `NativeBackend.keystroke` implementations stay structured-never-a-throw.
+/** Keyboard synthesis: one explicitly selected delivery, followed by AX observation.
+ * An unchanged tree does not prove a key was ignored. Never repeat it automatically.
  */
 
 import { execFile } from 'child_process';
@@ -60,7 +35,7 @@ export async function resolveKeystrokeTargetPid(target: NativeSessionTarget): Pr
 /**
  * Deliver a chord via the one-shot Swift extractor binary — the path
  * `RespawnBackend` always uses, and `DaemonBackend`'s respawn fallback uses
- * when the daemon has died mid-request.
+ * before any daemon request was dispatched.
  */
 export const deliverKeystrokeOneShot: KeystrokeDeliverFn = async (pid, chord, foreground) => {
   const extractorPath = await ensureExtractor();
@@ -122,14 +97,7 @@ function keystrokeFailure(chord: string, before: string, after: string, diff: st
   };
 }
 
-/**
- * Run the full keystroke capability: resolve the target pid, capture a
- * before-signature, attempt background delivery, diff, and — only when the
- * background attempt delivered successfully but produced no observable
- * change — retry once via the foreground-activate path before declaring
- * failure. A hard delivery failure (unparseable chord, no such process) is
- * not retried in the other mode since the fault is not delivery-mode-specific.
- */
+/** Deliver once; report unobservable effects without retrying. */
 export async function runKeystrokeCapability(opts: {
   target: NativeSessionTarget;
   spec: KeystrokeSpec;
@@ -152,38 +120,20 @@ export async function runKeystrokeCapability(opts: {
     const pid = await resolvePid();
     const before = await safeSignature();
 
-    const backgroundDelivery = await deliver(pid, chord, false);
-    if (!backgroundDelivery.success) {
-      return keystrokeFailure(
-        chord, before, before,
-        `background delivery failed: ${backgroundDelivery.error ?? 'unknown error'}`,
-      );
+    if (spec.delivery !== undefined && spec.delivery !== 'background' && spec.delivery !== 'foreground') {
+      return keystrokeFailure(chord, before, before, 'delivery must be background or foreground; no key sent');
     }
+    if (before.startsWith('error:')) return keystrokeFailure(chord, before, before, 'Pre-action AX observation failed; no key sent');
+    const foreground = spec.delivery === 'foreground';
+    const delivery = await deliver(pid, chord, foreground);
+    if (delivery.success !== true) return keystrokeFailure(chord, before, before, `delivery failed or uncertain: ${delivery.error ?? 'unknown error'}`);
     await sleep(SETTLE_MS);
-    const afterBackground = await safeSignature();
-    if (afterBackground !== before) {
-      return keystrokeSuccess(chord, 'cgevent-pid-background', before, afterBackground);
+    const after = await safeSignature();
+    if (!after.startsWith('error:') && after !== before) {
+      return keystrokeSuccess(chord, foreground ? 'cgevent-foreground' : 'cgevent-pid-background', before, after);
     }
-
-    // Background delivery posted but produced no observable change — retry
-    // via foreground-activate before declaring the chord a no-op.
-    const foregroundDelivery = await deliver(pid, chord, true);
-    if (!foregroundDelivery.success) {
-      return keystrokeFailure(
-        chord, before, afterBackground,
-        `background delivery produced no observable change; foreground-activate retry failed: ${foregroundDelivery.error ?? 'unknown error'}`,
-      );
-    }
-    await sleep(SETTLE_MS);
-    const afterForeground = await safeSignature();
-    if (afterForeground !== before) {
-      return keystrokeSuccess(chord, 'cgevent-foreground-fallback', before, afterForeground);
-    }
-
-    return keystrokeFailure(
-      chord, before, afterForeground,
-      'no observable AX state change after background and foreground-activate delivery',
-    );
+    return keystrokeFailure(chord, before, after,
+      'Chord delivered once; effect unobservable in AX. Inspect before another action; no automatic retry was sent.');
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return keystrokeFailure(chord, 'unavailable', 'unavailable', `keystroke capability failed: ${message}`);

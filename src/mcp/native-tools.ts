@@ -38,7 +38,7 @@ import type { AppLifecycleOp } from '../native/backend.js';
 export const NATIVE_ACTION_KIND_VALUES = [
   'click', 'press', 'fill', 'type', 'focus', 'showMenu', 'increment',
   'decrement', 'confirm', 'cancel', 'scroll', 'scrollToVisible', 'check',
-  'select', 'drag', 'keystroke', 'app', 'menuPath',
+  'select', 'drag', 'keystroke', 'app', 'menuPath', 'resizeWindow',
 ] as const;
 
 /**
@@ -198,7 +198,7 @@ async function handleNativeSessionAction(args: Record<string, unknown>): Promise
     role,
     waitFor,
     waitTimeoutMs,
-    chord,
+    chord, delivery, width, height, windowTitle,
     op,
     app,
     menuPath,
@@ -213,6 +213,10 @@ async function handleNativeSessionAction(args: Record<string, unknown>): Promise
     // Capability params (Epic 2, now LIVE) — additive; wired through to the
     // controller's generic capability dispatch (keystroke/app/menuPath).
     chord?: string;
+    delivery?: 'background' | 'foreground';
+    width?: number;
+    height?: number;
+    windowTitle?: string;
     op?: AppLifecycleOp;
     app?: string;
     menuPath?: string[];
@@ -220,7 +224,7 @@ async function handleNativeSessionAction(args: Record<string, unknown>): Promise
 
   const entry = sessions.get(sessionId);
   if (!entry) return errorResponse('Session not found. Use native_session_start first.');
-  const request = { action, target, value, role, waitFor, waitTimeoutMs, chord, op, app, menuPath };
+  const request = { action, target, value, role, waitFor, waitTimeoutMs, chord, delivery, width, height, windowTitle, op, app, menuPath };
   if (entry.type === 'macos') return await runMacOSSessionAction(entry, request);
   if (entry.type === 'simulator') return await runSimulatorSessionAction(entry, request);
   return errorResponse(`Session ${sessionId} is a ${entry.type} web session. Use session_action for web sessions.`);
@@ -314,7 +318,7 @@ export const NATIVE_SESSION_TOOLS = [
   {
     name: "native_session_action",
     description:
-      "Perform a cursor-free native action by accessible name: click/press, fill/type, focus, showMenu, increment, decrement, confirm, cancel, scrollToVisible, check, select — or an Epic-2 capability kind: keystroke (live chord synthesis to the focused element), app (live lifecycle op: launch/switch/quit), menuPath (live AXMenu traversal). Uses Accessibility APIs instead of moving the host cursor. Element verbs require `target`; keystroke/app/menuPath accept an optional `target`. `drag` (target + `value` \"dx,dy\" point delta) is the one non-cursor-free verb — for split/inspector dividers with no settable AXValue — and is refused unless IBR_ALLOW_POINTER_INJECTION is set, because it moves the host cursor.",
+      "Perform a cursor-free native action by accessible name: click/press, fill/type, focus, showMenu, increment, decrement, confirm, cancel, scrollToVisible, check, select — or an Epic-2 capability kind: keystroke (live chord synthesis to the focused element), app (live lifecycle op: launch/switch/quit), menuPath (live AXMenu traversal). Uses Accessibility APIs instead of moving the host cursor. Element verbs require `target`; app/menuPath accept an optional `target`; keystroke requires a separate focus action. resizeWindow uses width/height outer points and optional exact unique windowTitle. `drag` (target + `value` \"dx,dy\" point delta) is the one non-cursor-free verb — for split/inspector dividers with no settable AXValue — and is refused unless IBR_ALLOW_POINTER_INJECTION is set, because it moves the host cursor.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -322,11 +326,15 @@ export const NATIVE_SESSION_TOOLS = [
         action: {
           type: "string",
           enum: [...NATIVE_ACTION_KIND_VALUES],
-          description: "Native action to perform. Element verbs (click/press/fill/type/focus/showMenu/increment/decrement/confirm/cancel/scroll/scrollToVisible/check/select/drag) require `target`. `drag` (value=\"dx,dy\" point delta) is opt-in via IBR_ALLOW_POINTER_INJECTION and moves the host cursor. Capability kinds keystroke/app/menuPath are live (Epic 2) and accept an optional `target`.",
+          description: "Native action to perform. Element verbs (click/press/fill/type/focus/showMenu/increment/decrement/confirm/cancel/scroll/scrollToVisible/check/select/drag) require `target`. `drag` (value=\"dx,dy\" point delta) is opt-in via IBR_ALLOW_POINTER_INJECTION and moves the host cursor. Capabilities include keystroke (focus separately), app/menuPath, and resizeWindow (macOS only, measured same-window readback).",
         },
-        target: { type: "string", description: "Accessible name, AX identifier, description, or visible value to target. Required for element verbs; optional for keystroke/app/menuPath." },
+        target: { type: "string", description: "Accessible name, AX identifier, description, or visible value to target. Required for element verbs; optional for app/menuPath. Focus separately for keystroke; resizeWindow uses windowTitle." },
         value: { type: "string", description: "Text for fill/type/setValue actions" },
         role: { type: "string", description: "Optional role filter (button, textbox, checkbox, AXButton, etc.)" },
+        delivery: { type: "string", enum: ["background", "foreground"], description: "Keyboard delivery mode; default background. Foreground activates exact session PID. One attempt only; inspect unobservable effects before another action." },
+        width: { type: "number", minimum: 1, maximum: 16384, description: "resizeWindow outer width in points" },
+        height: { type: "number", minimum: 1, maximum: 16384, description: "resizeWindow outer height in points" },
+        windowTitle: { type: "string", description: "resizeWindow exact unique AXWindow title (empty title allowed); omission requires exactly one window" },
         chord: {
           type: "string",
           description: "Keyboard chord for the `keystroke` action, e.g. 'Meta+n', 'Tab', 'Escape'. Live — synthesized as CGEvents to the focused element (E2-B).",

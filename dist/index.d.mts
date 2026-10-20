@@ -8854,11 +8854,13 @@ type SessionEntry = {
  * and the coordinate-based IDB interaction API.
  */
 
-type NativeAction = 'press' | 'select' | 'setValue' | 'increment' | 'decrement' | 'showMenu' | 'confirm' | 'cancel' | 'focus' | 'scrollToVisible' | 'drag';
+type NativeAction = 'press' | 'select' | 'setValue' | 'increment' | 'decrement' | 'showMenu' | 'confirm' | 'cancel' | 'focus' | 'scrollToVisible' | 'drag' | 'resizeWindow';
 interface NativeActionResult {
     success: boolean;
     action: string;
     error?: string;
+    /** Untrusted Swift readback; validated by window-resize.ts. */
+    resizeWindow?: unknown;
 }
 interface NativeElementCandidate {
     path?: number[];
@@ -9064,6 +9066,8 @@ type NativeScreenshotCapture = {
 interface KeystrokeSpec {
     /** Chord in `Modifier+Modifier+Key` form (e.g. "Meta+n", "Tab", "Escape"). */
     chord: string;
+    /** One delivery only. Foreground explicitly activates the session PID. */
+    delivery?: 'background' | 'foreground';
 }
 /** App lifecycle operation (Epic 2). */
 type AppLifecycleOp = 'launch' | 'switch' | 'quit';
@@ -9170,17 +9174,7 @@ declare class DaemonBackend implements NativeBackend {
     extract(target: NativeSessionTarget): Promise<NativeExtraction>;
     performAction(target: NativeSessionTarget, input: NativePerformInput): Promise<NativeActionResult>;
     captureScreenshot(target: NativeSessionTarget, outputPath: string): Promise<NativeScreenshotCapture>;
-    /**
-     * Deliver a keyboard chord via the daemon's `keystroke` op (E2-B). Unlike
-     * `extract`/`performAction`/`captureScreenshot`, this does not route through
-     * `withFallback` for the whole call — if the daemon is already unusable (or
-     * fails to start), the ENTIRE capability (delivery + AX-diff validation)
-     * delegates to `RespawnBackend.keystroke` so the before/after signatures
-     * come from one consistent backend. If the daemon dies mid-request (a
-     * request already in flight when it crashes), this attempt still completes
-     * by falling through to the one-shot binary for just the raw delivery,
-     * rather than aborting — the kill-9 auto-fallback, applied per-request.
-     */
+    /** A pre-dispatch startup failure may use respawn; a lost delivery response never replays. */
     keystroke(target: NativeSessionTarget, spec: KeystrokeSpec): Promise<ActionOutcome>;
     /**
      * App lifecycle (E2-C) is OS-level process control (`open`/`osascript`), not
@@ -9245,7 +9239,7 @@ type NativeToolResult = {
 /** Element-targeting action kinds — `target` is REQUIRED. */
 type ElementActionKind = 'click' | 'press' | 'fill' | 'type' | 'focus' | 'showMenu' | 'increment' | 'decrement' | 'confirm' | 'cancel' | 'scroll' | 'scrollToVisible' | 'check' | 'select' | 'drag';
 /** The full v1 native action kind union (element verbs + Epic-2 capabilities). */
-type NativeActionKind = ElementActionKind | 'keystroke' | 'app' | 'menuPath';
+type NativeActionKind = ElementActionKind | 'keystroke' | 'app' | 'menuPath' | 'resizeWindow';
 /** Element action — `target` required. */
 interface ElementActionRequest {
     action: ElementActionKind;
@@ -9259,7 +9253,9 @@ interface ElementActionRequest {
 interface KeystrokeActionRequest {
     action: 'keystroke';
     chord: string;
-    target?: string;
+    delivery?: 'background' | 'foreground';
+    /** Focus separately before keystroke; supplying target is rejected. */
+    target?: never;
     waitFor?: string;
     waitTimeoutMs?: number;
 }
@@ -9286,7 +9282,12 @@ interface MenuActionRequest {
  * The Wave-0 MCP wire does not yet expose the capability kinds (E4-B extends the
  * enum against this union).
  */
-type NativeActionRequest = ElementActionRequest | KeystrokeActionRequest | AppLifecycleActionRequest | MenuActionRequest;
+type NativeActionRequest = ElementActionRequest | KeystrokeActionRequest | AppLifecycleActionRequest | MenuActionRequest | {
+    action: 'resizeWindow';
+    width: number;
+    height: number;
+    windowTitle?: string;
+};
 /**
  * Loose runtime carrier for an action request, as built by the MCP handlers
  * (web `session_action` and `native_session_action`). Frozen delegation
@@ -9302,6 +9303,10 @@ interface NativeSessionActionRequest {
     waitFor?: string;
     waitTimeoutMs?: number;
     chord?: string;
+    delivery?: 'background' | 'foreground';
+    width?: number;
+    height?: number;
+    windowTitle?: string;
     op?: AppLifecycleOp;
     app?: string;
     menuPath?: string[];

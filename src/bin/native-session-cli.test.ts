@@ -398,3 +398,28 @@ describe('record -> replay round trip and ref safety', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe('native window/key CLI parity', () => {
+  it('passes exact title and dimensions to the measured resize capability', async () => {
+    const backend = new FakeBackend();
+    const frame = { x: 100, y: 200, width: 900, height: 650 };
+    backend.actionResult = { success: true, action: 'resizeWindow', resizeWindow: { pid: 4242, windowTitle: '', requested: { width: 900, height: 650 }, before: frame, actual: frame, tolerance: 0.5 } };
+    const perform = vi.spyOn(backend, 'performAction');
+    const deps = fakeDeps(backend, { s1: { type: 'macos', app: 'Editor', pid: 4242, createdAt: 1 } });
+    const result = await handleAction({ sessionId: 's1', action: 'resizeWindow', width: 900, height: 650, windowTitle: '' }, deps);
+    expect(result.exitCode).toBe(EXIT_OK);
+    expect(result.json.resizeWindow).toMatchObject({ actual: frame });
+    expect(perform).toHaveBeenCalledWith({ kind: 'macos', pid: 4242, app: 'Editor' }, { action: 'resizeWindow', elementPath: [], value: '{"width":900,"height":650,"windowTitle":""}' });
+  });
+  it('passes explicit foreground delivery and rejects a misleading target before keys', async () => {
+    const backend = new FakeBackend();
+    const keys = vi.spyOn(backend, 'keystroke');
+    const deps = fakeDeps(backend, { s1: { type: 'macos', app: 'Editor', pid: 4242, createdAt: 1 } });
+    await handleAction({ sessionId: 's1', action: 'keystroke', chord: 'Tab', delivery: 'foreground' }, deps);
+    expect(keys).toHaveBeenCalledWith(expect.objectContaining({ pid: 4242 }), { chord: 'Tab', delivery: 'foreground' });
+    keys.mockClear();
+    const result = await handleAction({ sessionId: 's1', action: 'keystroke', chord: 'a', target: 'Editor' }, deps);
+    expect(result.exitCode).not.toBe(EXIT_OK);
+    expect(keys).not.toHaveBeenCalled();
+  });
+});

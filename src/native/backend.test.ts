@@ -7,7 +7,7 @@ import {
   getNativeBackend,
   __setNativeBackend,
 } from './backend.js';
-import { AXDaemon } from './daemon.js';
+import { AXDaemon, DaemonError } from './daemon.js';
 import type { NativeExtraction, NativePerformInput, NativeSessionTarget } from './backend.js';
 import type { NativeActionResult } from './actions.js';
 import type { ActionOutcome } from '../action-outcome.js';
@@ -238,12 +238,11 @@ describe('DaemonBackend.keystroke (E2-B)', () => {
     expect(outcome.validator.passed).toBe(false);
     expect(outcome.evidence?.beforeSignature).toBeDefined();
     expect(outcome.evidence?.afterSignature).toBeDefined();
-    // Two attempts: background, then the foreground-activate retry.
+    // An unchanged signature must never trigger another key.
     const calls = (daemon.request as ReturnType<typeof vi.fn>).mock.calls as Array<[Record<string, unknown>]>;
     const keystrokeCalls = calls.filter(([req]) => req.op === 'keystroke');
-    expect(keystrokeCalls.length).toBe(2);
+    expect(keystrokeCalls.length).toBe(1);
     expect(keystrokeCalls[0][0].foreground).toBe(false);
-    expect(keystrokeCalls[1][0].foreground).toBe(true);
   });
 });
 
@@ -328,5 +327,31 @@ describe('DaemonBackend.menu (E2-D)', () => {
     expect(outcome.validator.passed).toBe(false);
     expect(outcome.evidence?.beforeSignature).toBeDefined();
     expect(outcome.evidence?.afterSignature).toBeDefined();
+  });
+});
+
+describe('uncertain mutation delivery', () => {
+  it('does not replay a chord when its daemon response is lost', async () => {
+    const daemon = fakeDaemon({ extractResults: [{ ok: true, result: { window: { windowId: 1, width: 800, height: 600, title: 'Editor' }, elements: [] } }] });
+    vi.mocked(daemon.request).mockImplementation(async req => {
+      if (req.op === 'keystroke') throw new DaemonError('response lost');
+      return { ok: true, result: { window: { windowId: 1, width: 800, height: 600, title: 'Editor' }, elements: [] } };
+    });
+    const fallback = fallbackStub();
+    const result = await new DaemonBackend({ daemon, fallback }).keystroke({ kind: 'macos', pid: 42 }, { chord: 'a' });
+    expect(result.success).toBe(false);
+    expect(result.validator.observed).toMatch(/uncertain/);
+    expect(fallback.keystroke).not.toHaveBeenCalled();
+    expect(vi.mocked(daemon.request).mock.calls.filter(([r]) => r.op === 'keystroke')).toHaveLength(1);
+  });
+  it('does not select and resize another window after a lost response', async () => {
+    const daemon = fakeDaemon({ extractResults: [] });
+    vi.mocked(daemon.request).mockRejectedValue(new DaemonError('response lost'));
+    const fallback = fallbackStub();
+    const result = await new DaemonBackend({ daemon, fallback }).performAction({ kind: 'macos', pid: 42 }, { action: 'resizeWindow', elementPath: [], value: '{"width":900,"height":650}' });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/uncertain/);
+    expect(fallback.performAction).not.toHaveBeenCalled();
+    expect(daemon.request).toHaveBeenCalledTimes(1);
   });
 });

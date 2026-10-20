@@ -50,6 +50,8 @@ import {
 import { findProcess, findDevice, bootDevice, getDeviceViewport } from './index.js';
 import type { ActionOutcome } from '../action-outcome.js';
 
+import { runResizeWindowCapability } from './window-resize.js';
+
 const DEFAULT_OUTPUT_DIR = '.ibr';
 
 // ─── Result carrier (mapped to McpResponse by native-tools.ts) ───────────────
@@ -94,7 +96,7 @@ export type ElementActionKind =
   | 'drag';
 
 /** The full v1 native action kind union (element verbs + Epic-2 capabilities). */
-export type NativeActionKind = ElementActionKind | 'keystroke' | 'app' | 'menuPath';
+export type NativeActionKind = ElementActionKind | 'keystroke' | 'app' | 'menuPath' | 'resizeWindow';
 
 /** Element action — `target` required. */
 export interface ElementActionRequest {
@@ -110,7 +112,9 @@ export interface ElementActionRequest {
 export interface KeystrokeActionRequest {
   action: 'keystroke';
   chord: string;
-  target?: string;
+  delivery?: 'background' | 'foreground';
+  /** Focus separately before keystroke; supplying target is rejected. */
+  target?: never;
   waitFor?: string;
   waitTimeoutMs?: number;
 }
@@ -144,7 +148,8 @@ export type NativeActionRequest =
   | ElementActionRequest
   | KeystrokeActionRequest
   | AppLifecycleActionRequest
-  | MenuActionRequest;
+  | MenuActionRequest
+  | { action: 'resizeWindow'; width: number; height: number; windowTitle?: string };
 
 /**
  * Loose runtime carrier for an action request, as built by the MCP handlers
@@ -162,6 +167,10 @@ export interface NativeSessionActionRequest {
   waitTimeoutMs?: number;
   // Capability params (Epic 2) — present only once the enum is extended (E4-B).
   chord?: string;
+  delivery?: 'background' | 'foreground';
+  width?: number;
+  height?: number;
+  windowTitle?: string;
   op?: AppLifecycleOp;
   app?: string;
   menuPath?: string[];
@@ -542,8 +551,12 @@ export class NativeSessionController {
   ): Promise<NativeToolResult | null> {
     let outcome: ActionOutcome;
     switch (request.action) {
+      case 'resizeWindow':
+        outcome = await runResizeWindowCapability(this.backend, target, request);
+        break;
       case 'keystroke':
-        outcome = await this.backend.keystroke(target, { chord: request.chord ?? request.value ?? '' });
+        if (request.target !== undefined) return errorResult('keystroke uses the focused element. Perform focus separately; no key was sent.');
+        outcome = await this.backend.keystroke(target, { chord: request.chord ?? request.value ?? '', delivery: request.delivery });
         break;
       case 'app':
         outcome = await this.backend.lifecycle(target, { op: request.op ?? 'switch', app: request.app });
