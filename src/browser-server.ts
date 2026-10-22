@@ -7,6 +7,7 @@ import { nanoid } from 'nanoid';
 import { VIEWPORTS, type Viewport, type EnhancedElement, type AuditResult } from './schemas.js';
 import { viewportToConfig } from './devices.js';
 import type { BrowserConnectionOptions, BrowserMode } from './engine/cdp/browser.js';
+import { sweepStaleChromeCodeSignClones } from './engine/cdp/browser.js';
 import {
   CDP_PROBE_TIMEOUT_MS,
   WS_CONNECT_TIMEOUT_MS,
@@ -261,6 +262,7 @@ export async function inspectBrowserServer(outputDir: string): Promise<ServerIns
   if (state.pid && state.pid !== process.pid && !pidAlive(state.pid)) {
     if (state.chromePid) {
       try { process.kill(state.chromePid, 'SIGKILL'); } catch { /* already dead */ }
+      sweepStaleChromeCodeSignClones();
     }
     await cleanupServerState(outputDir);
     return {
@@ -318,6 +320,7 @@ export async function inspectBrowserServer(outputDir: string): Promise<ServerIns
     }
     if (state.chromePid) {
       try { process.kill(state.chromePid, 'SIGKILL'); } catch { /* already dead */ }
+      sweepStaleChromeCodeSignClones();
     }
     await cleanupServerState(outputDir);
     return {
@@ -590,6 +593,7 @@ export async function stopBrowserServer(outputDir: string): Promise<boolean> {
       const state = JSON.parse(content);
       if (state.chromePid) {
         process.kill(state.chromePid, 'SIGKILL');
+        sweepStaleChromeCodeSignClones();
       }
     } catch { /* PID already dead or state unreadable */ }
     await cleanupServerState(outputDir);

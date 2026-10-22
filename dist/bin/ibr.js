@@ -106,9 +106,9 @@ var init_net_timeout = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/constants.js
+// ../../git-folder/interface-built-right/node_modules/ws/lib/constants.js
 var require_constants = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/constants.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/ws/lib/constants.js"(exports2, module2) {
     "use strict";
     var BINARY_TYPES = ["nodebuffer", "arraybuffer", "fragments"];
     var hasBlob = typeof Blob !== "undefined";
@@ -129,9 +129,9 @@ var require_constants = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/buffer-util.js
+// ../../git-folder/interface-built-right/node_modules/ws/lib/buffer-util.js
 var require_buffer_util = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/buffer-util.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/ws/lib/buffer-util.js"(exports2, module2) {
     "use strict";
     var { EMPTY_BUFFER } = require_constants();
     var FastBuffer = Buffer[Symbol.species];
@@ -204,9 +204,9 @@ var require_buffer_util = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/limiter.js
+// ../../git-folder/interface-built-right/node_modules/ws/lib/limiter.js
 var require_limiter = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/limiter.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/ws/lib/limiter.js"(exports2, module2) {
     "use strict";
     var kDone = /* @__PURE__ */ Symbol("kDone");
     var kRun = /* @__PURE__ */ Symbol("kRun");
@@ -254,9 +254,9 @@ var require_limiter = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/permessage-deflate.js
+// ../../git-folder/interface-built-right/node_modules/ws/lib/permessage-deflate.js
 var require_permessage_deflate = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/permessage-deflate.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/ws/lib/permessage-deflate.js"(exports2, module2) {
     "use strict";
     var zlib = require("zlib");
     var bufferUtil = require_buffer_util();
@@ -637,9 +637,9 @@ var require_permessage_deflate = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/validation.js
+// ../../git-folder/interface-built-right/node_modules/ws/lib/validation.js
 var require_validation = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/validation.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/ws/lib/validation.js"(exports2, module2) {
     "use strict";
     var { isUtf8 } = require("buffer");
     var { hasBlob } = require_constants();
@@ -838,9 +838,9 @@ var require_validation = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/receiver.js
+// ../../git-folder/interface-built-right/node_modules/ws/lib/receiver.js
 var require_receiver = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/receiver.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/ws/lib/receiver.js"(exports2, module2) {
     "use strict";
     var { Writable } = require("stream");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -1461,9 +1461,9 @@ var require_receiver = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/sender.js
+// ../../git-folder/interface-built-right/node_modules/ws/lib/sender.js
 var require_sender = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/sender.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/ws/lib/sender.js"(exports2, module2) {
     "use strict";
     var { Duplex } = require("stream");
     var { randomFillSync } = require("crypto");
@@ -1954,9 +1954,9 @@ var require_sender = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/event-target.js
+// ../../git-folder/interface-built-right/node_modules/ws/lib/event-target.js
 var require_event_target = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/event-target.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/ws/lib/event-target.js"(exports2, module2) {
     "use strict";
     var { kForOnEventAttribute, kListener } = require_constants();
     var kCode = /* @__PURE__ */ Symbol("kCode");
@@ -2183,9 +2183,9 @@ var require_event_target = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/extension.js
+// ../../git-folder/interface-built-right/node_modules/ws/lib/extension.js
 var require_extension = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/extension.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/ws/lib/extension.js"(exports2, module2) {
     "use strict";
     var { tokenChars } = require_validation();
     function push(dest, name, elem) {
@@ -2336,9 +2336,9 @@ var require_extension = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/websocket.js
+// ../../git-folder/interface-built-right/node_modules/ws/lib/websocket.js
 var require_websocket = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/websocket.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/ws/lib/websocket.js"(exports2, module2) {
     "use strict";
     var EventEmitter2 = require("events");
     var https = require("https");
@@ -3245,9 +3245,9 @@ var require_websocket = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/stream.js
+// ../../git-folder/interface-built-right/node_modules/ws/lib/stream.js
 var require_stream = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/stream.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/ws/lib/stream.js"(exports2, module2) {
     "use strict";
     var WebSocket2 = require_websocket();
     var { Duplex } = require("stream");
@@ -3343,9 +3343,9 @@ var require_stream = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/subprotocol.js
+// ../../git-folder/interface-built-right/node_modules/ws/lib/subprotocol.js
 var require_subprotocol = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/subprotocol.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/ws/lib/subprotocol.js"(exports2, module2) {
     "use strict";
     var { tokenChars } = require_validation();
     function parse3(header) {
@@ -3388,9 +3388,9 @@ var require_subprotocol = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/websocket-server.js
+// ../../git-folder/interface-built-right/node_modules/ws/lib/websocket-server.js
 var require_websocket_server = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/ws/lib/websocket-server.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/ws/lib/websocket-server.js"(exports2, module2) {
     "use strict";
     var EventEmitter2 = require("events");
     var http = require("http");
@@ -3789,7 +3789,7 @@ var require_websocket_server = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/ws/wrapper.mjs
+// ../../git-folder/interface-built-right/node_modules/ws/wrapper.mjs
 var wrapper_exports = {};
 __export(wrapper_exports, {
   PerMessageDeflate: () => import_permessage_deflate.default,
@@ -3804,7 +3804,7 @@ __export(wrapper_exports, {
 });
 var import_stream, import_extension, import_permessage_deflate, import_receiver, import_sender, import_subprotocol, import_websocket, import_websocket_server, wrapper_default;
 var init_wrapper = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/ws/wrapper.mjs"() {
+  "../../git-folder/interface-built-right/node_modules/ws/wrapper.mjs"() {
     "use strict";
     import_stream = __toESM(require_stream(), 1);
     import_extension = __toESM(require_extension(), 1);
@@ -4092,6 +4092,92 @@ function reapOrphanedIbrChromeProcesses(options = {}) {
   }
   return result;
 }
+function chromeCodeSignCloneRoot(tempDir = (0, import_node_os.tmpdir)()) {
+  return (0, import_node_path3.join)((0, import_node_path3.dirname)(tempDir.replace(/\/+$/, "")), "X", "com.google.Chrome.code_sign_clone");
+}
+function runningChromeStartTimes(psOutput) {
+  const starts = [];
+  for (const line of psOutput.split("\n")) {
+    const match = line.match(/^\s*(\w{3}\s+\w{3}\s+\d+\s+[\d:]+\s+\d{4})\s+(.*)$/);
+    if (!match) continue;
+    const command = match[2];
+    if (!command.includes("Google Chrome.app/Contents/MacOS/Google Chrome") || command.includes("--type=")) continue;
+    const started = Date.parse(match[1]);
+    if (Number.isFinite(started)) starts.push(started);
+  }
+  return starts;
+}
+function openCodeSignClones(root, lsofOutput) {
+  if (lsofOutput === null) return null;
+  let out;
+  if (lsofOutput !== void 0) {
+    out = lsofOutput;
+  } else {
+    try {
+      out = (0, import_node_child_process2.execFileSync)("lsof", ["-w", "-Fn", "-c", "Google"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    } catch (error51) {
+      const e = error51;
+      if (e.status === 1 && typeof e.stdout === "string") out = e.stdout;
+      else return null;
+    }
+  }
+  const prefix = root.replace(/\/+$/, "") + "/";
+  const privatePrefix = prefix.startsWith("/var/") ? "/private" + prefix : prefix;
+  const open3 = /* @__PURE__ */ new Set();
+  for (const line of out.split("\n")) {
+    if (!line.startsWith("n")) continue;
+    const path3 = line.slice(1);
+    const base = path3.startsWith(prefix) ? prefix : path3.startsWith(privatePrefix) ? privatePrefix : null;
+    if (!base) continue;
+    open3.add(path3.slice(base.length).split("/")[0]);
+  }
+  return open3;
+}
+function sweepStaleChromeCodeSignClones(options = {}) {
+  const result = { removed: [], kept: [] };
+  if ((options.platform ?? process.platform) !== "darwin") return result;
+  const root = options.root ?? chromeCodeSignCloneRoot();
+  let entries;
+  try {
+    entries = (0, import_node_fs2.readdirSync)(root).filter((name) => name.startsWith("code_sign_clone."));
+  } catch {
+    return result;
+  }
+  if (entries.length === 0) return result;
+  const now = options.now ?? Date.now();
+  const open3 = openCodeSignClones(root, options.lsofOutput);
+  let ownedAfter = Infinity;
+  if (open3 === null) {
+    let psOutput;
+    try {
+      psOutput = options.psOutput ?? (0, import_node_child_process2.execFileSync)("ps", ["-axo", "lstart=,command="], {
+        encoding: "utf8",
+        maxBuffer: 16 * 1024 * 1024
+      });
+    } catch {
+      return { removed: [], kept: entries.map((name) => (0, import_node_path3.join)(root, name)) };
+    }
+    const starts = runningChromeStartTimes(psOutput);
+    if (starts.length > 0) ownedAfter = Math.min(...starts) - 6e4;
+  }
+  for (const name of entries) {
+    const path3 = (0, import_node_path3.join)(root, name);
+    try {
+      const st = (0, import_node_fs2.statSync)(path3);
+      const born = st.birthtimeMs || st.mtimeMs;
+      const inUse = open3 !== null ? open3.has(name) : born >= ownedAfter;
+      if (now - born < CODE_SIGN_CLONE_GRACE_MS || inUse) {
+        result.kept.push(path3);
+        continue;
+      }
+      (0, import_node_fs2.rmSync)(path3, { recursive: true, force: true });
+      result.removed.push(path3);
+    } catch {
+      result.kept.push(path3);
+    }
+  }
+  return result;
+}
 function shouldReclaimSingletonLock(evidence) {
   if (evidence.profileInUse) return false;
   if (evidence.targetHost === evidence.currentHost) return !evidence.targetPidAlive;
@@ -4287,7 +4373,7 @@ function reapOrphanedProfiles() {
     }
   }
 }
-var import_node_child_process2, import_node_fs2, import_promises2, import_node_net, import_node_os, import_node_path3, CHROME_PATHS, PROFILE_REAP_GRACE_MS, heldProfileLocks, RECLAIM_MUTEX_STALE_MS, BrowserManager;
+var import_node_child_process2, import_node_fs2, import_promises2, import_node_net, import_node_os, import_node_path3, CHROME_PATHS, PROFILE_REAP_GRACE_MS, CHROME_EXIT_GRACE_MS, CODE_SIGN_CLONE_GRACE_MS, heldProfileLocks, RECLAIM_MUTEX_STALE_MS, BrowserManager;
 var init_browser = __esm({
   "src/engine/cdp/browser.ts"() {
     "use strict";
@@ -4312,6 +4398,8 @@ var init_browser = __esm({
       "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"
     ];
     PROFILE_REAP_GRACE_MS = 60 * 60 * 1e3;
+    CHROME_EXIT_GRACE_MS = 1e4;
+    CODE_SIGN_CLONE_GRACE_MS = 2 * 60 * 1e3;
     heldProfileLocks = /* @__PURE__ */ new Set();
     RECLAIM_MUTEX_STALE_MS = 3e4;
     process.once("exit", () => {
@@ -4359,6 +4447,7 @@ var init_browser = __esm({
         progress(`debugging port ${this._port}`);
         progress("reaping orphaned browsers");
         reapOrphanedIbrChromeProcesses();
+        sweepStaleChromeCodeSignClones();
         let userDataDir = options.userDataDir ?? (0, import_node_path3.join)((0, import_node_os.homedir)(), ".ibr", "chromium-profile");
         await (0, import_promises2.mkdir)((0, import_node_path3.dirname)(userDataDir), { recursive: true });
         progress("acquiring profile lock");
@@ -4510,20 +4599,23 @@ ${tail}` : "";
           const proc = this.process;
           this.process = null;
           if (!this._exit) {
+            let killed = false;
             await new Promise((resolve8) => {
               const killTimer = setTimeout(() => {
                 try {
                   proc.kill("SIGKILL");
                 } catch {
                 }
+                killed = true;
                 resolve8();
-              }, 3e3);
+              }, CHROME_EXIT_GRACE_MS);
               proc.once("close", () => {
                 clearTimeout(killTimer);
                 resolve8();
               });
               proc.kill("SIGTERM");
             });
+            if (killed) sweepStaleChromeCodeSignClones();
           }
         }
         if (this._ephemeralProfileDir) {
@@ -6260,7 +6352,7 @@ var init_actionability = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/pixelmatch/index.js
+// ../../git-folder/interface-built-right/node_modules/pixelmatch/index.js
 var pixelmatch_exports = {};
 __export(pixelmatch_exports, {
   default: () => pixelmatch
@@ -6447,14 +6539,14 @@ function drawGrayPixel(img, i, alpha, output) {
   drawPixel(output, i, val, val, val);
 }
 var init_pixelmatch = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/pixelmatch/index.js"() {
+  "../../git-folder/interface-built-right/node_modules/pixelmatch/index.js"() {
     "use strict";
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/chunkstream.js
+// ../../git-folder/interface-built-right/node_modules/pngjs/lib/chunkstream.js
 var require_chunkstream = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/chunkstream.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/pngjs/lib/chunkstream.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var Stream = require("stream");
@@ -6590,9 +6682,9 @@ var require_chunkstream = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/interlace.js
+// ../../git-folder/interface-built-right/node_modules/pngjs/lib/interlace.js
 var require_interlace = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/interlace.js"(exports2) {
+  "../../git-folder/interface-built-right/node_modules/pngjs/lib/interlace.js"(exports2) {
     "use strict";
     var imagePasses = [
       {
@@ -6673,9 +6765,9 @@ var require_interlace = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/paeth-predictor.js
+// ../../git-folder/interface-built-right/node_modules/pngjs/lib/paeth-predictor.js
 var require_paeth_predictor = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/paeth-predictor.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/pngjs/lib/paeth-predictor.js"(exports2, module2) {
     "use strict";
     module2.exports = function paethPredictor(left, above, upLeft) {
       let paeth = left + above - upLeft;
@@ -6693,9 +6785,9 @@ var require_paeth_predictor = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse.js
+// ../../git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse.js
 var require_filter_parse = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse.js"(exports2, module2) {
     "use strict";
     var interlaceUtils = require_interlace();
     var paethPredictor = require_paeth_predictor();
@@ -6834,9 +6926,9 @@ var require_filter_parse = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse-async.js
+// ../../git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse-async.js
 var require_filter_parse_async = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse-async.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse-async.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var ChunkStream = require_chunkstream();
@@ -6860,9 +6952,9 @@ var require_filter_parse_async = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/constants.js
+// ../../git-folder/interface-built-right/node_modules/pngjs/lib/constants.js
 var require_constants2 = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/constants.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/pngjs/lib/constants.js"(exports2, module2) {
     "use strict";
     module2.exports = {
       PNG_SIGNATURE: [137, 80, 78, 71, 13, 10, 26, 10],
@@ -6895,9 +6987,9 @@ var require_constants2 = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/crc.js
+// ../../git-folder/interface-built-right/node_modules/pngjs/lib/crc.js
 var require_crc = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/crc.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/pngjs/lib/crc.js"(exports2, module2) {
     "use strict";
     var crcTable = [];
     (function() {
@@ -6935,9 +7027,9 @@ var require_crc = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/parser.js
+// ../../git-folder/interface-built-right/node_modules/pngjs/lib/parser.js
 var require_parser = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/parser.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/pngjs/lib/parser.js"(exports2, module2) {
     "use strict";
     var constants3 = require_constants2();
     var CrcCalculator = require_crc();
@@ -7156,9 +7248,9 @@ var require_parser = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/bitmapper.js
+// ../../git-folder/interface-built-right/node_modules/pngjs/lib/bitmapper.js
 var require_bitmapper = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/bitmapper.js"(exports2) {
+  "../../git-folder/interface-built-right/node_modules/pngjs/lib/bitmapper.js"(exports2) {
     "use strict";
     var interlaceUtils = require_interlace();
     var pixelBppMapper = [
@@ -7404,9 +7496,9 @@ var require_bitmapper = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/format-normaliser.js
+// ../../git-folder/interface-built-right/node_modules/pngjs/lib/format-normaliser.js
 var require_format_normaliser = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/format-normaliser.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/pngjs/lib/format-normaliser.js"(exports2, module2) {
     "use strict";
     function dePalette(indata, outdata, width, height, palette) {
       let pxPos = 0;
@@ -7485,9 +7577,9 @@ var require_format_normaliser = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/parser-async.js
+// ../../git-folder/interface-built-right/node_modules/pngjs/lib/parser-async.js
 var require_parser_async = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/parser-async.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/pngjs/lib/parser-async.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var zlib = require("zlib");
@@ -7615,9 +7707,9 @@ var require_parser_async = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/bitpacker.js
+// ../../git-folder/interface-built-right/node_modules/pngjs/lib/bitpacker.js
 var require_bitpacker = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/bitpacker.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/pngjs/lib/bitpacker.js"(exports2, module2) {
     "use strict";
     var constants3 = require_constants2();
     module2.exports = function(dataIn, width, height, options) {
@@ -7765,9 +7857,9 @@ var require_bitpacker = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-pack.js
+// ../../git-folder/interface-built-right/node_modules/pngjs/lib/filter-pack.js
 var require_filter_pack = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-pack.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/pngjs/lib/filter-pack.js"(exports2, module2) {
     "use strict";
     var paethPredictor = require_paeth_predictor();
     function filterNone(pxData, pxPos, byteWidth, rawData, rawPos) {
@@ -7907,9 +7999,9 @@ var require_filter_pack = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/packer.js
+// ../../git-folder/interface-built-right/node_modules/pngjs/lib/packer.js
 var require_packer = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/packer.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/pngjs/lib/packer.js"(exports2, module2) {
     "use strict";
     var constants3 = require_constants2();
     var CrcStream = require_crc();
@@ -8007,9 +8099,9 @@ var require_packer = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/packer-async.js
+// ../../git-folder/interface-built-right/node_modules/pngjs/lib/packer-async.js
 var require_packer_async = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/packer-async.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/pngjs/lib/packer-async.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var Stream = require("stream");
@@ -8049,9 +8141,9 @@ var require_packer_async = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/sync-inflate.js
+// ../../git-folder/interface-built-right/node_modules/pngjs/lib/sync-inflate.js
 var require_sync_inflate = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/sync-inflate.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/pngjs/lib/sync-inflate.js"(exports2, module2) {
     "use strict";
     var assert2 = require("assert").ok;
     var zlib = require("zlib");
@@ -8186,9 +8278,9 @@ var require_sync_inflate = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/sync-reader.js
+// ../../git-folder/interface-built-right/node_modules/pngjs/lib/sync-reader.js
 var require_sync_reader = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/sync-reader.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/pngjs/lib/sync-reader.js"(exports2, module2) {
     "use strict";
     var SyncReader = module2.exports = function(buffer) {
       this._buffer = buffer;
@@ -8224,9 +8316,9 @@ var require_sync_reader = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse-sync.js
+// ../../git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse-sync.js
 var require_filter_parse_sync = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse-sync.js"(exports2) {
+  "../../git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse-sync.js"(exports2) {
     "use strict";
     var SyncReader = require_sync_reader();
     var Filter = require_filter_parse();
@@ -8248,9 +8340,9 @@ var require_filter_parse_sync = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/parser-sync.js
+// ../../git-folder/interface-built-right/node_modules/pngjs/lib/parser-sync.js
 var require_parser_sync = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/parser-sync.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/pngjs/lib/parser-sync.js"(exports2, module2) {
     "use strict";
     var hasSyncZlib = true;
     var zlib = require("zlib");
@@ -8343,9 +8435,9 @@ var require_parser_sync = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/packer-sync.js
+// ../../git-folder/interface-built-right/node_modules/pngjs/lib/packer-sync.js
 var require_packer_sync = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/packer-sync.js"(exports2, module2) {
+  "../../git-folder/interface-built-right/node_modules/pngjs/lib/packer-sync.js"(exports2, module2) {
     "use strict";
     var hasSyncZlib = true;
     var zlib = require("zlib");
@@ -8388,9 +8480,9 @@ var require_packer_sync = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/png-sync.js
+// ../../git-folder/interface-built-right/node_modules/pngjs/lib/png-sync.js
 var require_png_sync = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/png-sync.js"(exports2) {
+  "../../git-folder/interface-built-right/node_modules/pngjs/lib/png-sync.js"(exports2) {
     "use strict";
     var parse3 = require_parser_sync();
     var pack = require_packer_sync();
@@ -8403,9 +8495,9 @@ var require_png_sync = __commonJS({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/png.js
+// ../../git-folder/interface-built-right/node_modules/pngjs/lib/png.js
 var require_png = __commonJS({
-  "../../../../dev/git-folder/interface-built-right/node_modules/pngjs/lib/png.js"(exports2) {
+  "../../git-folder/interface-built-right/node_modules/pngjs/lib/png.js"(exports2) {
     "use strict";
     var util = require("util");
     var Stream = require("stream");
@@ -11100,7 +11192,7 @@ var init_compat = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/core.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/core/core.js
 // @__NO_SIDE_EFFECTS__
 function $constructor(name, initializer3, params) {
   function init(inst, def) {
@@ -11160,7 +11252,7 @@ function config(newConfig) {
 }
 var _a, NEVER, $brand, $ZodAsyncError, $ZodEncodeError, globalConfig;
 var init_core = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/core.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/core/core.js"() {
     "use strict";
     NEVER = /* @__PURE__ */ Object.freeze({
       status: "aborted"
@@ -11182,7 +11274,7 @@ var init_core = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/util.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/core/util.js
 var util_exports = {};
 __export(util_exports, {
   BIGINT_FORMAT_RANGES: () => BIGINT_FORMAT_RANGES,
@@ -11793,7 +11885,7 @@ function uint8ArrayToHex(bytes) {
 }
 var EVALUATING, captureStackTrace, allowsEval, getParsedType, propertyKeyTypes, primitiveTypes, NUMBER_FORMAT_RANGES, BIGINT_FORMAT_RANGES, Class;
 var init_util = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/util.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/core/util.js"() {
     "use strict";
     init_core();
     EVALUATING = /* @__PURE__ */ Symbol("evaluating");
@@ -11885,7 +11977,7 @@ var init_util = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/errors.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/core/errors.js
 function flattenError(error51, mapper = (issue2) => issue2.message) {
   const fieldErrors = {};
   const formErrors = [];
@@ -12007,7 +12099,7 @@ function prettifyError(error51) {
 }
 var initializer, $ZodError, $ZodRealError;
 var init_errors = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/errors.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/core/errors.js"() {
     "use strict";
     init_core();
     init_util();
@@ -12032,10 +12124,10 @@ var init_errors = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/parse.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/core/parse.js
 var _parse, parse, _parseAsync, parseAsync, _safeParse, safeParse, _safeParseAsync, safeParseAsync, _encode, encode, _decode, decode, _encodeAsync, encodeAsync, _decodeAsync, decodeAsync, _safeEncode, safeEncode, _safeDecode, safeDecode, _safeEncodeAsync, safeEncodeAsync, _safeDecodeAsync, safeDecodeAsync;
 var init_parse = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/parse.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/core/parse.js"() {
     "use strict";
     init_core();
     init_errors();
@@ -12129,7 +12221,7 @@ var init_parse = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/regexes.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/core/regexes.js
 var regexes_exports = {};
 __export(regexes_exports, {
   base64: () => base64,
@@ -12221,7 +12313,7 @@ function fixedBase64url(length) {
 }
 var cuid, cuid2, ulid, xid, ksuid, nanoid, duration, extendedDuration, guid, uuid, uuid4, uuid6, uuid7, email, html5Email, rfc5322Email, unicodeEmail, idnEmail, browserEmail, _emoji, ipv4, ipv6, mac, cidrv4, cidrv6, base64, base64url, hostname2, domain, httpProtocol, e164, dateSource, date, string, bigint, integer, number, boolean, _null, _undefined, lowercase, uppercase, hex, md5_hex, md5_base64, md5_base64url, sha1_hex, sha1_base64, sha1_base64url, sha256_hex, sha256_base64, sha256_base64url, sha384_hex, sha384_base64, sha384_base64url, sha512_hex, sha512_base64, sha512_base64url;
 var init_regexes = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/regexes.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/core/regexes.js"() {
     "use strict";
     init_util();
     cuid = /^[cC][0-9a-z]{6,}$/;
@@ -12295,7 +12387,7 @@ var init_regexes = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/checks.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/core/checks.js
 function handleCheckPropertyResult(result, payload, property) {
   if (result.issues.length) {
     payload.issues.push(...prefixIssues(property, result.issues));
@@ -12303,7 +12395,7 @@ function handleCheckPropertyResult(result, payload, property) {
 }
 var $ZodCheck, numericOriginMap, $ZodCheckLessThan, $ZodCheckGreaterThan, $ZodCheckMultipleOf, $ZodCheckNumberFormat, $ZodCheckBigIntFormat, $ZodCheckMaxSize, $ZodCheckMinSize, $ZodCheckSizeEquals, $ZodCheckMaxLength, $ZodCheckMinLength, $ZodCheckLengthEquals, $ZodCheckStringFormat, $ZodCheckRegex, $ZodCheckLowerCase, $ZodCheckUpperCase, $ZodCheckIncludes, $ZodCheckStartsWith, $ZodCheckEndsWith, $ZodCheckProperty, $ZodCheckMimeType, $ZodCheckOverwrite;
 var init_checks = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/checks.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/core/checks.js"() {
     "use strict";
     init_core();
     init_regexes();
@@ -12852,10 +12944,10 @@ var init_checks = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/doc.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/core/doc.js
 var Doc;
 var init_doc = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/doc.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/core/doc.js"() {
     "use strict";
     Doc = class {
       constructor(args = []) {
@@ -12894,10 +12986,10 @@ var init_doc = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/versions.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/core/versions.js
 var version;
 var init_versions = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/versions.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/core/versions.js"() {
     "use strict";
     version = {
       major: 4,
@@ -12907,7 +12999,7 @@ var init_versions = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/schemas.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/core/schemas.js
 function isValidBase64(data) {
   if (data === "")
     return true;
@@ -13313,7 +13405,7 @@ function handleRefineResult(result, payload, input, inst) {
 }
 var $ZodType, $ZodString, $ZodStringFormat, $ZodGUID, $ZodUUID, $ZodEmail, $ZodURL, $ZodEmoji, $ZodNanoID, $ZodCUID, $ZodCUID2, $ZodULID, $ZodXID, $ZodKSUID, $ZodISODateTime, $ZodISODate, $ZodISOTime, $ZodISODuration, $ZodIPv4, $ZodIPv6, $ZodMAC, $ZodCIDRv4, $ZodCIDRv6, $ZodBase64, $ZodBase64URL, $ZodE164, $ZodJWT, $ZodCustomStringFormat, $ZodNumber, $ZodNumberFormat, $ZodBoolean, $ZodBigInt, $ZodBigIntFormat, $ZodSymbol, $ZodUndefined, $ZodNull, $ZodAny, $ZodUnknown, $ZodNever, $ZodVoid, $ZodDate, $ZodArray, $ZodObject, $ZodObjectJIT, $ZodUnion, $ZodXor, $ZodDiscriminatedUnion, $ZodIntersection, $ZodTuple, $ZodRecord, $ZodMap, $ZodSet, $ZodEnum, $ZodLiteral, $ZodFile, $ZodTransform, $ZodOptional, $ZodExactOptional, $ZodNullable, $ZodDefault, $ZodPrefault, $ZodNonOptional, $ZodSuccess, $ZodCatch, $ZodNaN, $ZodPipe, $ZodCodec, $ZodPreprocess, $ZodReadonly, $ZodTemplateLiteral, $ZodFunction, $ZodPromise, $ZodLazy, $ZodCustom;
 var init_schemas = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/schemas.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/core/schemas.js"() {
     "use strict";
     init_checks();
     init_core();
@@ -15014,7 +15106,7 @@ var init_schemas = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ar.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ar.js
 function ar_default() {
   return {
     localeError: error()
@@ -15022,7 +15114,7 @@ function ar_default() {
 }
 var error;
 var init_ar = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ar.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ar.js"() {
     "use strict";
     init_util();
     error = () => {
@@ -15128,7 +15220,7 @@ var init_ar = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/az.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/az.js
 function az_default() {
   return {
     localeError: error2()
@@ -15136,7 +15228,7 @@ function az_default() {
 }
 var error2;
 var init_az = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/az.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/az.js"() {
     "use strict";
     init_util();
     error2 = () => {
@@ -15241,7 +15333,7 @@ var init_az = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/be.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/be.js
 function getBelarusianPlural(count, one, few, many) {
   const absCount = Math.abs(count);
   const lastDigit = absCount % 10;
@@ -15264,7 +15356,7 @@ function be_default() {
 }
 var error3;
 var init_be = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/be.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/be.js"() {
     "use strict";
     init_util();
     error3 = () => {
@@ -15405,7 +15497,7 @@ var init_be = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/bg.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/bg.js
 function bg_default() {
   return {
     localeError: error4()
@@ -15413,7 +15505,7 @@ function bg_default() {
 }
 var error4;
 var init_bg = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/bg.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/bg.js"() {
     "use strict";
     init_util();
     error4 = () => {
@@ -15533,7 +15625,7 @@ var init_bg = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ca.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ca.js
 function ca_default() {
   return {
     localeError: error5()
@@ -15541,7 +15633,7 @@ function ca_default() {
 }
 var error5;
 var init_ca = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ca.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ca.js"() {
     "use strict";
     init_util();
     error5 = () => {
@@ -15649,7 +15741,7 @@ var init_ca = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/cs.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/cs.js
 function cs_default() {
   return {
     localeError: error6()
@@ -15657,7 +15749,7 @@ function cs_default() {
 }
 var error6;
 var init_cs = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/cs.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/cs.js"() {
     "use strict";
     init_util();
     error6 = () => {
@@ -15768,7 +15860,7 @@ var init_cs = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/da.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/da.js
 function da_default() {
   return {
     localeError: error7()
@@ -15776,7 +15868,7 @@ function da_default() {
 }
 var error7;
 var init_da = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/da.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/da.js"() {
     "use strict";
     init_util();
     error7 = () => {
@@ -15891,7 +15983,7 @@ var init_da = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/de.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/de.js
 function de_default() {
   return {
     localeError: error8()
@@ -15899,7 +15991,7 @@ function de_default() {
 }
 var error8;
 var init_de = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/de.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/de.js"() {
     "use strict";
     init_util();
     error8 = () => {
@@ -16007,7 +16099,7 @@ var init_de = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/el.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/el.js
 function el_default() {
   return {
     localeError: error9()
@@ -16015,7 +16107,7 @@ function el_default() {
 }
 var error9;
 var init_el = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/el.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/el.js"() {
     "use strict";
     init_util();
     error9 = () => {
@@ -16124,7 +16216,7 @@ var init_el = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/en.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/en.js
 function en_default() {
   return {
     localeError: error10()
@@ -16132,7 +16224,7 @@ function en_default() {
 }
 var error10;
 var init_en = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/en.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/en.js"() {
     "use strict";
     init_util();
     error10 = () => {
@@ -16244,7 +16336,7 @@ var init_en = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/eo.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/eo.js
 function eo_default() {
   return {
     localeError: error11()
@@ -16252,7 +16344,7 @@ function eo_default() {
 }
 var error11;
 var init_eo = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/eo.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/eo.js"() {
     "use strict";
     init_util();
     error11 = () => {
@@ -16361,7 +16453,7 @@ var init_eo = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/es.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/es.js
 function es_default() {
   return {
     localeError: error12()
@@ -16369,7 +16461,7 @@ function es_default() {
 }
 var error12;
 var init_es = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/es.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/es.js"() {
     "use strict";
     init_util();
     error12 = () => {
@@ -16501,7 +16593,7 @@ var init_es = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fa.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/fa.js
 function fa_default() {
   return {
     localeError: error13()
@@ -16509,7 +16601,7 @@ function fa_default() {
 }
 var error13;
 var init_fa = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fa.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/fa.js"() {
     "use strict";
     init_util();
     error13 = () => {
@@ -16623,7 +16715,7 @@ var init_fa = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fi.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/fi.js
 function fi_default() {
   return {
     localeError: error14()
@@ -16631,7 +16723,7 @@ function fi_default() {
 }
 var error14;
 var init_fi = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fi.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/fi.js"() {
     "use strict";
     init_util();
     error14 = () => {
@@ -16743,7 +16835,7 @@ var init_fi = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fr.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/fr.js
 function fr_default() {
   return {
     localeError: error15()
@@ -16751,7 +16843,7 @@ function fr_default() {
 }
 var error15;
 var init_fr = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fr.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/fr.js"() {
     "use strict";
     init_util();
     error15 = () => {
@@ -16876,7 +16968,7 @@ var init_fr = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fr-CA.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/fr-CA.js
 function fr_CA_default() {
   return {
     localeError: error16()
@@ -16884,7 +16976,7 @@ function fr_CA_default() {
 }
 var error16;
 var init_fr_CA = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fr-CA.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/fr-CA.js"() {
     "use strict";
     init_util();
     error16 = () => {
@@ -16991,7 +17083,7 @@ var init_fr_CA = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/he.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/he.js
 function he_default() {
   return {
     localeError: error17()
@@ -16999,7 +17091,7 @@ function he_default() {
 }
 var error17;
 var init_he = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/he.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/he.js"() {
     "use strict";
     init_util();
     error17 = () => {
@@ -17193,7 +17285,7 @@ var init_he = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/hr.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/hr.js
 function hr_default() {
   return {
     localeError: error18()
@@ -17201,7 +17293,7 @@ function hr_default() {
 }
 var error18;
 var init_hr = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/hr.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/hr.js"() {
     "use strict";
     init_util();
     error18 = () => {
@@ -17323,7 +17415,7 @@ var init_hr = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/hu.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/hu.js
 function hu_default() {
   return {
     localeError: error19()
@@ -17331,7 +17423,7 @@ function hu_default() {
 }
 var error19;
 var init_hu = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/hu.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/hu.js"() {
     "use strict";
     init_util();
     error19 = () => {
@@ -17439,7 +17531,7 @@ var init_hu = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/hy.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/hy.js
 function getArmenianPlural(count, one, many) {
   return Math.abs(count) === 1 ? one : many;
 }
@@ -17457,7 +17549,7 @@ function hy_default() {
 }
 var error20;
 var init_hy = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/hy.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/hy.js"() {
     "use strict";
     init_util();
     error20 = () => {
@@ -17594,7 +17686,7 @@ var init_hy = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/id.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/id.js
 function id_default() {
   return {
     localeError: error21()
@@ -17602,7 +17694,7 @@ function id_default() {
 }
 var error21;
 var init_id = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/id.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/id.js"() {
     "use strict";
     init_util();
     error21 = () => {
@@ -17708,7 +17800,7 @@ var init_id = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/is.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/is.js
 function is_default() {
   return {
     localeError: error22()
@@ -17716,7 +17808,7 @@ function is_default() {
 }
 var error22;
 var init_is = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/is.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/is.js"() {
     "use strict";
     init_util();
     error22 = () => {
@@ -17825,7 +17917,7 @@ var init_is = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/it.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/it.js
 function it_default() {
   return {
     localeError: error23()
@@ -17833,7 +17925,7 @@ function it_default() {
 }
 var error23;
 var init_it = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/it.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/it.js"() {
     "use strict";
     init_util();
     error23 = () => {
@@ -17941,7 +18033,7 @@ var init_it = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ja.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ja.js
 function ja_default() {
   return {
     localeError: error24()
@@ -17949,7 +18041,7 @@ function ja_default() {
 }
 var error24;
 var init_ja = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ja.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ja.js"() {
     "use strict";
     init_util();
     error24 = () => {
@@ -18056,7 +18148,7 @@ var init_ja = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ka.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ka.js
 function ka_default() {
   return {
     localeError: error25()
@@ -18064,7 +18156,7 @@ function ka_default() {
 }
 var error25;
 var init_ka = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ka.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ka.js"() {
     "use strict";
     init_util();
     error25 = () => {
@@ -18176,7 +18268,7 @@ var init_ka = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/km.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/km.js
 function km_default() {
   return {
     localeError: error26()
@@ -18184,7 +18276,7 @@ function km_default() {
 }
 var error26;
 var init_km = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/km.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/km.js"() {
     "use strict";
     init_util();
     error26 = () => {
@@ -18294,18 +18386,18 @@ var init_km = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/kh.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/kh.js
 function kh_default() {
   return km_default();
 }
 var init_kh = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/kh.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/kh.js"() {
     "use strict";
     init_km();
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ko.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ko.js
 function ko_default() {
   return {
     localeError: error27()
@@ -18313,7 +18405,7 @@ function ko_default() {
 }
 var error27;
 var init_ko = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ko.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ko.js"() {
     "use strict";
     init_util();
     error27 = () => {
@@ -18424,7 +18516,7 @@ var init_ko = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/lt.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/lt.js
 function getUnitTypeFromNumber(number4) {
   const abs = Math.abs(number4);
   const last = abs % 10;
@@ -18442,7 +18534,7 @@ function lt_default() {
 }
 var capitalizeFirstCharacter, error28;
 var init_lt = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/lt.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/lt.js"() {
     "use strict";
     init_util();
     capitalizeFirstCharacter = (text) => {
@@ -18635,7 +18727,7 @@ var init_lt = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/mk.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/mk.js
 function mk_default() {
   return {
     localeError: error29()
@@ -18643,7 +18735,7 @@ function mk_default() {
 }
 var error29;
 var init_mk = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/mk.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/mk.js"() {
     "use strict";
     init_util();
     error29 = () => {
@@ -18752,7 +18844,7 @@ var init_mk = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ms.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ms.js
 function ms_default() {
   return {
     localeError: error30()
@@ -18760,7 +18852,7 @@ function ms_default() {
 }
 var error30;
 var init_ms = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ms.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ms.js"() {
     "use strict";
     init_util();
     error30 = () => {
@@ -18867,7 +18959,7 @@ var init_ms = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/nl.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/nl.js
 function nl_default() {
   return {
     localeError: error31()
@@ -18875,7 +18967,7 @@ function nl_default() {
 }
 var error31;
 var init_nl = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/nl.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/nl.js"() {
     "use strict";
     init_util();
     error31 = () => {
@@ -18985,7 +19077,7 @@ var init_nl = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/no.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/no.js
 function no_default() {
   return {
     localeError: error32()
@@ -18993,7 +19085,7 @@ function no_default() {
 }
 var error32;
 var init_no = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/no.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/no.js"() {
     "use strict";
     init_util();
     error32 = () => {
@@ -19101,7 +19193,7 @@ var init_no = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ota.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ota.js
 function ota_default() {
   return {
     localeError: error33()
@@ -19109,7 +19201,7 @@ function ota_default() {
 }
 var error33;
 var init_ota = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ota.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ota.js"() {
     "use strict";
     init_util();
     error33 = () => {
@@ -19218,7 +19310,7 @@ var init_ota = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ps.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ps.js
 function ps_default() {
   return {
     localeError: error34()
@@ -19226,7 +19318,7 @@ function ps_default() {
 }
 var error34;
 var init_ps = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ps.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ps.js"() {
     "use strict";
     init_util();
     error34 = () => {
@@ -19340,7 +19432,7 @@ var init_ps = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/pl.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/pl.js
 function pl_default() {
   return {
     localeError: error35()
@@ -19348,7 +19440,7 @@ function pl_default() {
 }
 var error35;
 var init_pl = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/pl.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/pl.js"() {
     "use strict";
     init_util();
     error35 = () => {
@@ -19457,7 +19549,7 @@ var init_pl = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/pt.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/pt.js
 function pt_default() {
   return {
     localeError: error36()
@@ -19465,7 +19557,7 @@ function pt_default() {
 }
 var error36;
 var init_pt = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/pt.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/pt.js"() {
     "use strict";
     init_util();
     error36 = () => {
@@ -19573,7 +19665,7 @@ var init_pt = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ro.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ro.js
 function ro_default() {
   return {
     localeError: error37()
@@ -19581,7 +19673,7 @@ function ro_default() {
 }
 var error37;
 var init_ro = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ro.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ro.js"() {
     "use strict";
     init_util();
     error37 = () => {
@@ -19700,7 +19792,7 @@ var init_ro = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ru.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ru.js
 function getRussianPlural(count, one, few, many) {
   const absCount = Math.abs(count);
   const lastDigit = absCount % 10;
@@ -19723,7 +19815,7 @@ function ru_default() {
 }
 var error38;
 var init_ru = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ru.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ru.js"() {
     "use strict";
     init_util();
     error38 = () => {
@@ -19864,7 +19956,7 @@ var init_ru = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/sl.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/sl.js
 function sl_default() {
   return {
     localeError: error39()
@@ -19872,7 +19964,7 @@ function sl_default() {
 }
 var error39;
 var init_sl = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/sl.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/sl.js"() {
     "use strict";
     init_util();
     error39 = () => {
@@ -19981,7 +20073,7 @@ var init_sl = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/sv.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/sv.js
 function sv_default() {
   return {
     localeError: error40()
@@ -19989,7 +20081,7 @@ function sv_default() {
 }
 var error40;
 var init_sv = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/sv.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/sv.js"() {
     "use strict";
     init_util();
     error40 = () => {
@@ -20099,7 +20191,7 @@ var init_sv = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ta.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ta.js
 function ta_default() {
   return {
     localeError: error41()
@@ -20107,7 +20199,7 @@ function ta_default() {
 }
 var error41;
 var init_ta = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ta.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ta.js"() {
     "use strict";
     init_util();
     error41 = () => {
@@ -20217,7 +20309,7 @@ var init_ta = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/th.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/th.js
 function th_default() {
   return {
     localeError: error42()
@@ -20225,7 +20317,7 @@ function th_default() {
 }
 var error42;
 var init_th = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/th.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/th.js"() {
     "use strict";
     init_util();
     error42 = () => {
@@ -20335,7 +20427,7 @@ var init_th = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/tr.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/tr.js
 function tr_default() {
   return {
     localeError: error43()
@@ -20343,7 +20435,7 @@ function tr_default() {
 }
 var error43;
 var init_tr = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/tr.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/tr.js"() {
     "use strict";
     init_util();
     error43 = () => {
@@ -20448,7 +20540,7 @@ var init_tr = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/uk.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/uk.js
 function uk_default() {
   return {
     localeError: error44()
@@ -20456,7 +20548,7 @@ function uk_default() {
 }
 var error44;
 var init_uk = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/uk.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/uk.js"() {
     "use strict";
     init_util();
     error44 = () => {
@@ -20564,18 +20656,18 @@ var init_uk = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ua.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ua.js
 function ua_default() {
   return uk_default();
 }
 var init_ua = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ua.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ua.js"() {
     "use strict";
     init_uk();
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ur.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ur.js
 function ur_default() {
   return {
     localeError: error45()
@@ -20583,7 +20675,7 @@ function ur_default() {
 }
 var error45;
 var init_ur = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ur.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ur.js"() {
     "use strict";
     init_util();
     error45 = () => {
@@ -20693,7 +20785,7 @@ var init_ur = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/uz.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/uz.js
 function uz_default() {
   return {
     localeError: error46()
@@ -20701,7 +20793,7 @@ function uz_default() {
 }
 var error46;
 var init_uz = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/uz.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/uz.js"() {
     "use strict";
     init_util();
     error46 = () => {
@@ -20811,7 +20903,7 @@ var init_uz = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/vi.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/vi.js
 function vi_default() {
   return {
     localeError: error47()
@@ -20819,7 +20911,7 @@ function vi_default() {
 }
 var error47;
 var init_vi = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/vi.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/vi.js"() {
     "use strict";
     init_util();
     error47 = () => {
@@ -20927,7 +21019,7 @@ var init_vi = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/zh-CN.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/zh-CN.js
 function zh_CN_default() {
   return {
     localeError: error48()
@@ -20935,7 +21027,7 @@ function zh_CN_default() {
 }
 var error48;
 var init_zh_CN = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/zh-CN.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/zh-CN.js"() {
     "use strict";
     init_util();
     error48 = () => {
@@ -21044,7 +21136,7 @@ var init_zh_CN = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/zh-TW.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/zh-TW.js
 function zh_TW_default() {
   return {
     localeError: error49()
@@ -21052,7 +21144,7 @@ function zh_TW_default() {
 }
 var error49;
 var init_zh_TW = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/zh-TW.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/zh-TW.js"() {
     "use strict";
     init_util();
     error49 = () => {
@@ -21159,7 +21251,7 @@ var init_zh_TW = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/yo.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/yo.js
 function yo_default() {
   return {
     localeError: error50()
@@ -21167,7 +21259,7 @@ function yo_default() {
 }
 var error50;
 var init_yo = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/yo.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/yo.js"() {
     "use strict";
     init_util();
     error50 = () => {
@@ -21274,7 +21366,7 @@ var init_yo = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/index.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/index.js
 var locales_exports = {};
 __export(locales_exports, {
   ar: () => ar_default,
@@ -21331,7 +21423,7 @@ __export(locales_exports, {
   zhTW: () => zh_TW_default
 });
 var init_locales = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/locales/index.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/index.js"() {
     "use strict";
     init_ar();
     init_az();
@@ -21388,13 +21480,13 @@ var init_locales = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/registries.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/core/registries.js
 function registry() {
   return new $ZodRegistry();
 }
 var _a2, $output, $input, $ZodRegistry, globalRegistry;
 var init_registries = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/registries.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/core/registries.js"() {
     "use strict";
     $output = /* @__PURE__ */ Symbol("ZodOutput");
     $input = /* @__PURE__ */ Symbol("ZodInput");
@@ -21443,7 +21535,7 @@ var init_registries = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/api.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/core/api.js
 // @__NO_SIDE_EFFECTS__
 function _string(Class2, params) {
   return new Class2({
@@ -22476,7 +22568,7 @@ function _stringFormat(Class2, format, fnOrRegex, _params = {}) {
 }
 var TimePrecision;
 var init_api = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/api.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/core/api.js"() {
     "use strict";
     init_checks();
     init_registries();
@@ -22492,7 +22584,7 @@ var init_api = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/to-json-schema.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/core/to-json-schema.js
 function initializeContext(params) {
   let target = params?.target ?? "draft-2020-12";
   if (target === "draft-4")
@@ -22839,7 +22931,7 @@ function isTransforming(_schema, _ctx) {
 }
 var createToJSONSchemaMethod, createStandardJSONSchemaMethod;
 var init_to_json_schema = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/to-json-schema.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/core/to-json-schema.js"() {
     "use strict";
     init_registries();
     createToJSONSchemaMethod = (schema, processors = {}) => (params) => {
@@ -22858,7 +22950,7 @@ var init_to_json_schema = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/json-schema-processors.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/core/json-schema-processors.js
 function toJSONSchema(input, params) {
   if ("_idmap" in input) {
     const registry2 = input;
@@ -22895,7 +22987,7 @@ function toJSONSchema(input, params) {
 }
 var formatMap, stringProcessor, numberProcessor, booleanProcessor, bigintProcessor, symbolProcessor, nullProcessor, undefinedProcessor, voidProcessor, neverProcessor, anyProcessor, unknownProcessor, dateProcessor, enumProcessor, literalProcessor, nanProcessor, templateLiteralProcessor, fileProcessor, successProcessor, customProcessor, functionProcessor, transformProcessor, mapProcessor, setProcessor, arrayProcessor, objectProcessor, unionProcessor, intersectionProcessor, tupleProcessor, recordProcessor, nullableProcessor, nonoptionalProcessor, defaultProcessor, prefaultProcessor, catchProcessor, pipeProcessor, readonlyProcessor, promiseProcessor, optionalProcessor, lazyProcessor, allProcessors;
 var init_json_schema_processors = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/json-schema-processors.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/core/json-schema-processors.js"() {
     "use strict";
     init_to_json_schema();
     init_util();
@@ -23410,10 +23502,10 @@ var init_json_schema_processors = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/json-schema-generator.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/core/json-schema-generator.js
 var JSONSchemaGenerator;
 var init_json_schema_generator = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/json-schema-generator.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/core/json-schema-generator.js"() {
     "use strict";
     init_json_schema_processors();
     init_to_json_schema();
@@ -23493,15 +23585,15 @@ var init_json_schema_generator = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/json-schema.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/core/json-schema.js
 var json_schema_exports = {};
 var init_json_schema = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/json-schema.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/core/json-schema.js"() {
     "use strict";
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/index.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/core/index.js
 var core_exports2 = {};
 __export(core_exports2, {
   $ZodAny: () => $ZodAny,
@@ -23780,7 +23872,7 @@ __export(core_exports2, {
   version: () => version
 });
 var init_core2 = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/core/index.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/core/index.js"() {
     "use strict";
     init_core();
     init_parse();
@@ -23801,7 +23893,7 @@ var init_core2 = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/checks.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/classic/checks.js
 var checks_exports2 = {};
 __export(checks_exports2, {
   endsWith: () => _endsWith,
@@ -23835,13 +23927,13 @@ __export(checks_exports2, {
   uppercase: () => _uppercase
 });
 var init_checks2 = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/checks.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/classic/checks.js"() {
     "use strict";
     init_core2();
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/iso.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/classic/iso.js
 var iso_exports = {};
 __export(iso_exports, {
   ZodISODate: () => ZodISODate,
@@ -23867,7 +23959,7 @@ function duration2(params) {
 }
 var ZodISODateTime, ZodISODate, ZodISOTime, ZodISODuration;
 var init_iso = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/iso.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/classic/iso.js"() {
     "use strict";
     init_core2();
     init_schemas2();
@@ -23890,10 +23982,10 @@ var init_iso = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/errors.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/classic/errors.js
 var initializer2, ZodError, ZodRealError;
 var init_errors2 = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/errors.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/classic/errors.js"() {
     "use strict";
     init_core2();
     init_core2();
@@ -23939,10 +24031,10 @@ var init_errors2 = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/parse.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/classic/parse.js
 var parse2, parseAsync2, safeParse2, safeParseAsync2, encode2, decode2, encodeAsync2, decodeAsync2, safeEncode2, safeDecode2, safeEncodeAsync2, safeDecodeAsync2;
 var init_parse2 = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/parse.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/classic/parse.js"() {
     "use strict";
     init_core2();
     init_errors2();
@@ -23961,7 +24053,7 @@ var init_parse2 = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/schemas.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/classic/schemas.js
 var schemas_exports2 = {};
 __export(schemas_exports2, {
   ZodAny: () => ZodAny,
@@ -24645,7 +24737,7 @@ function preprocess(fn, schema) {
 }
 var _installedGroups, ZodType, _ZodString, ZodString, ZodStringFormat, ZodEmail, ZodGUID, ZodUUID, ZodURL, ZodEmoji, ZodNanoID, ZodCUID, ZodCUID2, ZodULID, ZodXID, ZodKSUID, ZodIPv4, ZodMAC, ZodIPv6, ZodCIDRv4, ZodCIDRv6, ZodBase64, ZodBase64URL, ZodE164, ZodJWT, ZodCustomStringFormat, ZodNumber, ZodNumberFormat, ZodBoolean, ZodBigInt, ZodBigIntFormat, ZodSymbol, ZodUndefined, ZodNull, ZodAny, ZodUnknown, ZodNever, ZodVoid, ZodDate, ZodArray, ZodObject, ZodUnion, ZodXor, ZodDiscriminatedUnion, ZodIntersection, ZodTuple, ZodRecord, ZodMap, ZodSet, ZodEnum, ZodLiteral, ZodFile, ZodTransform, ZodOptional, ZodExactOptional, ZodNullable, ZodDefault, ZodPrefault, ZodNonOptional, ZodSuccess, ZodCatch, ZodNaN, ZodPipe, ZodCodec, ZodPreprocess, ZodReadonly, ZodTemplateLiteral, ZodLazy, ZodPromise, ZodFunction, ZodCustom, describe2, meta2, stringbool;
 var init_schemas2 = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/schemas.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/classic/schemas.js"() {
     "use strict";
     init_core2();
     init_core2();
@@ -25433,7 +25525,7 @@ var init_schemas2 = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/compat.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/classic/compat.js
 function setErrorMap(map2) {
   config({
     customError: map2
@@ -25444,7 +25536,7 @@ function getErrorMap() {
 }
 var ZodIssueCode, ZodFirstPartyTypeKind;
 var init_compat2 = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/compat.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/classic/compat.js"() {
     "use strict";
     init_core2();
     ZodIssueCode = {
@@ -25465,7 +25557,7 @@ var init_compat2 = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/from-json-schema.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/classic/from-json-schema.js
 function detectVersion(schema, defaultTarget) {
   const $schema = schema.$schema;
   if ($schema === "https://json-schema.org/draft/2020-12/schema") {
@@ -25870,7 +25962,7 @@ function fromJSONSchema(schema, params) {
 }
 var z, RECOGNIZED_KEYS;
 var init_from_json_schema = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/from-json-schema.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/classic/from-json-schema.js"() {
     "use strict";
     init_registries();
     init_checks2();
@@ -25955,7 +26047,7 @@ var init_from_json_schema = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/coerce.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/classic/coerce.js
 var coerce_exports = {};
 __export(coerce_exports, {
   bigint: () => bigint3,
@@ -25980,14 +26072,14 @@ function date4(params) {
   return _coercedDate(ZodDate, params);
 }
 var init_coerce = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/coerce.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/classic/coerce.js"() {
     "use strict";
     init_core2();
     init_schemas2();
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/external.js
+// ../../git-folder/interface-built-right/node_modules/zod/v4/classic/external.js
 var external_exports = {};
 __export(external_exports, {
   $brand: () => $brand,
@@ -26230,7 +26322,7 @@ __export(external_exports, {
   xor: () => xor
 });
 var init_external = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/v4/classic/external.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/v4/classic/external.js"() {
     "use strict";
     init_core2();
     init_schemas2();
@@ -26251,9 +26343,9 @@ var init_external = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/zod/index.js
+// ../../git-folder/interface-built-right/node_modules/zod/index.js
 var init_zod = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/zod/index.js"() {
+  "../../git-folder/interface-built-right/node_modules/zod/index.js"() {
     "use strict";
     init_external();
     init_external();
@@ -28311,16 +28403,16 @@ var init_compare = __esm({
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/nanoid/url-alphabet/index.js
+// ../../git-folder/interface-built-right/node_modules/nanoid/url-alphabet/index.js
 var urlAlphabet;
 var init_url_alphabet = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/nanoid/url-alphabet/index.js"() {
+  "../../git-folder/interface-built-right/node_modules/nanoid/url-alphabet/index.js"() {
     "use strict";
     urlAlphabet = "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict";
   }
 });
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/nanoid/index.js
+// ../../git-folder/interface-built-right/node_modules/nanoid/index.js
 function fillPool(bytes) {
   if (bytes < 0) throw new RangeError("Wrong ID size");
   try {
@@ -28348,7 +28440,7 @@ function nanoid3(size = 21) {
 }
 var import_node_crypto, POOL_SIZE_MULTIPLIER, pool, poolOffset;
 var init_nanoid = __esm({
-  "../../../../dev/git-folder/interface-built-right/node_modules/nanoid/index.js"() {
+  "../../git-folder/interface-built-right/node_modules/nanoid/index.js"() {
     "use strict";
     import_node_crypto = require("crypto");
     init_url_alphabet();
@@ -50870,6 +50962,7 @@ async function inspectBrowserServer(outputDir) {
         process.kill(state.chromePid, "SIGKILL");
       } catch {
       }
+      sweepStaleChromeCodeSignClones();
     }
     await cleanupServerState(outputDir);
     return {
@@ -50908,6 +51001,7 @@ async function inspectBrowserServer(outputDir) {
         process.kill(state.chromePid, "SIGKILL");
       } catch {
       }
+      sweepStaleChromeCodeSignClones();
     }
     await cleanupServerState(outputDir);
     return {
@@ -51083,6 +51177,7 @@ async function stopBrowserServer(outputDir) {
       const state = JSON.parse(content);
       if (state.chromePid) {
         process.kill(state.chromePid, "SIGKILL");
+        sweepStaleChromeCodeSignClones();
       }
     } catch {
     }
@@ -51120,6 +51215,7 @@ var init_browser_server = __esm({
     init_nanoid();
     init_schemas3();
     init_devices();
+    init_browser();
     init_net_timeout();
     init_extract2();
     init_scan();
@@ -60237,7 +60333,7 @@ function applyOutputMode(result, mode) {
 // src/bin/ibr.ts
 var import_node_crypto2 = require("crypto");
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/commander/lib/error.js
+// ../../git-folder/interface-built-right/node_modules/commander/lib/error.js
 var CommanderError = class extends Error {
   /**
    * Constructs the CommanderError class
@@ -60266,7 +60362,7 @@ var InvalidArgumentError = class extends CommanderError {
   }
 };
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/commander/lib/argument.js
+// ../../git-folder/interface-built-right/node_modules/commander/lib/argument.js
 var Argument = class {
   /**
    * Initialize a new command argument with the given name and description.
@@ -60387,7 +60483,7 @@ function humanReadableArgName(arg) {
   return arg.required ? "<" + nameOutput + ">" : "[" + nameOutput + "]";
 }
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/commander/lib/command.js
+// ../../git-folder/interface-built-right/node_modules/commander/lib/command.js
 var import_node_events = require("events");
 var import_node_child_process = __toESM(require("child_process"), 1);
 var import_node_path2 = __toESM(require("path"), 1);
@@ -60395,7 +60491,7 @@ var import_node_fs = __toESM(require("fs"), 1);
 var import_node_process = __toESM(require("process"), 1);
 var import_node_util2 = require("util");
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/commander/lib/help.js
+// ../../git-folder/interface-built-right/node_modules/commander/lib/help.js
 var import_node_util = require("util");
 var Help = class {
   constructor() {
@@ -60987,7 +61083,7 @@ ${itemIndentStr}`);
   }
 };
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/commander/lib/option.js
+// ../../git-folder/interface-built-right/node_modules/commander/lib/option.js
 var Option = class {
   /**
    * Initialize a new `Option` with the given `flags` and `description`.
@@ -61293,7 +61389,7 @@ function splitOptionFlags(flags) {
   return { shortFlag, longFlag };
 }
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/commander/lib/suggestSimilar.js
+// ../../git-folder/interface-built-right/node_modules/commander/lib/suggestSimilar.js
 var maxDistance = 3;
 function editDistance(a, b) {
   if (Math.abs(a.length - b.length) > maxDistance)
@@ -61368,7 +61464,7 @@ function suggestSimilar(word, candidates) {
   return "";
 }
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/commander/lib/command.js
+// ../../git-folder/interface-built-right/node_modules/commander/lib/command.js
 var Command = class _Command extends import_node_events.EventEmitter {
   /**
    * Initialize a new `Command`.
@@ -63602,7 +63698,7 @@ function useColor() {
   return void 0;
 }
 
-// ../../../../dev/git-folder/interface-built-right/node_modules/commander/index.js
+// ../../git-folder/interface-built-right/node_modules/commander/index.js
 var program = new Command();
 
 // src/bin/ibr.ts

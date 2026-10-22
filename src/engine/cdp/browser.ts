@@ -246,6 +246,138 @@ export function reapOrphanedIbrChromeProcesses(options: {
   return result
 }
 
+/**
+ * macOS Chrome copies its app bundle into
+ * `$TMPDIR/../X/com.google.Chrome.code_sign_clone/code_sign_clone.*` soon after
+ * launch. A helper deletes the copy after a normal exit; a SIGKILLed Chrome
+ * leaves it behind, and macOS clears that folder only at boot. 342 leftovers
+ * piled up in 3 days on 2026-10-22.
+ */
+export function chromeCodeSignCloneRoot(tempDir: string = tmpdir()): string {
+  return join(dirname(tempDir.replace(/\/+$/, '')), 'X', 'com.google.Chrome.code_sign_clone')
+}
+
+/** How long close() waits after SIGTERM before SIGKILL. */
+export const CHROME_EXIT_GRACE_MS = 10_000
+
+/** Leftovers younger than this are left alone, so a Chrome starting right now keeps its copy. */
+export const CODE_SIGN_CLONE_GRACE_MS = 2 * 60 * 1000
+
+/** Start times of running Google Chrome browser processes (helpers excluded). */
+export function runningChromeStartTimes(psOutput: string): number[] {
+  const starts: number[] = []
+  for (const line of psOutput.split('\n')) {
+    // `ps -axo lstart=,command=`: "Wed Oct 22 01:02:03 2026 /Applications/..."
+    const match = line.match(/^\s*(\w{3}\s+\w{3}\s+\d+\s+[\d:]+\s+\d{4})\s+(.*)$/)
+    if (!match) continue
+    const command = match[2]
+    if (!command.includes('Google Chrome.app/Contents/MacOS/Google Chrome') || command.includes('--type=')) continue
+    const started = Date.parse(match[1])
+    if (Number.isFinite(started)) starts.push(started)
+  }
+  return starts
+}
+
+/**
+ * Names of code-signing copies that a running process holds open. A live Chrome
+ * keeps files inside its own copy open, so this is direct proof of ownership.
+ * Returns null when lsof cannot answer.
+ */
+export function openCodeSignClones(root: string, lsofOutput?: string | null): Set<string> | null {
+  if (lsofOutput === null) return null // test seam: lsof unavailable
+  let out: string
+  if (lsofOutput !== undefined) {
+    out = lsofOutput
+  } else {
+    try {
+      // -c Google matches "Google Chrome" and its helpers; -Fn prints one path per line.
+      out = execFileSync('lsof', ['-w', '-Fn', '-c', 'Google'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+    } catch (error) {
+      // lsof exits 1 when nothing matches; that is a valid empty answer.
+      const e = error as { status?: number; stdout?: string }
+      if (e.status === 1 && typeof e.stdout === 'string') out = e.stdout
+      else return null
+    }
+  }
+  const prefix = root.replace(/\/+$/, '') + '/'
+  const privatePrefix = prefix.startsWith('/var/') ? '/private' + prefix : prefix
+  const open = new Set<string>()
+  for (const line of out.split('\n')) {
+    if (!line.startsWith('n')) continue
+    const path = line.slice(1)
+    const base = path.startsWith(prefix) ? prefix : path.startsWith(privatePrefix) ? privatePrefix : null
+    if (!base) continue
+    open.add(path.slice(base.length).split('/')[0])
+  }
+  return open
+}
+
+export interface CodeSignCloneSweepResult {
+  removed: string[]
+  kept: string[]
+}
+
+/**
+ * Remove Chrome code-signing copies that no running Chrome owns. Ownership is
+ * read from open files (lsof). If lsof cannot answer, fall back to start times:
+ * a copy is made after its Chrome starts, so a copy born before the earliest
+ * running Chrome started (or any copy when no Chrome runs) is stale. Copies
+ * inside the grace window are always kept.
+ */
+export function sweepStaleChromeCodeSignClones(options: {
+  root?: string
+  psOutput?: string
+  /** null simulates lsof being unavailable. */
+  lsofOutput?: string | null
+  now?: number
+  platform?: NodeJS.Platform
+} = {}): CodeSignCloneSweepResult {
+  const result: CodeSignCloneSweepResult = { removed: [], kept: [] }
+  if ((options.platform ?? process.platform) !== 'darwin') return result
+  const root = options.root ?? chromeCodeSignCloneRoot()
+  let entries: string[]
+  try {
+    entries = readdirSync(root).filter((name) => name.startsWith('code_sign_clone.'))
+  } catch {
+    return result
+  }
+  if (entries.length === 0) return result
+  const now = options.now ?? Date.now()
+  const open = openCodeSignClones(root, options.lsofOutput)
+  let ownedAfter = Infinity
+  if (open === null) {
+    let psOutput: string
+    try {
+      psOutput = options.psOutput ?? execFileSync('ps', ['-axo', 'lstart=,command='], {
+        encoding: 'utf8',
+        maxBuffer: 16 * 1024 * 1024,
+      })
+    } catch {
+      return { removed: [], kept: entries.map((name) => join(root, name)) }
+    }
+    const starts = runningChromeStartTimes(psOutput)
+    // ps reports start times to the second; allow a minute of slack before a launch.
+    if (starts.length > 0) ownedAfter = Math.min(...starts) - 60_000
+  }
+  for (const name of entries) {
+    const path = join(root, name)
+    try {
+      const st = statSync(path)
+      const born = st.birthtimeMs || st.mtimeMs
+      const inUse = open !== null ? open.has(name) : born >= ownedAfter
+      if (now - born < CODE_SIGN_CLONE_GRACE_MS || inUse) {
+        result.kept.push(path)
+        continue
+      }
+      rmSync(path, { recursive: true, force: true })
+      result.removed.push(path)
+    } catch {
+      result.kept.push(path)
+    }
+  }
+  return result
+}
+
 export interface SingletonLockEvidence {
   targetHost: string
   targetPid: number
@@ -593,6 +725,7 @@ export class BrowserManager {
     // and force this launch into another throwaway profile.
     progress('reaping orphaned browsers')
     reapOrphanedIbrChromeProcesses()
+    sweepStaleChromeCodeSignClones()
     let userDataDir = options.userDataDir ?? join(homedir(), '.ibr', 'chromium-profile')
     // The profile lock and Chrome's own SingletonLock both live next to
     // userDataDir; make sure the parent exists before either is touched
@@ -822,12 +955,16 @@ export class BrowserManager {
       this.process = null
 
       if (!this._exit) {
-        // Wait for process to exit, with SIGKILL escalation.
+        let killed = false
+        // Wait for process to exit, with SIGKILL escalation. SIGTERM lets
+        // Chrome delete its code-signing copy; SIGKILL strands it, so the
+        // grace is generous for a loaded host and the kill is followed by a sweep.
         await new Promise<void>((resolve) => {
           const killTimer = setTimeout(() => {
             try { proc.kill('SIGKILL') } catch { /* already dead */ }
+            killed = true
             resolve()
-          }, 3000)
+          }, CHROME_EXIT_GRACE_MS)
 
           proc.once('close', () => {
             clearTimeout(killTimer)
@@ -836,6 +973,7 @@ export class BrowserManager {
 
           proc.kill('SIGTERM')
         })
+        if (killed) sweepStaleChromeCodeSignClones()
       }
     }
 

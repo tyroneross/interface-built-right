@@ -1,5 +1,5 @@
 import { spawn, execFileSync } from 'child_process';
-import { readFileSync, unlinkSync, existsSync, lstatSync, mkdtempSync, rmSync, statSync, readlinkSync, readdirSync, openSync, writeSync, closeSync } from 'fs';
+import { readFileSync, unlinkSync, existsSync, lstatSync, mkdtempSync, rmSync, readdirSync, statSync, readlinkSync, openSync, writeSync, closeSync } from 'fs';
 import { mkdir, writeFile } from 'fs/promises';
 import { createServer } from 'net';
 import { hostname, homedir, tmpdir } from 'os';
@@ -598,6 +598,94 @@ function reapOrphanedIbrChromeProcesses(options = {}) {
   }
   return result;
 }
+function chromeCodeSignCloneRoot(tempDir = tmpdir()) {
+  return join(dirname(tempDir.replace(/\/+$/, "")), "X", "com.google.Chrome.code_sign_clone");
+}
+var CHROME_EXIT_GRACE_MS = 1e4;
+var CODE_SIGN_CLONE_GRACE_MS = 2 * 60 * 1e3;
+function runningChromeStartTimes(psOutput) {
+  const starts = [];
+  for (const line of psOutput.split("\n")) {
+    const match = line.match(/^\s*(\w{3}\s+\w{3}\s+\d+\s+[\d:]+\s+\d{4})\s+(.*)$/);
+    if (!match) continue;
+    const command = match[2];
+    if (!command.includes("Google Chrome.app/Contents/MacOS/Google Chrome") || command.includes("--type=")) continue;
+    const started = Date.parse(match[1]);
+    if (Number.isFinite(started)) starts.push(started);
+  }
+  return starts;
+}
+function openCodeSignClones(root, lsofOutput) {
+  if (lsofOutput === null) return null;
+  let out;
+  if (lsofOutput !== void 0) {
+    out = lsofOutput;
+  } else {
+    try {
+      out = execFileSync("lsof", ["-w", "-Fn", "-c", "Google"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    } catch (error) {
+      const e = error;
+      if (e.status === 1 && typeof e.stdout === "string") out = e.stdout;
+      else return null;
+    }
+  }
+  const prefix = root.replace(/\/+$/, "") + "/";
+  const privatePrefix = prefix.startsWith("/var/") ? "/private" + prefix : prefix;
+  const open = /* @__PURE__ */ new Set();
+  for (const line of out.split("\n")) {
+    if (!line.startsWith("n")) continue;
+    const path = line.slice(1);
+    const base = path.startsWith(prefix) ? prefix : path.startsWith(privatePrefix) ? privatePrefix : null;
+    if (!base) continue;
+    open.add(path.slice(base.length).split("/")[0]);
+  }
+  return open;
+}
+function sweepStaleChromeCodeSignClones(options = {}) {
+  const result = { removed: [], kept: [] };
+  if ((options.platform ?? process.platform) !== "darwin") return result;
+  const root = options.root ?? chromeCodeSignCloneRoot();
+  let entries;
+  try {
+    entries = readdirSync(root).filter((name) => name.startsWith("code_sign_clone."));
+  } catch {
+    return result;
+  }
+  if (entries.length === 0) return result;
+  const now = options.now ?? Date.now();
+  const open = openCodeSignClones(root, options.lsofOutput);
+  let ownedAfter = Infinity;
+  if (open === null) {
+    let psOutput;
+    try {
+      psOutput = options.psOutput ?? execFileSync("ps", ["-axo", "lstart=,command="], {
+        encoding: "utf8",
+        maxBuffer: 16 * 1024 * 1024
+      });
+    } catch {
+      return { removed: [], kept: entries.map((name) => join(root, name)) };
+    }
+    const starts = runningChromeStartTimes(psOutput);
+    if (starts.length > 0) ownedAfter = Math.min(...starts) - 6e4;
+  }
+  for (const name of entries) {
+    const path = join(root, name);
+    try {
+      const st = statSync(path);
+      const born = st.birthtimeMs || st.mtimeMs;
+      const inUse = open !== null ? open.has(name) : born >= ownedAfter;
+      if (now - born < CODE_SIGN_CLONE_GRACE_MS || inUse) {
+        result.kept.push(path);
+        continue;
+      }
+      rmSync(path, { recursive: true, force: true });
+      result.removed.push(path);
+    } catch {
+      result.kept.push(path);
+    }
+  }
+  return result;
+}
 function shouldReclaimSingletonLock(evidence) {
   if (evidence.profileInUse) return false;
   if (evidence.targetHost === evidence.currentHost) return !evidence.targetPidAlive;
@@ -839,6 +927,7 @@ var BrowserManager = class {
     progress(`debugging port ${this._port}`);
     progress("reaping orphaned browsers");
     reapOrphanedIbrChromeProcesses();
+    sweepStaleChromeCodeSignClones();
     let userDataDir = options.userDataDir ?? join(homedir(), ".ibr", "chromium-profile");
     await mkdir(dirname(userDataDir), { recursive: true });
     progress("acquiring profile lock");
@@ -989,20 +1078,23 @@ ${tail}` : "";
       const proc = this.process;
       this.process = null;
       if (!this._exit) {
+        let killed = false;
         await new Promise((resolve2) => {
           const killTimer = setTimeout(() => {
             try {
               proc.kill("SIGKILL");
             } catch {
             }
+            killed = true;
             resolve2();
-          }, 3e3);
+          }, CHROME_EXIT_GRACE_MS);
           proc.once("close", () => {
             clearTimeout(killTimer);
             resolve2();
           });
           proc.kill("SIGTERM");
         });
+        if (killed) sweepStaleChromeCodeSignClones();
       }
     }
     if (this._ephemeralProfileDir) {
