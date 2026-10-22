@@ -4652,6 +4652,239 @@ ${tail}` : "";
   }
 });
 
+// src/engine/cdp/shared-browser.ts
+function sharedChromeDir(env = process.env) {
+  return env.IBR_SHARED_CHROME_DIR || (0, import_node_path4.join)((0, import_node_os2.homedir)(), ".ibr", "shared-chrome");
+}
+function envInt(name, fallback) {
+  const value = Number.parseInt(process.env[name] ?? "", 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+function pidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error51) {
+    return error51.code === "EPERM";
+  }
+}
+async function withLock(dir, fn) {
+  const lockDir = (0, import_node_path4.join)(dir, "lock");
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  for (; ; ) {
+    try {
+      (0, import_node_fs3.mkdirSync)(lockDir);
+      break;
+    } catch (error51) {
+      if (error51.code !== "EEXIST") throw error51;
+      try {
+        if (Date.now() - (0, import_node_fs3.statSync)(lockDir).mtimeMs > LOCK_STALE_MS) {
+          (0, import_node_fs3.rmSync)(lockDir, { recursive: true, force: true });
+          continue;
+        }
+      } catch {
+      }
+      if (Date.now() > deadline) throw new Error(`shared Chrome lock busy: ${lockDir}`);
+      await sleep(100);
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    (0, import_node_fs3.rmSync)(lockDir, { recursive: true, force: true });
+  }
+}
+function liveLeases(dir) {
+  const leasesDir = (0, import_node_path4.join)(dir, "leases");
+  let names;
+  try {
+    names = (0, import_node_fs3.readdirSync)(leasesDir);
+  } catch {
+    return [];
+  }
+  const live = [];
+  for (const name of names) {
+    const pid = Number.parseInt(name.split("-")[0] ?? "", 10);
+    if (pidAlive(pid)) live.push(name);
+    else (0, import_node_fs3.rmSync)((0, import_node_path4.join)(leasesDir, name), { force: true });
+  }
+  return live;
+}
+function readSharedChromeState(dir) {
+  try {
+    const state = JSON.parse((0, import_node_fs3.readFileSync)((0, import_node_path4.join)(dir, "state.json"), "utf8"));
+    return typeof state.pid === "number" && typeof state.wsEndpoint === "string" ? state : null;
+  } catch {
+    return null;
+  }
+}
+async function debuggerEndpoint(port, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: controller.signal });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.webSocketDebuggerUrl ?? null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+function freePort() {
+  return new Promise((resolve8, reject) => {
+    const srv = (0, import_node_net2.createServer)();
+    srv.listen(0, "127.0.0.1", () => {
+      const port = srv.address().port;
+      srv.close(() => resolve8(port));
+    });
+    srv.on("error", reject);
+  });
+}
+async function startSharedChrome(dir, options) {
+  const progress = options.onProgress ?? (() => {
+  });
+  const chromePath = options.chromePath ?? process.env.IBR_CHROME_PATH ?? findChrome();
+  if (!chromePath) throw new Error("Chrome not found for the shared browser");
+  const port = await freePort();
+  const profileDir = (0, import_node_path4.join)(dir, "profile");
+  (0, import_node_fs3.mkdirSync)(profileDir, { recursive: true });
+  progress(`starting shared Chrome on port ${port}`);
+  const child = (0, import_node_child_process3.spawn)(chromePath, [
+    `--remote-debugging-port=${port}`,
+    `--user-data-dir=${profileDir}`,
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-background-networking",
+    "--disable-sync",
+    "--headless=new"
+  ], { detached: true, stdio: "ignore" });
+  child.unref();
+  const pid = child.pid;
+  if (!pid) throw new Error("shared Chrome did not start");
+  const deadline = Date.now() + DEBUGGER_WAIT_MS;
+  let wsEndpoint = null;
+  while (Date.now() < deadline && pidAlive(pid)) {
+    wsEndpoint = await debuggerEndpoint(port, 1e3);
+    if (wsEndpoint) break;
+    await sleep(200);
+  }
+  if (!wsEndpoint) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+    }
+    throw new Error(`shared Chrome did not open its debugger on port ${port}`);
+  }
+  const state = { pid, port, wsEndpoint, profileDir, startedAt: Date.now() };
+  (0, import_node_fs3.writeFileSync)((0, import_node_path4.join)(dir, "state.json"), JSON.stringify(state, null, 2));
+  const idleMs = options.idleMs ?? envInt("IBR_SHARED_CHROME_IDLE_MS", SHARED_CHROME_DEFAULT_IDLE_MS);
+  (0, import_node_child_process3.spawn)(process.execPath, ["-e", WATCHDOG_SOURCE, dir, String(pid), String(idleMs)], {
+    detached: true,
+    stdio: "ignore"
+  }).unref();
+  progress(`shared Chrome pid ${pid} ready`);
+  return state;
+}
+async function acquireSharedChrome(options = {}) {
+  const dir = options.dir ?? sharedChromeDir();
+  const progress = options.onProgress ?? (() => {
+  });
+  (0, import_node_fs3.mkdirSync)((0, import_node_path4.join)(dir, "leases"), { recursive: true });
+  const maxLeases = options.maxLeases ?? envInt("IBR_SHARED_CHROME_MAX_PAGES", SHARED_CHROME_DEFAULT_MAX_LEASES);
+  const waitUntil = Date.now() + (options.leaseWaitMs ?? 12e4);
+  let warned = false;
+  for (; ; ) {
+    const granted = await withLock(dir, async () => {
+      if (liveLeases(dir).length >= maxLeases && Date.now() < waitUntil) return null;
+      let state = readSharedChromeState(dir);
+      if (state && !(pidAlive(state.pid) && await debuggerEndpoint(state.port, 2e3))) {
+        (0, import_node_fs3.rmSync)((0, import_node_path4.join)(dir, "state.json"), { force: true });
+        state = null;
+      }
+      if (!state) state = await startSharedChrome(dir, options);
+      const leasePath = (0, import_node_path4.join)(dir, "leases", `${process.pid}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`);
+      (0, import_node_fs3.writeFileSync)(leasePath, "");
+      return { state, leasePath };
+    });
+    if (granted) {
+      let released = false;
+      return {
+        wsEndpoint: granted.state.wsEndpoint,
+        release() {
+          if (released) return;
+          released = true;
+          (0, import_node_fs3.rmSync)(granted.leasePath, { force: true });
+        }
+      };
+    }
+    if (!warned) {
+      progress(`waiting: ${maxLeases} commands already use the shared Chrome`);
+      warned = true;
+    }
+    await sleep(250);
+  }
+}
+function shouldUseSharedChrome(options, env = process.env) {
+  const envMode = env.IBR_BROWSER_MODE;
+  if (envMode === "shared") return options.headless !== false;
+  if (envMode) return false;
+  if (options.mode || options.cdpUrl || options.wsEndpoint || env.IBR_CDP_URL || env.IBR_WS_ENDPOINT) return false;
+  if (options.headless === false || options.userDataDir || options.port || options.normalize) return false;
+  return true;
+}
+var import_node_child_process3, import_node_fs3, import_node_net2, import_node_os2, import_node_path4, SHARED_CHROME_DEFAULT_MAX_LEASES, SHARED_CHROME_DEFAULT_IDLE_MS, LOCK_STALE_MS, LOCK_WAIT_MS, DEBUGGER_WAIT_MS, sleep, WATCHDOG_SOURCE;
+var init_shared_browser = __esm({
+  "src/engine/cdp/shared-browser.ts"() {
+    "use strict";
+    import_node_child_process3 = require("child_process");
+    import_node_fs3 = require("fs");
+    import_node_net2 = require("net");
+    import_node_os2 = require("os");
+    import_node_path4 = require("path");
+    init_browser();
+    SHARED_CHROME_DEFAULT_MAX_LEASES = 6;
+    SHARED_CHROME_DEFAULT_IDLE_MS = 10 * 60 * 1e3;
+    LOCK_STALE_MS = 6e4;
+    LOCK_WAIT_MS = 3e4;
+    DEBUGGER_WAIT_MS = 2e4;
+    sleep = (ms) => new Promise((resolve8) => setTimeout(resolve8, ms));
+    WATCHDOG_SOURCE = `
+const fs = require('node:fs'), path = require('node:path');
+const [dir, chromePidArg, idleArg] = process.argv.slice(1);
+const chromePid = Number(chromePidArg), idleMs = Number(idleArg);
+const alive = (p) => { try { process.kill(p, 0); return true } catch (e) { return e.code === 'EPERM' } };
+const clearState = () => { try {
+  const s = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'));
+  if (s.pid === chromePid) fs.rmSync(path.join(dir, 'state.json'), { force: true });
+} catch {} };
+let lastBusy = Date.now(), stopping = 0;
+setInterval(() => {
+  if (!alive(chromePid)) { clearState(); process.exit(0) }
+  if (stopping) {
+    if (Date.now() - stopping > 20000) { try { process.kill(chromePid, 'SIGKILL') } catch {} }
+    return;
+  }
+  let busy = false;
+  try {
+    for (const name of fs.readdirSync(path.join(dir, 'leases'))) {
+      if (alive(Number(name.split('-')[0]))) busy = true;
+      else fs.rmSync(path.join(dir, 'leases', name), { force: true });
+    }
+  } catch {}
+  if (busy) { lastBusy = Date.now(); return }
+  if (Date.now() - lastBusy >= idleMs) {
+    clearState();
+    stopping = Date.now();
+    try { process.kill(chromePid, 'SIGTERM') } catch {}
+  }
+}, 5000);
+`;
+  }
+});
+
 // src/engine/cdp/target.ts
 var TargetDomain;
 var init_target = __esm({
@@ -4662,12 +4895,26 @@ var init_target = __esm({
         this.conn = conn;
       }
       conn;
-      async createPage(url2) {
+      async createPage(url2, browserContextId) {
         const result = await this.conn.send(
           "Target.createTarget",
-          { url: url2 }
+          browserContextId ? { url: url2, browserContextId } : { url: url2 }
         );
         return result.targetId;
+      }
+      /**
+       * A private browser context: its own cookies, storage and cache. With
+       * disposeOnDetach, Chrome drops it if this connection dies without cleanup.
+       */
+      async createContext() {
+        const result = await this.conn.send(
+          "Target.createBrowserContext",
+          { disposeOnDetach: true }
+        );
+        return result.browserContextId;
+      }
+      async disposeContext(browserContextId) {
+        await this.conn.send("Target.disposeBrowserContext", { browserContextId });
       }
       async attach(targetId) {
         const result = await this.conn.send(
@@ -9352,6 +9599,7 @@ var init_driver = __esm({
     "use strict";
     init_connection();
     init_browser();
+    init_shared_browser();
     init_target();
     init_page();
     init_accessibility();
@@ -9430,6 +9678,10 @@ var init_driver = __esm({
       console;
       fetch;
       targetId = null;
+      /** Lease on the shared Chrome, when this driver uses it instead of its own process. */
+      sharedLease = null;
+      /** Private context this driver created in the shared Chrome. */
+      browserContextId = null;
       sessionId = null;
       ownsTarget = true;
       _currentUrl = "";
@@ -9476,13 +9728,21 @@ var init_driver = __esm({
       async launch(options = {}) {
         const progress = options.onProgress ?? (() => {
         });
-        const wsUrl = await this.browser.launch(options);
-        progress("opening CDP websocket");
-        await this.conn.connect(wsUrl);
-        progress("CDP websocket open");
-        this.target = new TargetDomain(this.conn);
+        if (shouldUseSharedChrome(options)) {
+          try {
+            await this.launchInSharedChrome(options, progress);
+          } catch (error51) {
+            progress(`shared Chrome unavailable (${error51 instanceof Error ? error51.message : String(error51)}); launching a private Chrome`);
+            await this.releaseShared();
+            await this.conn.close().catch(() => {
+            });
+            await this.connectToBrowser(await this.browser.launch(options), progress);
+          }
+        } else {
+          await this.connectToBrowser(await this.browser.launch(options), progress);
+        }
         this.launched = true;
-        this.targetId = await this.target.createPage("about:blank");
+        this.targetId = await this.target.createPage("about:blank", this.browserContextId ?? void 0);
         this.ownsTarget = true;
         this.sessionId = await this.target.attach(this.targetId);
         progress("page target attached");
@@ -9506,6 +9766,37 @@ var init_driver = __esm({
         if (options.viewport) {
           await this.emulation.applyDeviceProfile(options.viewport);
         }
+      }
+      async connectToBrowser(wsUrl, progress) {
+        progress("opening CDP websocket");
+        await this.conn.connect(wsUrl);
+        progress("CDP websocket open");
+        this.target = new TargetDomain(this.conn);
+      }
+      async launchInSharedChrome(options, progress) {
+        progress("leasing the shared Chrome");
+        this.sharedLease = await acquireSharedChrome({ chromePath: options.chromePath, onProgress: progress });
+        const wsUrl = await this.browser.launch({ mode: "connect", wsEndpoint: this.sharedLease.wsEndpoint });
+        await this.connectToBrowser(wsUrl, progress);
+        this.browserContextId = await this.target.createContext();
+        progress("private browser context created");
+      }
+      /** Dispose this driver's context and drop its lease. Safe to call repeatedly. */
+      async releaseShared() {
+        if (this.browserContextId) {
+          const id = this.browserContextId;
+          this.browserContextId = null;
+          await this.target?.disposeContext(id).catch(() => {
+          });
+        }
+        if (this.sharedLease) {
+          this.sharedLease.release();
+          this.sharedLease = null;
+        }
+      }
+      /** True when this driver is a guest in the shared Chrome. */
+      get usesSharedChrome() {
+        return this.sharedLease !== null;
       }
       /**
        * Wire Page.javascriptDialogOpening/Closed into `pendingDialog` +
@@ -9531,6 +9822,7 @@ var init_driver = __esm({
           });
           this.targetId = null;
         }
+        await this.releaseShared();
         await this.conn.close();
         await this.browser.close();
         this.launched = false;
@@ -9557,6 +9849,7 @@ var init_driver = __esm({
           this.targetId = null;
           this.sessionId = null;
         }
+        await this.releaseShared();
         await this.conn.close().catch(() => {
         });
         this.launched = false;
@@ -43396,13 +43689,13 @@ async function activateMacOSProcess(pid) {
       "-e",
       `tell application "System Events" to set frontmost of first application process whose unix id is ${pid} to true`
     ], { timeout: 3e3 });
-    await sleep(250);
+    await sleep2(250);
     return true;
   } catch {
     return false;
   }
 }
-function sleep(ms) {
+function sleep2(ms) {
   return new Promise((resolve8) => setTimeout(resolve8, ms));
 }
 function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
@@ -46069,7 +46362,7 @@ async function resolveKeystrokeTargetPid(target) {
   if (target.kind === "macos") return target.pid;
   return findProcess("com.apple.iphonesimulator");
 }
-function sleep2(ms) {
+function sleep3(ms) {
   return new Promise((resolve8) => setTimeout(resolve8, ms));
 }
 function keystrokeSuccess(chord, method, before, after) {
@@ -46120,7 +46413,7 @@ async function runKeystrokeCapability(opts) {
     const foreground = spec.delivery === "foreground";
     const delivery = await deliver(pid, chord, foreground);
     if (delivery.success !== true) return keystrokeFailure(chord, before, before, `delivery failed or uncertain: ${delivery.error ?? "unknown error"}`);
-    await sleep2(SETTLE_MS);
+    await sleep3(SETTLE_MS);
     const after = await safeSignature();
     if (!after.startsWith("error:") && after !== before) {
       return keystrokeSuccess(chord, foreground ? "cgevent-foreground" : "cgevent-pid-background", before, after);
@@ -46173,14 +46466,14 @@ var init_keyboard = __esm({
 });
 
 // src/native/lifecycle.ts
-function sleep3(ms) {
+function sleep4(ms) {
   return new Promise((resolve8) => setTimeout(resolve8, ms));
 }
 async function pollUntil(check2, timeoutMs) {
   const started = Date.now();
   if (await check2()) return true;
   while (Date.now() - started < timeoutMs) {
-    await sleep3(POLL_MS);
+    await sleep4(POLL_MS);
     if (await check2()) return true;
   }
   return false;
@@ -46241,7 +46534,7 @@ async function runLaunch(spec, ops) {
   let frontmost = await ops.frontmostPid() === resolvedPid;
   if (!frontmost) {
     await ops.activate(resolvedPid);
-    await sleep3(POLL_MS);
+    await sleep4(POLL_MS);
     frontmost = await ops.frontmostPid() === resolvedPid;
   }
   const after = `pid=${resolvedPid}|frontmost=${frontmost}`;
@@ -46262,7 +46555,7 @@ async function runSwitch(target, spec, ops) {
   }
   const before = `frontmost=${await ops.frontmostPid()}`;
   const activated = await ops.activate(pid);
-  await sleep3(POLL_MS);
+  await sleep4(POLL_MS);
   const frontmostAfter = await ops.frontmostPid();
   const after = `frontmost=${frontmostAfter}`;
   if (!activated || frontmostAfter !== pid) {
@@ -46399,7 +46692,7 @@ async function resolveMenuTargetPid(target) {
   if (target.kind === "macos") return target.pid;
   return findProcess("com.apple.iphonesimulator");
 }
-function sleep4(ms) {
+function sleep5(ms) {
   return new Promise((resolve8) => setTimeout(resolve8, ms));
 }
 function menuLabel(menuPath) {
@@ -46459,7 +46752,7 @@ async function runMenuCapability(opts) {
         `menu traversal failed${segment}: ${delivery.error ?? "unknown error"}`
       );
     }
-    await sleep4(SETTLE_MS2);
+    await sleep5(SETTLE_MS2);
     const after = await safeSignature();
     if (after !== before) {
       return menuSuccess(menuPath, delivery.matchedVia ?? "menu-select", before, after);
@@ -47137,7 +47430,7 @@ function normalizeNativeWaitTimeout(value, fallback) {
 function safeFilePart(value) {
   return value.replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "native-session";
 }
-function sleep5(ms) {
+function sleep6(ms) {
   return new Promise((resolve8) => setTimeout(resolve8, ms));
 }
 function formatNativeCandidate(candidate) {
@@ -47495,7 +47788,7 @@ var init_session_controller = __esm({
         let attempts = 0;
         do {
           if (attempts === 0 && timeoutMs > 0) {
-            await sleep5(Math.min(120, timeoutMs));
+            await sleep6(Math.min(120, timeoutMs));
           }
           const extraction = await this.backend.extract({ kind: "macos", pid: entry.pid, app: entry.app });
           if (extraction.kind !== "macos") break;
@@ -47540,7 +47833,7 @@ var init_session_controller = __esm({
         let attempts = 0;
         do {
           if (attempts === 0 && timeoutMs > 0) {
-            await sleep5(Math.min(120, timeoutMs));
+            await sleep6(Math.min(120, timeoutMs));
           }
           const extraction = await this.backend.extract({ kind: "simulator", device: entry.device });
           if (extraction.kind === "not-found") {
@@ -48883,10 +49176,10 @@ var init_session2 = __esm({
         );
       }
       async findFreePort() {
-        const { createServer: createServer3 } = await import("net");
+        const { createServer: createServer4 } = await import("net");
         for (let p = PORT_RANGE_START; p <= PORT_RANGE_END; p++) {
           const available = await new Promise((resolve8) => {
-            const server = createServer3();
+            const server = createServer4();
             server.once("error", () => resolve8(false));
             server.once("listening", () => {
               server.close();
@@ -49797,7 +50090,7 @@ function parseCookiePairs(pairs, defaultUrl) {
   return out;
 }
 function parseCookieJar(path3, defaultUrl) {
-  const raw = (0, import_node_fs3.readFileSync)(path3, "utf8");
+  const raw = (0, import_node_fs4.readFileSync)(path3, "utf8");
   let parsed;
   try {
     parsed = JSON.parse(raw);
@@ -49844,11 +50137,11 @@ function resolveCookies(options, defaultUrl) {
   if (options.cookie) out.push(...parseCookiePairs(options.cookie, defaultUrl));
   return out;
 }
-var import_node_fs3;
+var import_node_fs4;
 var init_cookie_parser = __esm({
   "src/bin/cookie-parser.ts"() {
     "use strict";
-    import_node_fs3 = require("fs");
+    import_node_fs4 = require("fs");
   }
 });
 
@@ -50217,19 +50510,19 @@ function escapeForInlineStyle(css) {
   return css.replace(/<\/style/gi, "<\\/style");
 }
 function readRequired(path3, label2) {
-  if (!(0, import_node_fs4.existsSync)(path3)) {
+  if (!(0, import_node_fs5.existsSync)(path3)) {
     throw new Error(`${label2} not found: ${path3}`);
   }
-  return (0, import_node_fs4.readFileSync)(path3, "utf8");
+  return (0, import_node_fs5.readFileSync)(path3, "utf8");
 }
 function resolvePluginPaths(pluginPath) {
-  const abs = (0, import_node_path5.isAbsolute)(pluginPath) ? pluginPath : (0, import_node_path5.resolve)(process.cwd(), pluginPath);
+  const abs = (0, import_node_path6.isAbsolute)(pluginPath) ? pluginPath : (0, import_node_path6.resolve)(process.cwd(), pluginPath);
   if (abs.endsWith(".js")) {
     return { bundlePath: abs };
   }
-  const bundlePath = (0, import_node_path5.join)(abs, "main.js");
-  const stylesPath = (0, import_node_path5.join)(abs, "styles.css");
-  return { bundlePath, stylesPath: (0, import_node_fs4.existsSync)(stylesPath) ? stylesPath : void 0 };
+  const bundlePath = (0, import_node_path6.join)(abs, "main.js");
+  const stylesPath = (0, import_node_path6.join)(abs, "styles.css");
+  return { bundlePath, stylesPath: (0, import_node_fs5.existsSync)(stylesPath) ? stylesPath : void 0 };
 }
 function buildMountScript(input) {
   const viewStateJson = JSON.stringify(input.viewState ?? {});
@@ -50380,12 +50673,12 @@ ${escapeForInlineStyle(input.extraCss)}
 </html>
 `;
 }
-var import_node_fs4, import_node_path5, OBSIDIAN_BODY_CLASSES, APPROXIMATE_BASELINE_CSS, MINIMAL_RESET_CSS;
+var import_node_fs5, import_node_path6, OBSIDIAN_BODY_CLASSES, APPROXIMATE_BASELINE_CSS, MINIMAL_RESET_CSS;
 var init_harness = __esm({
   "src/obsidian/harness.ts"() {
     "use strict";
-    import_node_fs4 = require("fs");
-    import_node_path5 = require("path");
+    import_node_fs5 = require("fs");
+    import_node_path6 = require("path");
     init_stub();
     OBSIDIAN_BODY_CLASSES = "mod-macos is-focused";
     APPROXIMATE_BASELINE_CSS = `/* Obsidian-ish baseline \u2014 APPROXIMATION.
@@ -50452,25 +50745,25 @@ function isDirectory(node) {
   return typeof node.files === "object";
 }
 function readAsarHeader(asarPath) {
-  const fd = (0, import_node_fs5.openSync)(asarPath, "r");
+  const fd = (0, import_node_fs6.openSync)(asarPath, "r");
   try {
     const preamble = Buffer.alloc(ASAR_PREAMBLE_BYTES);
-    const preambleRead = (0, import_node_fs5.readSync)(fd, preamble, 0, ASAR_PREAMBLE_BYTES, 0);
+    const preambleRead = (0, import_node_fs6.readSync)(fd, preamble, 0, ASAR_PREAMBLE_BYTES, 0);
     if (preambleRead < ASAR_PREAMBLE_BYTES) {
       throw new Error(`archive is shorter than an asar preamble (${preambleRead} bytes)`);
     }
     const headerSize = preamble.readUInt32LE(4);
     const jsonLen = preamble.readUInt32LE(12);
-    const archiveBytes = (0, import_node_fs5.statSync)(asarPath).size;
+    const archiveBytes = (0, import_node_fs6.statSync)(asarPath).size;
     if (jsonLen === 0 || jsonLen > headerSize || ASAR_PREAMBLE_BYTES + jsonLen > archiveBytes) {
       throw new Error(`implausible asar header (headerSize=${headerSize}, jsonLen=${jsonLen})`);
     }
     const json2 = Buffer.alloc(jsonLen);
-    (0, import_node_fs5.readSync)(fd, json2, 0, jsonLen, ASAR_PREAMBLE_BYTES);
+    (0, import_node_fs6.readSync)(fd, json2, 0, jsonLen, ASAR_PREAMBLE_BYTES);
     const header = JSON.parse(json2.toString("utf8"));
     return { header, dataOffset: 8 + headerSize, headerSize };
   } finally {
-    (0, import_node_fs5.closeSync)(fd);
+    (0, import_node_fs6.closeSync)(fd);
   }
 }
 function readAsarEntry(asarPath, entryPath) {
@@ -50487,31 +50780,31 @@ function readAsarEntry(asarPath, entryPath) {
   const size = Number(node.size);
   const offset = Number(node.offset);
   if (!Number.isFinite(size) || !Number.isFinite(offset) || size < 0) return null;
-  const fd = (0, import_node_fs5.openSync)(asarPath, "r");
+  const fd = (0, import_node_fs6.openSync)(asarPath, "r");
   try {
     const buf = Buffer.alloc(size);
-    const read = (0, import_node_fs5.readSync)(fd, buf, 0, size, dataOffset + offset);
+    const read = (0, import_node_fs6.readSync)(fd, buf, 0, size, dataOffset + offset);
     if (read !== size) {
       throw new Error(`short read on ${entryPath}: wanted ${size} bytes, got ${read}`);
     }
     return buf;
   } finally {
-    (0, import_node_fs5.closeSync)(fd);
+    (0, import_node_fs6.closeSync)(fd);
   }
 }
-function obsidianAsarCandidates(platform = process.platform, env = process.env, home = (0, import_node_os2.homedir)()) {
+function obsidianAsarCandidates(platform = process.platform, env = process.env, home = (0, import_node_os3.homedir)()) {
   if (platform === "darwin") {
     return [
       "/Applications/Obsidian.app/Contents/Resources/obsidian.asar",
-      (0, import_node_path6.join)(home, "Applications/Obsidian.app/Contents/Resources/obsidian.asar")
+      (0, import_node_path7.join)(home, "Applications/Obsidian.app/Contents/Resources/obsidian.asar")
     ];
   }
   if (platform === "win32") {
-    const localAppData = env.LOCALAPPDATA ?? (0, import_node_path6.join)(home, "AppData/Local");
+    const localAppData = env.LOCALAPPDATA ?? (0, import_node_path7.join)(home, "AppData/Local");
     const programFiles = env.ProgramFiles ?? "C:\\Program Files";
     return [
-      (0, import_node_path6.join)(localAppData, "Obsidian/resources/obsidian.asar"),
-      (0, import_node_path6.join)(programFiles, "Obsidian/resources/obsidian.asar")
+      (0, import_node_path7.join)(localAppData, "Obsidian/resources/obsidian.asar"),
+      (0, import_node_path7.join)(programFiles, "Obsidian/resources/obsidian.asar")
     ];
   }
   return [
@@ -50519,27 +50812,27 @@ function obsidianAsarCandidates(platform = process.platform, env = process.env, 
     "/usr/lib/obsidian/resources/obsidian.asar",
     "/usr/share/obsidian/resources/obsidian.asar",
     "/var/lib/flatpak/app/md.obsidian.Obsidian/current/active/files/obsidian/resources/obsidian.asar",
-    (0, import_node_path6.join)(home, ".local/share/flatpak/app/md.obsidian.Obsidian/current/active/files/obsidian/resources/obsidian.asar"),
-    (0, import_node_path6.join)(home, "Applications/squashfs-root/resources/obsidian.asar"),
-    (0, import_node_path6.join)(home, ".local/share/obsidian/resources/obsidian.asar"),
-    (0, import_node_path6.join)(home, "squashfs-root/resources/obsidian.asar")
+    (0, import_node_path7.join)(home, ".local/share/flatpak/app/md.obsidian.Obsidian/current/active/files/obsidian/resources/obsidian.asar"),
+    (0, import_node_path7.join)(home, "Applications/squashfs-root/resources/obsidian.asar"),
+    (0, import_node_path7.join)(home, ".local/share/obsidian/resources/obsidian.asar"),
+    (0, import_node_path7.join)(home, "squashfs-root/resources/obsidian.asar")
   ];
 }
-function findObsidianAsar(platform = process.platform, env = process.env, home = (0, import_node_os2.homedir)()) {
+function findObsidianAsar(platform = process.platform, env = process.env, home = (0, import_node_os3.homedir)()) {
   for (const candidate of obsidianAsarCandidates(platform, env, home)) {
-    if ((0, import_node_fs5.existsSync)(candidate)) return candidate;
+    if ((0, import_node_fs6.existsSync)(candidate)) return candidate;
   }
   return null;
 }
-function appCssCacheDir(platform = process.platform, env = process.env, home = (0, import_node_os2.homedir)()) {
-  if (platform === "darwin") return (0, import_node_path6.join)(home, "Library/Caches/ibr/obsidian");
+function appCssCacheDir(platform = process.platform, env = process.env, home = (0, import_node_os3.homedir)()) {
+  if (platform === "darwin") return (0, import_node_path7.join)(home, "Library/Caches/ibr/obsidian");
   if (platform === "win32") {
-    return (0, import_node_path6.join)(env.LOCALAPPDATA ?? (0, import_node_path6.join)(home, "AppData/Local"), "ibr/Cache/obsidian");
+    return (0, import_node_path7.join)(env.LOCALAPPDATA ?? (0, import_node_path7.join)(home, "AppData/Local"), "ibr/Cache/obsidian");
   }
-  return (0, import_node_path6.join)(env.XDG_CACHE_HOME ?? (0, import_node_path6.join)(home, ".cache"), "ibr/obsidian");
+  return (0, import_node_path7.join)(env.XDG_CACHE_HOME ?? (0, import_node_path7.join)(home, ".cache"), "ibr/obsidian");
 }
 function appCssCacheKey(asarPath) {
-  const st = (0, import_node_fs5.statSync)(asarPath);
+  const st = (0, import_node_fs6.statSync)(asarPath);
   return `app-css-${st.size}-${Math.round(st.mtimeMs)}.css`;
 }
 function resolveObsidianAppCss(options = {}) {
@@ -50548,9 +50841,9 @@ function resolveObsidianAppCss(options = {}) {
   try {
     const explicit = options.path ?? env[APP_CSS_ENV_VAR];
     if (explicit) {
-      if (!(0, import_node_fs5.existsSync)(explicit)) return null;
+      if (!(0, import_node_fs6.existsSync)(explicit)) return null;
       if (explicit.endsWith(".asar")) return fromAsar(explicit, options, platform, env);
-      const css = (0, import_node_fs5.readFileSync)(explicit, "utf8");
+      const css = (0, import_node_fs6.readFileSync)(explicit, "utf8");
       return { css, source: explicit, bytes: Buffer.byteLength(css), cached: false };
     }
     const asarPath = findObsidianAsar(platform, env);
@@ -50566,9 +50859,9 @@ function fromAsar(asarPath, options, platform, env) {
   let cachePath;
   if (useCache) {
     try {
-      cachePath = (0, import_node_path6.join)(cacheDir, appCssCacheKey(asarPath));
-      if ((0, import_node_fs5.existsSync)(cachePath)) {
-        const css2 = (0, import_node_fs5.readFileSync)(cachePath, "utf8");
+      cachePath = (0, import_node_path7.join)(cacheDir, appCssCacheKey(asarPath));
+      if ((0, import_node_fs6.existsSync)(cachePath)) {
+        const css2 = (0, import_node_fs6.readFileSync)(cachePath, "utf8");
         if (css2.length > 0) {
           return { css: css2, source: asarPath, bytes: Buffer.byteLength(css2), cached: true };
         }
@@ -50582,20 +50875,20 @@ function fromAsar(asarPath, options, platform, env) {
   const css = buf.toString("utf8");
   if (cachePath) {
     try {
-      (0, import_node_fs5.mkdirSync)((0, import_node_path6.dirname)(cachePath), { recursive: true });
-      (0, import_node_fs5.writeFileSync)(cachePath, css, "utf8");
+      (0, import_node_fs6.mkdirSync)((0, import_node_path7.dirname)(cachePath), { recursive: true });
+      (0, import_node_fs6.writeFileSync)(cachePath, css, "utf8");
     } catch {
     }
   }
   return { css, source: asarPath, bytes: buf.length, cached: false };
 }
-var import_node_fs5, import_node_os2, import_node_path6, APP_CSS_ENTRY, APP_CSS_ENV_VAR, ASAR_PREAMBLE_BYTES;
+var import_node_fs6, import_node_os3, import_node_path7, APP_CSS_ENTRY, APP_CSS_ENV_VAR, ASAR_PREAMBLE_BYTES;
 var init_app_css = __esm({
   "src/obsidian/app-css.ts"() {
     "use strict";
-    import_node_fs5 = require("fs");
-    import_node_os2 = require("os");
-    import_node_path6 = require("path");
+    import_node_fs6 = require("fs");
+    import_node_os3 = require("os");
+    import_node_path7 = require("path");
     APP_CSS_ENTRY = "app.css";
     APP_CSS_ENV_VAR = "IBR_OBSIDIAN_APP_CSS";
     ASAR_PREAMBLE_BYTES = 16;
@@ -50670,10 +50963,10 @@ function inferMobile(explicit, viewport) {
 function loadViewState(options) {
   const fromFile = {};
   if (options.viewStatePath) {
-    if (!(0, import_node_fs6.existsSync)(options.viewStatePath)) {
+    if (!(0, import_node_fs7.existsSync)(options.viewStatePath)) {
       throw new Error(`view state file not found: ${options.viewStatePath}`);
     }
-    Object.assign(fromFile, JSON.parse((0, import_node_fs6.readFileSync)(options.viewStatePath, "utf8")));
+    Object.assign(fromFile, JSON.parse((0, import_node_fs7.readFileSync)(options.viewStatePath, "utf8")));
   }
   return { ...fromFile, ...options.viewState ?? {} };
 }
@@ -50698,8 +50991,8 @@ async function scanObsidian(options) {
     appCss: appCss.css
   };
   const html = generateHarness(harnessInput);
-  const harnessPath = options.harnessOut ?? (0, import_node_path7.join)((0, import_node_fs6.mkdtempSync)((0, import_node_path7.join)((0, import_node_os3.tmpdir)(), "ibr-obsidian-")), "harness.html");
-  (0, import_node_fs6.writeFileSync)(harnessPath, html, "utf8");
+  const harnessPath = options.harnessOut ?? (0, import_node_path8.join)((0, import_node_fs7.mkdtempSync)((0, import_node_path8.join)((0, import_node_os4.tmpdir)(), "ibr-obsidian-")), "harness.html");
+  (0, import_node_fs7.writeFileSync)(harnessPath, html, "utf8");
   const server = await serveHarness(html);
   try {
     const mountTimeout = options.mountTimeout ?? DEFAULT_MOUNT_TIMEOUT_MS;
@@ -50819,13 +51112,13 @@ function formatObsidianScanResult(result) {
   }
   return lines.join("\n");
 }
-var import_node_fs6, import_node_path7, import_node_os3, MOBILE_WIDTH_CEILING, HARNESS_ERROR_PREFIXES, MOUNT_SELECTOR, DEFAULT_MOUNT_TIMEOUT_MS, LAYOUT_OVERFLOW_PROBE, APP_CSS_FIDELITY_PREFIX;
+var import_node_fs7, import_node_path8, import_node_os4, MOBILE_WIDTH_CEILING, HARNESS_ERROR_PREFIXES, MOUNT_SELECTOR, DEFAULT_MOUNT_TIMEOUT_MS, LAYOUT_OVERFLOW_PROBE, APP_CSS_FIDELITY_PREFIX;
 var init_scan3 = __esm({
   "src/obsidian/scan.ts"() {
     "use strict";
-    import_node_fs6 = require("fs");
-    import_node_path7 = require("path");
-    import_node_os3 = require("os");
+    import_node_fs7 = require("fs");
+    import_node_path8 = require("path");
+    import_node_os4 = require("os");
     init_scan();
     init_schemas3();
     init_harness();
@@ -50956,7 +51249,7 @@ async function inspectBrowserServer(outputDir) {
       state: null
     };
   }
-  if (state.pid && state.pid !== process.pid && !pidAlive(state.pid)) {
+  if (state.pid && state.pid !== process.pid && !pidAlive2(state.pid)) {
     if (state.chromePid) {
       try {
         process.kill(state.chromePid, "SIGKILL");
@@ -50989,7 +51282,7 @@ async function inspectBrowserServer(outputDir) {
     }
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    if (state.chromePid && pidAlive(state.chromePid)) {
+    if (state.chromePid && pidAlive2(state.chromePid)) {
       return {
         status: "unreachable",
         reason: `Chrome pid ${state.chromePid} is alive but ${probeUrl} did not answer: ${detail}. Leaving it running \u2014 close it explicitly with: npx ibr session:close all`,
@@ -51017,7 +51310,7 @@ async function inspectBrowserServer(outputDir) {
     state
   };
 }
-function pidAlive(pid) {
+function pidAlive2(pid) {
   try {
     process.kill(pid, 0);
     return true;
@@ -51135,7 +51428,7 @@ async function connectToBrowserServer(outputDir, targetId) {
     return driver3;
   } catch (error51) {
     lastConnectFailure = error51 instanceof Error ? error51.message : String(error51);
-    if (!state.chromePid || !pidAlive(state.chromePid)) {
+    if (!state.chromePid || !pidAlive2(state.chromePid)) {
       await cleanupServerState(outputDir);
     }
     return null;
@@ -64068,11 +64361,11 @@ function findByFingerprint(items, f) {
   }
   return hits[0];
 }
-var sleep6 = (ms) => new Promise((r) => setTimeout(r, ms));
+var sleep7 = (ms) => new Promise((r) => setTimeout(r, ms));
 async function settled(read, sig, ms) {
   let prev = await read();
   for (let i = 0; i < 6; i++) {
-    await sleep6(ms);
+    await sleep7(ms);
     const next = await read();
     if (sig(next) === sig(prev)) return next;
     prev = next;
@@ -64801,7 +65094,7 @@ function registerExternalActionEvidenceCommand(program3) {
 
 // src/bin/design-spec-cli.ts
 var import_promises26 = require("fs/promises");
-var import_node_path4 = require("path");
+var import_node_path5 = require("path");
 init_schema2();
 init_figma();
 init_check();
@@ -64810,7 +65103,7 @@ async function jsonFile(path3) {
   return JSON.parse(await (0, import_promises26.readFile)(path3, "utf8"));
 }
 async function writeSpec(path3, spec) {
-  await (0, import_promises26.mkdir)((0, import_node_path4.dirname)(path3), { recursive: true });
+  await (0, import_promises26.mkdir)((0, import_node_path5.dirname)(path3), { recursive: true });
   await (0, import_promises26.writeFile)(path3, `${JSON.stringify(spec, null, 2)}
 `, { flag: "wx" });
 }
@@ -65050,8 +65343,8 @@ async function loadConfig() {
 var IBR_DEFAULT_PORT = 4200;
 async function isPortAvailable(port) {
   return new Promise((resolve8) => {
-    import("net").then(({ createServer: createServer3 }) => {
-      const server = createServer3();
+    import("net").then(({ createServer: createServer4 }) => {
+      const server = createServer4();
       server.once("error", () => resolve8(false));
       server.once("listening", () => {
         server.close();
@@ -65223,8 +65516,8 @@ program2.command("auto").description("Zero-config: detect server, scan pages, op
     if (options.open !== false && captured > 0) {
       console.log("");
       console.log("Opening viewer...");
-      const { spawn: spawn4 } = await import("child_process");
-      spawn4("npx", ["ibr", "serve"], {
+      const { spawn: spawn5 } = await import("child_process");
+      spawn5("npx", ["ibr", "serve"], {
         stdio: "inherit",
         shell: true,
         detached: true
@@ -65350,7 +65643,7 @@ program2.command("audit [url]").description("Full audit: functional checks + vis
       const { compareImages: compareImages2, analyzeComparison: analyzeComparison2 } = await Promise.resolve().then(() => (init_compare(), compare_exports));
       const { listSessions: listSessions2, getSessionPaths: getSessionPaths2 } = await Promise.resolve().then(() => (init_session(), session_exports));
       const { mkdir: mkdir31, access: access4 } = await import("fs/promises");
-      const { join: join41 } = await import("path");
+      const { join: join42 } = await import("path");
       const outputDir = globalOpts.output || "./.ibr";
       const sessions2 = await listSessions2(outputDir);
       const urlPath = new URL(resolvedUrl).pathname;
@@ -65358,7 +65651,7 @@ program2.command("audit [url]").description("Full audit: functional checks + vis
       if (baselineSession) {
         const paths = getSessionPaths2(outputDir, baselineSession.id);
         const currentPath = paths.current;
-        await mkdir31(join41(outputDir, "sessions", baselineSession.id), { recursive: true });
+        await mkdir31(join42(outputDir, "sessions", baselineSession.id), { recursive: true });
         await page.screenshot({ path: currentPath, fullPage: true });
         try {
           await access4(paths.baseline);
@@ -65393,7 +65686,7 @@ program2.command("audit [url]").description("Full audit: functional checks + vis
       const { getSemanticOutput: getSemanticOutput2, detectLandmarks: detectLandmarks2, compareLandmarks: compareLandmarks2, getExpectedLandmarksForIntent: getExpectedLandmarksForIntent2, getExpectedLandmarksFromContext: getExpectedLandmarksFromContext2, LANDMARK_SELECTORS: LANDMARK_SELECTORS2 } = await Promise.resolve().then(() => (init_semantic(), semantic_exports));
       const { listSessions: listSessions2 } = await Promise.resolve().then(() => (init_session(), session_exports));
       const { readFile: readFile24 } = await import("fs/promises");
-      const { join: join41 } = await import("path");
+      const { join: join42 } = await import("path");
       const semantic = await getSemanticOutput2(page);
       const outputDir = globalOpts.output || "./.ibr";
       const sessions2 = await listSessions2(outputDir);
@@ -65418,7 +65711,7 @@ program2.command("audit [url]").description("Full audit: functional checks + vis
         const intentLandmarks = getExpectedLandmarksForIntent2(pageIntent);
         let contextLandmarks = [];
         try {
-          const claudeMdPath = join41(process.cwd(), "CLAUDE.md");
+          const claudeMdPath = join42(process.cwd(), "CLAUDE.md");
           const content = await readFile24(claudeMdPath, "utf-8");
           contextLandmarks = getExpectedLandmarksFromContext2({ principles: [content] });
         } catch {
@@ -65864,7 +66157,7 @@ program2.command("delete <sessionId>").description("Delete a specific session").
   }
 });
 program2.command("serve").description("Start the comparison viewer web UI").option("-p, --port <port>", `Port number (default: ${IBR_DEFAULT_PORT}, auto-scans for available)`).option("--no-open", "Do not open browser automatically").action(async (options) => {
-  const { spawn: spawn4 } = await import("child_process");
+  const { spawn: spawn5 } = await import("child_process");
   const { resolve: resolve8 } = await import("path");
   const distBinRoot = resolve8(__dirname, "..", "..");
   const candidates = [
@@ -65930,7 +66223,7 @@ program2.command("serve").description("Start the comparison viewer web UI").opti
   console.log(`Starting web UI on http://localhost:${port}`);
   console.log("Press Ctrl+C to stop the server.");
   console.log("");
-  const server = spawn4("npm", ["run", "dev", "--", "-p", String(port)], {
+  const server = spawn5("npm", ["run", "dev", "--", "-p", String(port)], {
     cwd: webUiDir,
     stdio: "inherit",
     shell: true
@@ -66064,7 +66357,7 @@ flowCmd.command("login <url>").description("Execute login flow").requiredOption(
   }
 });
 async function startDetachedServer(outputDir, argv, expectSession) {
-  const { spawn: spawn4 } = await import("child_process");
+  const { spawn: spawn5 } = await import("child_process");
   const { mkdir: mkdir31, open: open3 } = await import("fs/promises");
   const { isServerRunning: isServerRunning2, listActiveSessions: listActiveSessions2 } = await Promise.resolve().then(() => (init_browser_server(), browser_server_exports));
   await mkdir31(outputDir, { recursive: true });
@@ -66072,7 +66365,7 @@ async function startDetachedServer(outputDir, argv, expectSession) {
   const logPath = (0, import_path44.join)(outputDir, "browser-server.log");
   const logFile = await open3(logPath, "a");
   const args = argv.slice(1).filter((a) => a !== "--detach");
-  const child = spawn4(process.execPath, args, {
+  const child = spawn5(process.execPath, args, {
     detached: true,
     stdio: ["ignore", logFile.fd, logFile.fd],
     cwd: process.cwd()
@@ -67263,13 +67556,13 @@ program2.command("diagnose [url]").description("Diagnose page load issues (auto-
   try {
     const resolvedUrl = await resolveBaseUrl(url2);
     const { captureWithDiagnostics: captureWithDiagnostics2, closeBrowser: closeBrowser3 } = await Promise.resolve().then(() => (init_capture(), capture_exports));
-    const { join: join41 } = await import("path");
+    const { join: join42 } = await import("path");
     const outputDir = program2.opts().output || "./.ibr";
     console.log(`Diagnosing ${resolvedUrl}...`);
     console.log("");
     const result = await captureWithDiagnostics2({
       url: resolvedUrl,
-      outputPath: join41(outputDir, "diagnose", "test.png"),
+      outputPath: join42(outputDir, "diagnose", "test.png"),
       timeout: parseInt(options.timeout, 10),
       outputDir
     });
@@ -67731,10 +68024,10 @@ program2.command("native:scan [device]").description("Scan a running simulator f
         );
         if (annotated) fixGuide.screenshot = annotated;
       }
-      const { mkdirSync: mkdirSync7, writeFileSync: writeFileSync8 } = await import("fs");
+      const { mkdirSync: mkdirSync8, writeFileSync: writeFileSync9 } = await import("fs");
       const guidePath = (0, import_path44.join)(outputDir, "native", "fix-guide.json");
-      mkdirSync7((0, import_path44.join)(outputDir, "native"), { recursive: true });
-      writeFileSync8(guidePath, JSON.stringify(fixGuide, null, 2));
+      mkdirSync8((0, import_path44.join)(outputDir, "native"), { recursive: true });
+      writeFileSync9(guidePath, JSON.stringify(fixGuide, null, 2));
       if (options.json) {
         console.log(JSON.stringify(fixGuide, null, 2));
       } else {
@@ -68269,8 +68562,8 @@ program2.command("zoom-track <url>").description("Emit a Spectra zoom track [{tM
 `);
     let events;
     if (options.events) {
-      const { readFileSync: readFileSync16 } = await import("fs");
-      events = JSON.parse(readFileSync16(options.events, "utf8"));
+      const { readFileSync: readFileSync17 } = await import("fs");
+      events = JSON.parse(readFileSync17(options.events, "utf8"));
       if (!Array.isArray(events)) {
         throw new Error(`--events must be a JSON array of {tMs,label}, got ${typeof events}`);
       }
@@ -68302,8 +68595,8 @@ program2.command("zoom-track <url>").description("Emit a Spectra zoom track [{tM
       1
     );
     if (options.out) {
-      const { writeFileSync: writeFileSync8 } = await import("fs");
-      writeFileSync8(options.out, payload + "\n");
+      const { writeFileSync: writeFileSync9 } = await import("fs");
+      writeFileSync9(options.out, payload + "\n");
       process.stderr.write(
         `zoom-track: wrote ${track.clicks.length} target(s) to ${options.out} (viewport ${track.viewport.width}x${track.viewport.height}` + (track.offscreenSkipped > 0 ? `; skipped ${track.offscreenSkipped} horizontally unreachable` : "") + (track.trimmed > 0 ? `; trimmed ${track.trimmed} lower-importance target(s)` : "") + (track.estimatedDocHeight > track.viewport.height ? `; page is ~${track.estimatedDocHeight}px tall, targets carry scrollY` : "") + `)
 `

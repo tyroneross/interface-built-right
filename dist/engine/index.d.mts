@@ -1263,6 +1263,10 @@ declare class EngineDriver implements BrowserDriver {
     private console;
     private fetch;
     private targetId;
+    /** Lease on the shared Chrome, when this driver uses it instead of its own process. */
+    private sharedLease;
+    /** Private context this driver created in the shared Chrome. */
+    private browserContextId;
     private sessionId;
     private ownsTarget;
     private _currentUrl;
@@ -1292,6 +1296,12 @@ declare class EngineDriver implements BrowserDriver {
     private unsubscribeDialogOpening;
     private unsubscribeDialogClosed;
     launch(options?: LaunchOptions): Promise<void>;
+    private connectToBrowser;
+    private launchInSharedChrome;
+    /** Dispose this driver's context and drop its lease. Safe to call repeatedly. */
+    private releaseShared;
+    /** True when this driver is a guest in the shared Chrome. */
+    get usesSharedChrome(): boolean;
     /**
      * Wire Page.javascriptDialogOpening/Closed into `pendingDialog` +
      * `dialogWaiters` (E3-D). Idempotent — unsubscribes any prior
@@ -1625,7 +1635,13 @@ declare class EngineDriver implements BrowserDriver {
 declare class TargetDomain {
     private conn;
     constructor(conn: CdpConnection);
-    createPage(url: string): Promise<string>;
+    createPage(url: string, browserContextId?: string): Promise<string>;
+    /**
+     * A private browser context: its own cookies, storage and cache. With
+     * disposeOnDetach, Chrome drops it if this connection dies without cleanup.
+     */
+    createContext(): Promise<string>;
+    disposeContext(browserContextId: string): Promise<void>;
     attach(targetId: string): Promise<string>;
     close(targetId: string): Promise<void>;
     list(): Promise<Array<{

@@ -5,6 +5,7 @@
 
 import { CdpConnection } from './cdp/connection.js'
 import { BrowserManager, type BrowserMode, type BrowserOptions } from './cdp/browser.js'
+import { acquireSharedChrome, shouldUseSharedChrome, type SharedChromeLease } from './cdp/shared-browser.js'
 import { TargetDomain } from './cdp/target.js'
 import { PageDomain, type ScreenshotOptions, type FrameTreeNode, type JSDialogInfo } from './cdp/page.js'
 import { AccessibilityDomain, type CdpAXNode } from './cdp/accessibility.js'
@@ -341,6 +342,10 @@ export class EngineDriver implements BrowserDriver {
   private fetch!: FetchDomain
 
   private targetId: string | null = null
+  /** Lease on the shared Chrome, when this driver uses it instead of its own process. */
+  private sharedLease: SharedChromeLease | null = null
+  /** Private context this driver created in the shared Chrome. */
+  private browserContextId: string | null = null
   private sessionId: string | null = null
   private ownsTarget = true
   private _currentUrl = ''
@@ -389,15 +394,23 @@ export class EngineDriver implements BrowserDriver {
 
   async launch(options: LaunchOptions = {}): Promise<void> {
     const progress = options.onProgress ?? (() => {})
-    const wsUrl = await this.browser.launch(options)
-    progress('opening CDP websocket')
-    await this.conn.connect(wsUrl)
-    progress('CDP websocket open')
-    this.target = new TargetDomain(this.conn)
+    if (shouldUseSharedChrome(options)) {
+      try {
+        await this.launchInSharedChrome(options, progress)
+      } catch (error) {
+        // Sharing is an optimization; a failure falls back to a private Chrome.
+        progress(`shared Chrome unavailable (${error instanceof Error ? error.message : String(error)}); launching a private Chrome`)
+        await this.releaseShared()
+        await this.conn.close().catch(() => {})
+        await this.connectToBrowser(await this.browser.launch(options), progress)
+      }
+    } else {
+      await this.connectToBrowser(await this.browser.launch(options), progress)
+    }
     this.launched = true
 
     // Create initial page
-    this.targetId = await this.target.createPage('about:blank')
+    this.targetId = await this.target.createPage('about:blank', this.browserContextId ?? undefined)
     this.ownsTarget = true
     this.sessionId = await this.target.attach(this.targetId)
     progress('page target attached')
@@ -434,6 +447,40 @@ export class EngineDriver implements BrowserDriver {
     }
   }
 
+  private async connectToBrowser(wsUrl: string, progress: (step: string) => void): Promise<void> {
+    progress('opening CDP websocket')
+    await this.conn.connect(wsUrl)
+    progress('CDP websocket open')
+    this.target = new TargetDomain(this.conn)
+  }
+
+  private async launchInSharedChrome(options: LaunchOptions, progress: (step: string) => void): Promise<void> {
+    progress('leasing the shared Chrome')
+    this.sharedLease = await acquireSharedChrome({ chromePath: options.chromePath, onProgress: progress })
+    const wsUrl = await this.browser.launch({ mode: 'connect', wsEndpoint: this.sharedLease.wsEndpoint })
+    await this.connectToBrowser(wsUrl, progress)
+    this.browserContextId = await this.target.createContext()
+    progress('private browser context created')
+  }
+
+  /** Dispose this driver's context and drop its lease. Safe to call repeatedly. */
+  private async releaseShared(): Promise<void> {
+    if (this.browserContextId) {
+      const id = this.browserContextId
+      this.browserContextId = null
+      await this.target?.disposeContext(id).catch(() => {})
+    }
+    if (this.sharedLease) {
+      this.sharedLease.release()
+      this.sharedLease = null
+    }
+  }
+
+  /** True when this driver is a guest in the shared Chrome. */
+  get usesSharedChrome(): boolean {
+    return this.sharedLease !== null
+  }
+
   /**
    * Wire Page.javascriptDialogOpening/Closed into `pendingDialog` +
    * `dialogWaiters` (E3-D). Idempotent — unsubscribes any prior
@@ -458,6 +505,7 @@ export class EngineDriver implements BrowserDriver {
       await this.target.close(this.targetId).catch(() => {})
       this.targetId = null
     }
+    await this.releaseShared()
     await this.conn.close()
     await this.browser.close()
     this.launched = false
@@ -483,6 +531,7 @@ export class EngineDriver implements BrowserDriver {
       this.targetId = null
       this.sessionId = null
     }
+    await this.releaseShared()
     await this.conn.close().catch(() => {})
     this.launched = false
   }

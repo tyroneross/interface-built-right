@@ -21191,6 +21191,239 @@ ${tail}` : "";
   }
 });
 
+// src/engine/cdp/shared-browser.ts
+function sharedChromeDir(env = process.env) {
+  return env.IBR_SHARED_CHROME_DIR || (0, import_node_path2.join)((0, import_node_os2.homedir)(), ".ibr", "shared-chrome");
+}
+function envInt(name, fallback) {
+  const value = Number.parseInt(process.env[name] ?? "", 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+function pidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error51) {
+    return error51.code === "EPERM";
+  }
+}
+async function withLock(dir, fn) {
+  const lockDir = (0, import_node_path2.join)(dir, "lock");
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  for (; ; ) {
+    try {
+      (0, import_node_fs2.mkdirSync)(lockDir);
+      break;
+    } catch (error51) {
+      if (error51.code !== "EEXIST") throw error51;
+      try {
+        if (Date.now() - (0, import_node_fs2.statSync)(lockDir).mtimeMs > LOCK_STALE_MS) {
+          (0, import_node_fs2.rmSync)(lockDir, { recursive: true, force: true });
+          continue;
+        }
+      } catch {
+      }
+      if (Date.now() > deadline) throw new Error(`shared Chrome lock busy: ${lockDir}`);
+      await sleep(100);
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    (0, import_node_fs2.rmSync)(lockDir, { recursive: true, force: true });
+  }
+}
+function liveLeases(dir) {
+  const leasesDir = (0, import_node_path2.join)(dir, "leases");
+  let names;
+  try {
+    names = (0, import_node_fs2.readdirSync)(leasesDir);
+  } catch {
+    return [];
+  }
+  const live = [];
+  for (const name of names) {
+    const pid = Number.parseInt(name.split("-")[0] ?? "", 10);
+    if (pidAlive(pid)) live.push(name);
+    else (0, import_node_fs2.rmSync)((0, import_node_path2.join)(leasesDir, name), { force: true });
+  }
+  return live;
+}
+function readSharedChromeState(dir) {
+  try {
+    const state = JSON.parse((0, import_node_fs2.readFileSync)((0, import_node_path2.join)(dir, "state.json"), "utf8"));
+    return typeof state.pid === "number" && typeof state.wsEndpoint === "string" ? state : null;
+  } catch {
+    return null;
+  }
+}
+async function debuggerEndpoint(port, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: controller.signal });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.webSocketDebuggerUrl ?? null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+function freePort() {
+  return new Promise((resolve4, reject) => {
+    const srv = (0, import_node_net2.createServer)();
+    srv.listen(0, "127.0.0.1", () => {
+      const port = srv.address().port;
+      srv.close(() => resolve4(port));
+    });
+    srv.on("error", reject);
+  });
+}
+async function startSharedChrome(dir, options) {
+  const progress = options.onProgress ?? (() => {
+  });
+  const chromePath = options.chromePath ?? process.env.IBR_CHROME_PATH ?? findChrome();
+  if (!chromePath) throw new Error("Chrome not found for the shared browser");
+  const port = await freePort();
+  const profileDir = (0, import_node_path2.join)(dir, "profile");
+  (0, import_node_fs2.mkdirSync)(profileDir, { recursive: true });
+  progress(`starting shared Chrome on port ${port}`);
+  const child = (0, import_node_child_process2.spawn)(chromePath, [
+    `--remote-debugging-port=${port}`,
+    `--user-data-dir=${profileDir}`,
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-background-networking",
+    "--disable-sync",
+    "--headless=new"
+  ], { detached: true, stdio: "ignore" });
+  child.unref();
+  const pid = child.pid;
+  if (!pid) throw new Error("shared Chrome did not start");
+  const deadline = Date.now() + DEBUGGER_WAIT_MS;
+  let wsEndpoint = null;
+  while (Date.now() < deadline && pidAlive(pid)) {
+    wsEndpoint = await debuggerEndpoint(port, 1e3);
+    if (wsEndpoint) break;
+    await sleep(200);
+  }
+  if (!wsEndpoint) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+    }
+    throw new Error(`shared Chrome did not open its debugger on port ${port}`);
+  }
+  const state = { pid, port, wsEndpoint, profileDir, startedAt: Date.now() };
+  (0, import_node_fs2.writeFileSync)((0, import_node_path2.join)(dir, "state.json"), JSON.stringify(state, null, 2));
+  const idleMs = options.idleMs ?? envInt("IBR_SHARED_CHROME_IDLE_MS", SHARED_CHROME_DEFAULT_IDLE_MS);
+  (0, import_node_child_process2.spawn)(process.execPath, ["-e", WATCHDOG_SOURCE, dir, String(pid), String(idleMs)], {
+    detached: true,
+    stdio: "ignore"
+  }).unref();
+  progress(`shared Chrome pid ${pid} ready`);
+  return state;
+}
+async function acquireSharedChrome(options = {}) {
+  const dir = options.dir ?? sharedChromeDir();
+  const progress = options.onProgress ?? (() => {
+  });
+  (0, import_node_fs2.mkdirSync)((0, import_node_path2.join)(dir, "leases"), { recursive: true });
+  const maxLeases = options.maxLeases ?? envInt("IBR_SHARED_CHROME_MAX_PAGES", SHARED_CHROME_DEFAULT_MAX_LEASES);
+  const waitUntil = Date.now() + (options.leaseWaitMs ?? 12e4);
+  let warned = false;
+  for (; ; ) {
+    const granted = await withLock(dir, async () => {
+      if (liveLeases(dir).length >= maxLeases && Date.now() < waitUntil) return null;
+      let state = readSharedChromeState(dir);
+      if (state && !(pidAlive(state.pid) && await debuggerEndpoint(state.port, 2e3))) {
+        (0, import_node_fs2.rmSync)((0, import_node_path2.join)(dir, "state.json"), { force: true });
+        state = null;
+      }
+      if (!state) state = await startSharedChrome(dir, options);
+      const leasePath = (0, import_node_path2.join)(dir, "leases", `${process.pid}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`);
+      (0, import_node_fs2.writeFileSync)(leasePath, "");
+      return { state, leasePath };
+    });
+    if (granted) {
+      let released = false;
+      return {
+        wsEndpoint: granted.state.wsEndpoint,
+        release() {
+          if (released) return;
+          released = true;
+          (0, import_node_fs2.rmSync)(granted.leasePath, { force: true });
+        }
+      };
+    }
+    if (!warned) {
+      progress(`waiting: ${maxLeases} commands already use the shared Chrome`);
+      warned = true;
+    }
+    await sleep(250);
+  }
+}
+function shouldUseSharedChrome(options, env = process.env) {
+  const envMode = env.IBR_BROWSER_MODE;
+  if (envMode === "shared") return options.headless !== false;
+  if (envMode) return false;
+  if (options.mode || options.cdpUrl || options.wsEndpoint || env.IBR_CDP_URL || env.IBR_WS_ENDPOINT) return false;
+  if (options.headless === false || options.userDataDir || options.port || options.normalize) return false;
+  return true;
+}
+var import_node_child_process2, import_node_fs2, import_node_net2, import_node_os2, import_node_path2, SHARED_CHROME_DEFAULT_MAX_LEASES, SHARED_CHROME_DEFAULT_IDLE_MS, LOCK_STALE_MS, LOCK_WAIT_MS, DEBUGGER_WAIT_MS, sleep, WATCHDOG_SOURCE;
+var init_shared_browser = __esm({
+  "src/engine/cdp/shared-browser.ts"() {
+    "use strict";
+    import_node_child_process2 = require("child_process");
+    import_node_fs2 = require("fs");
+    import_node_net2 = require("net");
+    import_node_os2 = require("os");
+    import_node_path2 = require("path");
+    init_browser();
+    SHARED_CHROME_DEFAULT_MAX_LEASES = 6;
+    SHARED_CHROME_DEFAULT_IDLE_MS = 10 * 60 * 1e3;
+    LOCK_STALE_MS = 6e4;
+    LOCK_WAIT_MS = 3e4;
+    DEBUGGER_WAIT_MS = 2e4;
+    sleep = (ms) => new Promise((resolve4) => setTimeout(resolve4, ms));
+    WATCHDOG_SOURCE = `
+const fs = require('node:fs'), path = require('node:path');
+const [dir, chromePidArg, idleArg] = process.argv.slice(1);
+const chromePid = Number(chromePidArg), idleMs = Number(idleArg);
+const alive = (p) => { try { process.kill(p, 0); return true } catch (e) { return e.code === 'EPERM' } };
+const clearState = () => { try {
+  const s = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'));
+  if (s.pid === chromePid) fs.rmSync(path.join(dir, 'state.json'), { force: true });
+} catch {} };
+let lastBusy = Date.now(), stopping = 0;
+setInterval(() => {
+  if (!alive(chromePid)) { clearState(); process.exit(0) }
+  if (stopping) {
+    if (Date.now() - stopping > 20000) { try { process.kill(chromePid, 'SIGKILL') } catch {} }
+    return;
+  }
+  let busy = false;
+  try {
+    for (const name of fs.readdirSync(path.join(dir, 'leases'))) {
+      if (alive(Number(name.split('-')[0]))) busy = true;
+      else fs.rmSync(path.join(dir, 'leases', name), { force: true });
+    }
+  } catch {}
+  if (busy) { lastBusy = Date.now(); return }
+  if (Date.now() - lastBusy >= idleMs) {
+    clearState();
+    stopping = Date.now();
+    try { process.kill(chromePid, 'SIGTERM') } catch {}
+  }
+}, 5000);
+`;
+  }
+});
+
 // src/engine/cdp/target.ts
 var TargetDomain;
 var init_target = __esm({
@@ -21201,12 +21434,26 @@ var init_target = __esm({
         this.conn = conn;
       }
       conn;
-      async createPage(url2) {
+      async createPage(url2, browserContextId) {
         const result = await this.conn.send(
           "Target.createTarget",
-          { url: url2 }
+          browserContextId ? { url: url2, browserContextId } : { url: url2 }
         );
         return result.targetId;
+      }
+      /**
+       * A private browser context: its own cookies, storage and cache. With
+       * disposeOnDetach, Chrome drops it if this connection dies without cleanup.
+       */
+      async createContext() {
+        const result = await this.conn.send(
+          "Target.createBrowserContext",
+          { disposeOnDetach: true }
+        );
+        return result.browserContextId;
+      }
+      async disposeContext(browserContextId) {
+        await this.conn.send("Target.disposeBrowserContext", { browserContextId });
       }
       async attach(targetId) {
         const result = await this.conn.send(
@@ -25878,6 +26125,7 @@ var init_driver = __esm({
     "use strict";
     init_connection();
     init_browser();
+    init_shared_browser();
     init_target();
     init_page();
     init_accessibility();
@@ -25956,6 +26204,10 @@ var init_driver = __esm({
       console;
       fetch;
       targetId = null;
+      /** Lease on the shared Chrome, when this driver uses it instead of its own process. */
+      sharedLease = null;
+      /** Private context this driver created in the shared Chrome. */
+      browserContextId = null;
       sessionId = null;
       ownsTarget = true;
       _currentUrl = "";
@@ -26002,13 +26254,21 @@ var init_driver = __esm({
       async launch(options = {}) {
         const progress = options.onProgress ?? (() => {
         });
-        const wsUrl = await this.browser.launch(options);
-        progress("opening CDP websocket");
-        await this.conn.connect(wsUrl);
-        progress("CDP websocket open");
-        this.target = new TargetDomain(this.conn);
+        if (shouldUseSharedChrome(options)) {
+          try {
+            await this.launchInSharedChrome(options, progress);
+          } catch (error51) {
+            progress(`shared Chrome unavailable (${error51 instanceof Error ? error51.message : String(error51)}); launching a private Chrome`);
+            await this.releaseShared();
+            await this.conn.close().catch(() => {
+            });
+            await this.connectToBrowser(await this.browser.launch(options), progress);
+          }
+        } else {
+          await this.connectToBrowser(await this.browser.launch(options), progress);
+        }
         this.launched = true;
-        this.targetId = await this.target.createPage("about:blank");
+        this.targetId = await this.target.createPage("about:blank", this.browserContextId ?? void 0);
         this.ownsTarget = true;
         this.sessionId = await this.target.attach(this.targetId);
         progress("page target attached");
@@ -26032,6 +26292,37 @@ var init_driver = __esm({
         if (options.viewport) {
           await this.emulation.applyDeviceProfile(options.viewport);
         }
+      }
+      async connectToBrowser(wsUrl, progress) {
+        progress("opening CDP websocket");
+        await this.conn.connect(wsUrl);
+        progress("CDP websocket open");
+        this.target = new TargetDomain(this.conn);
+      }
+      async launchInSharedChrome(options, progress) {
+        progress("leasing the shared Chrome");
+        this.sharedLease = await acquireSharedChrome({ chromePath: options.chromePath, onProgress: progress });
+        const wsUrl = await this.browser.launch({ mode: "connect", wsEndpoint: this.sharedLease.wsEndpoint });
+        await this.connectToBrowser(wsUrl, progress);
+        this.browserContextId = await this.target.createContext();
+        progress("private browser context created");
+      }
+      /** Dispose this driver's context and drop its lease. Safe to call repeatedly. */
+      async releaseShared() {
+        if (this.browserContextId) {
+          const id = this.browserContextId;
+          this.browserContextId = null;
+          await this.target?.disposeContext(id).catch(() => {
+          });
+        }
+        if (this.sharedLease) {
+          this.sharedLease.release();
+          this.sharedLease = null;
+        }
+      }
+      /** True when this driver is a guest in the shared Chrome. */
+      get usesSharedChrome() {
+        return this.sharedLease !== null;
       }
       /**
        * Wire Page.javascriptDialogOpening/Closed into `pendingDialog` +
@@ -26057,6 +26348,7 @@ var init_driver = __esm({
           });
           this.targetId = null;
         }
+        await this.releaseShared();
         await this.conn.close();
         await this.browser.close();
         this.launched = false;
@@ -26083,6 +26375,7 @@ var init_driver = __esm({
           this.targetId = null;
           this.sessionId = null;
         }
+        await this.releaseShared();
         await this.conn.close().catch(() => {
         });
         this.launched = false;
@@ -37133,13 +37426,13 @@ async function activateMacOSProcess(pid) {
       "-e",
       `tell application "System Events" to set frontmost of first application process whose unix id is ${pid} to true`
     ], { timeout: 3e3 });
-    await sleep(250);
+    await sleep2(250);
     return true;
   } catch {
     return false;
   }
 }
-function sleep(ms) {
+function sleep2(ms) {
   return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
 function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
@@ -38707,10 +39000,10 @@ var init_session2 = __esm({
         );
       }
       async findFreePort() {
-        const { createServer: createServer3 } = await import("net");
+        const { createServer: createServer4 } = await import("net");
         for (let p = PORT_RANGE_START; p <= PORT_RANGE_END; p++) {
           const available = await new Promise((resolve4) => {
-            const server = createServer3();
+            const server = createServer4();
             server.once("error", () => resolve4(false));
             server.once("listening", () => {
               server.close();
@@ -39793,19 +40086,19 @@ function escapeForInlineStyle(css) {
   return css.replace(/<\/style/gi, "<\\/style");
 }
 function readRequired(path, label2) {
-  if (!(0, import_node_fs2.existsSync)(path)) {
+  if (!(0, import_node_fs3.existsSync)(path)) {
     throw new Error(`${label2} not found: ${path}`);
   }
-  return (0, import_node_fs2.readFileSync)(path, "utf8");
+  return (0, import_node_fs3.readFileSync)(path, "utf8");
 }
 function resolvePluginPaths(pluginPath) {
-  const abs = (0, import_node_path2.isAbsolute)(pluginPath) ? pluginPath : (0, import_node_path2.resolve)(process.cwd(), pluginPath);
+  const abs = (0, import_node_path3.isAbsolute)(pluginPath) ? pluginPath : (0, import_node_path3.resolve)(process.cwd(), pluginPath);
   if (abs.endsWith(".js")) {
     return { bundlePath: abs };
   }
-  const bundlePath = (0, import_node_path2.join)(abs, "main.js");
-  const stylesPath = (0, import_node_path2.join)(abs, "styles.css");
-  return { bundlePath, stylesPath: (0, import_node_fs2.existsSync)(stylesPath) ? stylesPath : void 0 };
+  const bundlePath = (0, import_node_path3.join)(abs, "main.js");
+  const stylesPath = (0, import_node_path3.join)(abs, "styles.css");
+  return { bundlePath, stylesPath: (0, import_node_fs3.existsSync)(stylesPath) ? stylesPath : void 0 };
 }
 function buildMountScript(input) {
   const viewStateJson = JSON.stringify(input.viewState ?? {});
@@ -39956,12 +40249,12 @@ ${escapeForInlineStyle(input.extraCss)}
 </html>
 `;
 }
-var import_node_fs2, import_node_path2, OBSIDIAN_BODY_CLASSES, APPROXIMATE_BASELINE_CSS, MINIMAL_RESET_CSS;
+var import_node_fs3, import_node_path3, OBSIDIAN_BODY_CLASSES, APPROXIMATE_BASELINE_CSS, MINIMAL_RESET_CSS;
 var init_harness = __esm({
   "src/obsidian/harness.ts"() {
     "use strict";
-    import_node_fs2 = require("fs");
-    import_node_path2 = require("path");
+    import_node_fs3 = require("fs");
+    import_node_path3 = require("path");
     init_stub();
     OBSIDIAN_BODY_CLASSES = "mod-macos is-focused";
     APPROXIMATE_BASELINE_CSS = `/* Obsidian-ish baseline \u2014 APPROXIMATION.
@@ -40028,25 +40321,25 @@ function isDirectory(node) {
   return typeof node.files === "object";
 }
 function readAsarHeader(asarPath) {
-  const fd = (0, import_node_fs3.openSync)(asarPath, "r");
+  const fd = (0, import_node_fs4.openSync)(asarPath, "r");
   try {
     const preamble = Buffer.alloc(ASAR_PREAMBLE_BYTES);
-    const preambleRead = (0, import_node_fs3.readSync)(fd, preamble, 0, ASAR_PREAMBLE_BYTES, 0);
+    const preambleRead = (0, import_node_fs4.readSync)(fd, preamble, 0, ASAR_PREAMBLE_BYTES, 0);
     if (preambleRead < ASAR_PREAMBLE_BYTES) {
       throw new Error(`archive is shorter than an asar preamble (${preambleRead} bytes)`);
     }
     const headerSize = preamble.readUInt32LE(4);
     const jsonLen = preamble.readUInt32LE(12);
-    const archiveBytes = (0, import_node_fs3.statSync)(asarPath).size;
+    const archiveBytes = (0, import_node_fs4.statSync)(asarPath).size;
     if (jsonLen === 0 || jsonLen > headerSize || ASAR_PREAMBLE_BYTES + jsonLen > archiveBytes) {
       throw new Error(`implausible asar header (headerSize=${headerSize}, jsonLen=${jsonLen})`);
     }
     const json2 = Buffer.alloc(jsonLen);
-    (0, import_node_fs3.readSync)(fd, json2, 0, jsonLen, ASAR_PREAMBLE_BYTES);
+    (0, import_node_fs4.readSync)(fd, json2, 0, jsonLen, ASAR_PREAMBLE_BYTES);
     const header = JSON.parse(json2.toString("utf8"));
     return { header, dataOffset: 8 + headerSize, headerSize };
   } finally {
-    (0, import_node_fs3.closeSync)(fd);
+    (0, import_node_fs4.closeSync)(fd);
   }
 }
 function readAsarEntry(asarPath, entryPath) {
@@ -40063,31 +40356,31 @@ function readAsarEntry(asarPath, entryPath) {
   const size = Number(node.size);
   const offset = Number(node.offset);
   if (!Number.isFinite(size) || !Number.isFinite(offset) || size < 0) return null;
-  const fd = (0, import_node_fs3.openSync)(asarPath, "r");
+  const fd = (0, import_node_fs4.openSync)(asarPath, "r");
   try {
     const buf = Buffer.alloc(size);
-    const read = (0, import_node_fs3.readSync)(fd, buf, 0, size, dataOffset + offset);
+    const read = (0, import_node_fs4.readSync)(fd, buf, 0, size, dataOffset + offset);
     if (read !== size) {
       throw new Error(`short read on ${entryPath}: wanted ${size} bytes, got ${read}`);
     }
     return buf;
   } finally {
-    (0, import_node_fs3.closeSync)(fd);
+    (0, import_node_fs4.closeSync)(fd);
   }
 }
-function obsidianAsarCandidates(platform = process.platform, env = process.env, home = (0, import_node_os2.homedir)()) {
+function obsidianAsarCandidates(platform = process.platform, env = process.env, home = (0, import_node_os3.homedir)()) {
   if (platform === "darwin") {
     return [
       "/Applications/Obsidian.app/Contents/Resources/obsidian.asar",
-      (0, import_node_path3.join)(home, "Applications/Obsidian.app/Contents/Resources/obsidian.asar")
+      (0, import_node_path4.join)(home, "Applications/Obsidian.app/Contents/Resources/obsidian.asar")
     ];
   }
   if (platform === "win32") {
-    const localAppData = env.LOCALAPPDATA ?? (0, import_node_path3.join)(home, "AppData/Local");
+    const localAppData = env.LOCALAPPDATA ?? (0, import_node_path4.join)(home, "AppData/Local");
     const programFiles = env.ProgramFiles ?? "C:\\Program Files";
     return [
-      (0, import_node_path3.join)(localAppData, "Obsidian/resources/obsidian.asar"),
-      (0, import_node_path3.join)(programFiles, "Obsidian/resources/obsidian.asar")
+      (0, import_node_path4.join)(localAppData, "Obsidian/resources/obsidian.asar"),
+      (0, import_node_path4.join)(programFiles, "Obsidian/resources/obsidian.asar")
     ];
   }
   return [
@@ -40095,27 +40388,27 @@ function obsidianAsarCandidates(platform = process.platform, env = process.env, 
     "/usr/lib/obsidian/resources/obsidian.asar",
     "/usr/share/obsidian/resources/obsidian.asar",
     "/var/lib/flatpak/app/md.obsidian.Obsidian/current/active/files/obsidian/resources/obsidian.asar",
-    (0, import_node_path3.join)(home, ".local/share/flatpak/app/md.obsidian.Obsidian/current/active/files/obsidian/resources/obsidian.asar"),
-    (0, import_node_path3.join)(home, "Applications/squashfs-root/resources/obsidian.asar"),
-    (0, import_node_path3.join)(home, ".local/share/obsidian/resources/obsidian.asar"),
-    (0, import_node_path3.join)(home, "squashfs-root/resources/obsidian.asar")
+    (0, import_node_path4.join)(home, ".local/share/flatpak/app/md.obsidian.Obsidian/current/active/files/obsidian/resources/obsidian.asar"),
+    (0, import_node_path4.join)(home, "Applications/squashfs-root/resources/obsidian.asar"),
+    (0, import_node_path4.join)(home, ".local/share/obsidian/resources/obsidian.asar"),
+    (0, import_node_path4.join)(home, "squashfs-root/resources/obsidian.asar")
   ];
 }
-function findObsidianAsar(platform = process.platform, env = process.env, home = (0, import_node_os2.homedir)()) {
+function findObsidianAsar(platform = process.platform, env = process.env, home = (0, import_node_os3.homedir)()) {
   for (const candidate of obsidianAsarCandidates(platform, env, home)) {
-    if ((0, import_node_fs3.existsSync)(candidate)) return candidate;
+    if ((0, import_node_fs4.existsSync)(candidate)) return candidate;
   }
   return null;
 }
-function appCssCacheDir(platform = process.platform, env = process.env, home = (0, import_node_os2.homedir)()) {
-  if (platform === "darwin") return (0, import_node_path3.join)(home, "Library/Caches/ibr/obsidian");
+function appCssCacheDir(platform = process.platform, env = process.env, home = (0, import_node_os3.homedir)()) {
+  if (platform === "darwin") return (0, import_node_path4.join)(home, "Library/Caches/ibr/obsidian");
   if (platform === "win32") {
-    return (0, import_node_path3.join)(env.LOCALAPPDATA ?? (0, import_node_path3.join)(home, "AppData/Local"), "ibr/Cache/obsidian");
+    return (0, import_node_path4.join)(env.LOCALAPPDATA ?? (0, import_node_path4.join)(home, "AppData/Local"), "ibr/Cache/obsidian");
   }
-  return (0, import_node_path3.join)(env.XDG_CACHE_HOME ?? (0, import_node_path3.join)(home, ".cache"), "ibr/obsidian");
+  return (0, import_node_path4.join)(env.XDG_CACHE_HOME ?? (0, import_node_path4.join)(home, ".cache"), "ibr/obsidian");
 }
 function appCssCacheKey(asarPath) {
-  const st = (0, import_node_fs3.statSync)(asarPath);
+  const st = (0, import_node_fs4.statSync)(asarPath);
   return `app-css-${st.size}-${Math.round(st.mtimeMs)}.css`;
 }
 function resolveObsidianAppCss(options = {}) {
@@ -40124,9 +40417,9 @@ function resolveObsidianAppCss(options = {}) {
   try {
     const explicit = options.path ?? env[APP_CSS_ENV_VAR];
     if (explicit) {
-      if (!(0, import_node_fs3.existsSync)(explicit)) return null;
+      if (!(0, import_node_fs4.existsSync)(explicit)) return null;
       if (explicit.endsWith(".asar")) return fromAsar(explicit, options, platform, env);
-      const css = (0, import_node_fs3.readFileSync)(explicit, "utf8");
+      const css = (0, import_node_fs4.readFileSync)(explicit, "utf8");
       return { css, source: explicit, bytes: Buffer.byteLength(css), cached: false };
     }
     const asarPath = findObsidianAsar(platform, env);
@@ -40142,9 +40435,9 @@ function fromAsar(asarPath, options, platform, env) {
   let cachePath;
   if (useCache) {
     try {
-      cachePath = (0, import_node_path3.join)(cacheDir, appCssCacheKey(asarPath));
-      if ((0, import_node_fs3.existsSync)(cachePath)) {
-        const css2 = (0, import_node_fs3.readFileSync)(cachePath, "utf8");
+      cachePath = (0, import_node_path4.join)(cacheDir, appCssCacheKey(asarPath));
+      if ((0, import_node_fs4.existsSync)(cachePath)) {
+        const css2 = (0, import_node_fs4.readFileSync)(cachePath, "utf8");
         if (css2.length > 0) {
           return { css: css2, source: asarPath, bytes: Buffer.byteLength(css2), cached: true };
         }
@@ -40158,20 +40451,20 @@ function fromAsar(asarPath, options, platform, env) {
   const css = buf.toString("utf8");
   if (cachePath) {
     try {
-      (0, import_node_fs3.mkdirSync)((0, import_node_path3.dirname)(cachePath), { recursive: true });
-      (0, import_node_fs3.writeFileSync)(cachePath, css, "utf8");
+      (0, import_node_fs4.mkdirSync)((0, import_node_path4.dirname)(cachePath), { recursive: true });
+      (0, import_node_fs4.writeFileSync)(cachePath, css, "utf8");
     } catch {
     }
   }
   return { css, source: asarPath, bytes: buf.length, cached: false };
 }
-var import_node_fs3, import_node_os2, import_node_path3, APP_CSS_ENTRY, APP_CSS_ENV_VAR, ASAR_PREAMBLE_BYTES;
+var import_node_fs4, import_node_os3, import_node_path4, APP_CSS_ENTRY, APP_CSS_ENV_VAR, ASAR_PREAMBLE_BYTES;
 var init_app_css = __esm({
   "src/obsidian/app-css.ts"() {
     "use strict";
-    import_node_fs3 = require("fs");
-    import_node_os2 = require("os");
-    import_node_path3 = require("path");
+    import_node_fs4 = require("fs");
+    import_node_os3 = require("os");
+    import_node_path4 = require("path");
     APP_CSS_ENTRY = "app.css";
     APP_CSS_ENV_VAR = "IBR_OBSIDIAN_APP_CSS";
     ASAR_PREAMBLE_BYTES = 16;
@@ -40246,10 +40539,10 @@ function inferMobile(explicit, viewport) {
 function loadViewState(options) {
   const fromFile = {};
   if (options.viewStatePath) {
-    if (!(0, import_node_fs4.existsSync)(options.viewStatePath)) {
+    if (!(0, import_node_fs5.existsSync)(options.viewStatePath)) {
       throw new Error(`view state file not found: ${options.viewStatePath}`);
     }
-    Object.assign(fromFile, JSON.parse((0, import_node_fs4.readFileSync)(options.viewStatePath, "utf8")));
+    Object.assign(fromFile, JSON.parse((0, import_node_fs5.readFileSync)(options.viewStatePath, "utf8")));
   }
   return { ...fromFile, ...options.viewState ?? {} };
 }
@@ -40274,8 +40567,8 @@ async function scanObsidian(options) {
     appCss: appCss.css
   };
   const html = generateHarness(harnessInput);
-  const harnessPath = options.harnessOut ?? (0, import_node_path4.join)((0, import_node_fs4.mkdtempSync)((0, import_node_path4.join)((0, import_node_os3.tmpdir)(), "ibr-obsidian-")), "harness.html");
-  (0, import_node_fs4.writeFileSync)(harnessPath, html, "utf8");
+  const harnessPath = options.harnessOut ?? (0, import_node_path5.join)((0, import_node_fs5.mkdtempSync)((0, import_node_path5.join)((0, import_node_os4.tmpdir)(), "ibr-obsidian-")), "harness.html");
+  (0, import_node_fs5.writeFileSync)(harnessPath, html, "utf8");
   const server = await serveHarness(html);
   try {
     const mountTimeout = options.mountTimeout ?? DEFAULT_MOUNT_TIMEOUT_MS;
@@ -40395,13 +40688,13 @@ function formatObsidianScanResult(result) {
   }
   return lines.join("\n");
 }
-var import_node_fs4, import_node_path4, import_node_os3, MOBILE_WIDTH_CEILING, HARNESS_ERROR_PREFIXES, MOUNT_SELECTOR, DEFAULT_MOUNT_TIMEOUT_MS, LAYOUT_OVERFLOW_PROBE, APP_CSS_FIDELITY_PREFIX;
+var import_node_fs5, import_node_path5, import_node_os4, MOBILE_WIDTH_CEILING, HARNESS_ERROR_PREFIXES, MOUNT_SELECTOR, DEFAULT_MOUNT_TIMEOUT_MS, LAYOUT_OVERFLOW_PROBE, APP_CSS_FIDELITY_PREFIX;
 var init_scan4 = __esm({
   "src/obsidian/scan.ts"() {
     "use strict";
-    import_node_fs4 = require("fs");
-    import_node_path4 = require("path");
-    import_node_os3 = require("os");
+    import_node_fs5 = require("fs");
+    import_node_path5 = require("path");
+    import_node_os4 = require("os");
     init_scan();
     init_schemas3();
     init_harness();
@@ -44114,7 +44407,7 @@ var deliverKeystrokeOneShot = async (pid, chord, foreground) => {
     return { success: false, error: message };
   }
 };
-function sleep2(ms) {
+function sleep3(ms) {
   return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
 function keystrokeSuccess(chord, method, before, after) {
@@ -44165,7 +44458,7 @@ async function runKeystrokeCapability(opts) {
     const foreground = spec.delivery === "foreground";
     const delivery = await deliver(pid, chord, foreground);
     if (delivery.success !== true) return keystrokeFailure(chord, before, before, `delivery failed or uncertain: ${delivery.error ?? "unknown error"}`);
-    await sleep2(SETTLE_MS);
+    await sleep3(SETTLE_MS);
     const after = await safeSignature();
     if (!after.startsWith("error:") && after !== before) {
       return keystrokeSuccess(chord, foreground ? "cgevent-foreground" : "cgevent-pid-background", before, after);
@@ -44191,14 +44484,14 @@ var LAUNCH_TIMEOUT_MS = 8e3;
 var QUIT_TIMEOUT_MS = 6e3;
 var POLL_MS = 250;
 var BUNDLE_ID_RE = /^[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+$/;
-function sleep3(ms) {
+function sleep4(ms) {
   return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
 async function pollUntil(check2, timeoutMs) {
   const started = Date.now();
   if (await check2()) return true;
   while (Date.now() - started < timeoutMs) {
-    await sleep3(POLL_MS);
+    await sleep4(POLL_MS);
     if (await check2()) return true;
   }
   return false;
@@ -44259,7 +44552,7 @@ async function runLaunch(spec, ops) {
   let frontmost = await ops.frontmostPid() === resolvedPid;
   if (!frontmost) {
     await ops.activate(resolvedPid);
-    await sleep3(POLL_MS);
+    await sleep4(POLL_MS);
     frontmost = await ops.frontmostPid() === resolvedPid;
   }
   const after = `pid=${resolvedPid}|frontmost=${frontmost}`;
@@ -44280,7 +44573,7 @@ async function runSwitch(target, spec, ops) {
   }
   const before = `frontmost=${await ops.frontmostPid()}`;
   const activated = await ops.activate(pid);
-  await sleep3(POLL_MS);
+  await sleep4(POLL_MS);
   const frontmostAfter = await ops.frontmostPid();
   const after = `frontmost=${frontmostAfter}`;
   if (!activated || frontmostAfter !== pid) {
@@ -44428,7 +44721,7 @@ var deliverMenuOneShot = async (pid, menuPath) => {
     return { success: false, error: message };
   }
 };
-function sleep4(ms) {
+function sleep5(ms) {
   return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
 function menuLabel(menuPath) {
@@ -44488,7 +44781,7 @@ async function runMenuCapability(opts) {
         `menu traversal failed${segment}: ${delivery.error ?? "unknown error"}`
       );
     }
-    await sleep4(SETTLE_MS2);
+    await sleep5(SETTLE_MS2);
     const after = await safeSignature();
     if (after !== before) {
       return menuSuccess(menuPath, delivery.matchedVia ?? "menu-select", before, after);
@@ -45338,7 +45631,7 @@ var NativeSessionController = class {
     let attempts = 0;
     do {
       if (attempts === 0 && timeoutMs > 0) {
-        await sleep5(Math.min(120, timeoutMs));
+        await sleep6(Math.min(120, timeoutMs));
       }
       const extraction = await this.backend.extract({ kind: "macos", pid: entry.pid, app: entry.app });
       if (extraction.kind !== "macos") break;
@@ -45383,7 +45676,7 @@ var NativeSessionController = class {
     let attempts = 0;
     do {
       if (attempts === 0 && timeoutMs > 0) {
-        await sleep5(Math.min(120, timeoutMs));
+        await sleep6(Math.min(120, timeoutMs));
       }
       const extraction = await this.backend.extract({ kind: "simulator", device: entry.device });
       if (extraction.kind === "not-found") {
@@ -45529,7 +45822,7 @@ function normalizeNativeWaitTimeout(value, fallback) {
 function safeFilePart(value) {
   return value.replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "native-session";
 }
-function sleep5(ms) {
+function sleep6(ms) {
   return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
 function formatNativeCandidate(candidate) {

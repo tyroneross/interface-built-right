@@ -1134,6 +1134,225 @@ ${tail}` : "";
     return this._wsEndpoint;
   }
 };
+var SHARED_CHROME_DEFAULT_MAX_LEASES = 6;
+var SHARED_CHROME_DEFAULT_IDLE_MS = 10 * 60 * 1e3;
+var LOCK_STALE_MS = 6e4;
+var LOCK_WAIT_MS = 3e4;
+var DEBUGGER_WAIT_MS = 2e4;
+function sharedChromeDir(env = process.env) {
+  return env.IBR_SHARED_CHROME_DIR || path.join(os.homedir(), ".ibr", "shared-chrome");
+}
+function envInt(name, fallback) {
+  const value = Number.parseInt(process.env[name] ?? "", 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+function pidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
+}
+var sleep = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
+async function withLock(dir, fn) {
+  const lockDir = path.join(dir, "lock");
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  for (; ; ) {
+    try {
+      fs.mkdirSync(lockDir);
+      break;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      try {
+        if (Date.now() - fs.statSync(lockDir).mtimeMs > LOCK_STALE_MS) {
+          fs.rmSync(lockDir, { recursive: true, force: true });
+          continue;
+        }
+      } catch {
+      }
+      if (Date.now() > deadline) throw new Error(`shared Chrome lock busy: ${lockDir}`);
+      await sleep(100);
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    fs.rmSync(lockDir, { recursive: true, force: true });
+  }
+}
+function liveLeases(dir) {
+  const leasesDir = path.join(dir, "leases");
+  let names;
+  try {
+    names = fs.readdirSync(leasesDir);
+  } catch {
+    return [];
+  }
+  const live = [];
+  for (const name of names) {
+    const pid = Number.parseInt(name.split("-")[0] ?? "", 10);
+    if (pidAlive(pid)) live.push(name);
+    else fs.rmSync(path.join(leasesDir, name), { force: true });
+  }
+  return live;
+}
+function readSharedChromeState(dir) {
+  try {
+    const state = JSON.parse(fs.readFileSync(path.join(dir, "state.json"), "utf8"));
+    return typeof state.pid === "number" && typeof state.wsEndpoint === "string" ? state : null;
+  } catch {
+    return null;
+  }
+}
+async function debuggerEndpoint(port, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: controller.signal });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.webSocketDebuggerUrl ?? null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+function freePort() {
+  return new Promise((resolve2, reject) => {
+    const srv = net.createServer();
+    srv.listen(0, "127.0.0.1", () => {
+      const port = srv.address().port;
+      srv.close(() => resolve2(port));
+    });
+    srv.on("error", reject);
+  });
+}
+var WATCHDOG_SOURCE = `
+const fs = require('node:fs'), path = require('node:path');
+const [dir, chromePidArg, idleArg] = process.argv.slice(1);
+const chromePid = Number(chromePidArg), idleMs = Number(idleArg);
+const alive = (p) => { try { process.kill(p, 0); return true } catch (e) { return e.code === 'EPERM' } };
+const clearState = () => { try {
+  const s = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'));
+  if (s.pid === chromePid) fs.rmSync(path.join(dir, 'state.json'), { force: true });
+} catch {} };
+let lastBusy = Date.now(), stopping = 0;
+setInterval(() => {
+  if (!alive(chromePid)) { clearState(); process.exit(0) }
+  if (stopping) {
+    if (Date.now() - stopping > 20000) { try { process.kill(chromePid, 'SIGKILL') } catch {} }
+    return;
+  }
+  let busy = false;
+  try {
+    for (const name of fs.readdirSync(path.join(dir, 'leases'))) {
+      if (alive(Number(name.split('-')[0]))) busy = true;
+      else fs.rmSync(path.join(dir, 'leases', name), { force: true });
+    }
+  } catch {}
+  if (busy) { lastBusy = Date.now(); return }
+  if (Date.now() - lastBusy >= idleMs) {
+    clearState();
+    stopping = Date.now();
+    try { process.kill(chromePid, 'SIGTERM') } catch {}
+  }
+}, 5000);
+`;
+async function startSharedChrome(dir, options) {
+  const progress = options.onProgress ?? (() => {
+  });
+  const chromePath = options.chromePath ?? process.env.IBR_CHROME_PATH ?? findChrome();
+  if (!chromePath) throw new Error("Chrome not found for the shared browser");
+  const port = await freePort();
+  const profileDir = path.join(dir, "profile");
+  fs.mkdirSync(profileDir, { recursive: true });
+  progress(`starting shared Chrome on port ${port}`);
+  const child = child_process.spawn(chromePath, [
+    `--remote-debugging-port=${port}`,
+    `--user-data-dir=${profileDir}`,
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-background-networking",
+    "--disable-sync",
+    "--headless=new"
+  ], { detached: true, stdio: "ignore" });
+  child.unref();
+  const pid = child.pid;
+  if (!pid) throw new Error("shared Chrome did not start");
+  const deadline = Date.now() + DEBUGGER_WAIT_MS;
+  let wsEndpoint = null;
+  while (Date.now() < deadline && pidAlive(pid)) {
+    wsEndpoint = await debuggerEndpoint(port, 1e3);
+    if (wsEndpoint) break;
+    await sleep(200);
+  }
+  if (!wsEndpoint) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+    }
+    throw new Error(`shared Chrome did not open its debugger on port ${port}`);
+  }
+  const state = { pid, port, wsEndpoint, profileDir, startedAt: Date.now() };
+  fs.writeFileSync(path.join(dir, "state.json"), JSON.stringify(state, null, 2));
+  const idleMs = options.idleMs ?? envInt("IBR_SHARED_CHROME_IDLE_MS", SHARED_CHROME_DEFAULT_IDLE_MS);
+  child_process.spawn(process.execPath, ["-e", WATCHDOG_SOURCE, dir, String(pid), String(idleMs)], {
+    detached: true,
+    stdio: "ignore"
+  }).unref();
+  progress(`shared Chrome pid ${pid} ready`);
+  return state;
+}
+async function acquireSharedChrome(options = {}) {
+  const dir = options.dir ?? sharedChromeDir();
+  const progress = options.onProgress ?? (() => {
+  });
+  fs.mkdirSync(path.join(dir, "leases"), { recursive: true });
+  const maxLeases = options.maxLeases ?? envInt("IBR_SHARED_CHROME_MAX_PAGES", SHARED_CHROME_DEFAULT_MAX_LEASES);
+  const waitUntil = Date.now() + (options.leaseWaitMs ?? 12e4);
+  let warned = false;
+  for (; ; ) {
+    const granted = await withLock(dir, async () => {
+      if (liveLeases(dir).length >= maxLeases && Date.now() < waitUntil) return null;
+      let state = readSharedChromeState(dir);
+      if (state && !(pidAlive(state.pid) && await debuggerEndpoint(state.port, 2e3))) {
+        fs.rmSync(path.join(dir, "state.json"), { force: true });
+        state = null;
+      }
+      if (!state) state = await startSharedChrome(dir, options);
+      const leasePath = path.join(dir, "leases", `${process.pid}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`);
+      fs.writeFileSync(leasePath, "");
+      return { state, leasePath };
+    });
+    if (granted) {
+      let released = false;
+      return {
+        wsEndpoint: granted.state.wsEndpoint,
+        release() {
+          if (released) return;
+          released = true;
+          fs.rmSync(granted.leasePath, { force: true });
+        }
+      };
+    }
+    if (!warned) {
+      progress(`waiting: ${maxLeases} commands already use the shared Chrome`);
+      warned = true;
+    }
+    await sleep(250);
+  }
+}
+function shouldUseSharedChrome(options, env = process.env) {
+  const envMode = env.IBR_BROWSER_MODE;
+  if (envMode === "shared") return options.headless !== false;
+  if (envMode) return false;
+  if (options.mode || options.cdpUrl || options.wsEndpoint || env.IBR_CDP_URL || env.IBR_WS_ENDPOINT) return false;
+  if (options.headless === false || options.userDataDir || options.port || options.normalize) return false;
+  return true;
+}
 
 // src/engine/cdp/target.ts
 var TargetDomain = class {
@@ -1141,12 +1360,26 @@ var TargetDomain = class {
     this.conn = conn;
   }
   conn;
-  async createPage(url) {
+  async createPage(url, browserContextId) {
     const result = await this.conn.send(
       "Target.createTarget",
-      { url }
+      browserContextId ? { url, browserContextId } : { url }
     );
     return result.targetId;
+  }
+  /**
+   * A private browser context: its own cookies, storage and cache. With
+   * disposeOnDetach, Chrome drops it if this connection dies without cleanup.
+   */
+  async createContext() {
+    const result = await this.conn.send(
+      "Target.createBrowserContext",
+      { disposeOnDetach: true }
+    );
+    return result.browserContextId;
+  }
+  async disposeContext(browserContextId) {
+    await this.conn.send("Target.disposeBrowserContext", { browserContextId });
   }
   async attach(targetId) {
     const result = await this.conn.send(
@@ -3138,6 +3371,10 @@ var EngineDriver = class _EngineDriver {
   console;
   fetch;
   targetId = null;
+  /** Lease on the shared Chrome, when this driver uses it instead of its own process. */
+  sharedLease = null;
+  /** Private context this driver created in the shared Chrome. */
+  browserContextId = null;
   sessionId = null;
   ownsTarget = true;
   _currentUrl = "";
@@ -3184,13 +3421,21 @@ var EngineDriver = class _EngineDriver {
   async launch(options = {}) {
     const progress = options.onProgress ?? (() => {
     });
-    const wsUrl = await this.browser.launch(options);
-    progress("opening CDP websocket");
-    await this.conn.connect(wsUrl);
-    progress("CDP websocket open");
-    this.target = new TargetDomain(this.conn);
+    if (shouldUseSharedChrome(options)) {
+      try {
+        await this.launchInSharedChrome(options, progress);
+      } catch (error) {
+        progress(`shared Chrome unavailable (${error instanceof Error ? error.message : String(error)}); launching a private Chrome`);
+        await this.releaseShared();
+        await this.conn.close().catch(() => {
+        });
+        await this.connectToBrowser(await this.browser.launch(options), progress);
+      }
+    } else {
+      await this.connectToBrowser(await this.browser.launch(options), progress);
+    }
     this.launched = true;
-    this.targetId = await this.target.createPage("about:blank");
+    this.targetId = await this.target.createPage("about:blank", this.browserContextId ?? void 0);
     this.ownsTarget = true;
     this.sessionId = await this.target.attach(this.targetId);
     progress("page target attached");
@@ -3214,6 +3459,37 @@ var EngineDriver = class _EngineDriver {
     if (options.viewport) {
       await this.emulation.applyDeviceProfile(options.viewport);
     }
+  }
+  async connectToBrowser(wsUrl, progress) {
+    progress("opening CDP websocket");
+    await this.conn.connect(wsUrl);
+    progress("CDP websocket open");
+    this.target = new TargetDomain(this.conn);
+  }
+  async launchInSharedChrome(options, progress) {
+    progress("leasing the shared Chrome");
+    this.sharedLease = await acquireSharedChrome({ chromePath: options.chromePath, onProgress: progress });
+    const wsUrl = await this.browser.launch({ mode: "connect", wsEndpoint: this.sharedLease.wsEndpoint });
+    await this.connectToBrowser(wsUrl, progress);
+    this.browserContextId = await this.target.createContext();
+    progress("private browser context created");
+  }
+  /** Dispose this driver's context and drop its lease. Safe to call repeatedly. */
+  async releaseShared() {
+    if (this.browserContextId) {
+      const id = this.browserContextId;
+      this.browserContextId = null;
+      await this.target?.disposeContext(id).catch(() => {
+      });
+    }
+    if (this.sharedLease) {
+      this.sharedLease.release();
+      this.sharedLease = null;
+    }
+  }
+  /** True when this driver is a guest in the shared Chrome. */
+  get usesSharedChrome() {
+    return this.sharedLease !== null;
   }
   /**
    * Wire Page.javascriptDialogOpening/Closed into `pendingDialog` +
@@ -3239,6 +3515,7 @@ var EngineDriver = class _EngineDriver {
       });
       this.targetId = null;
     }
+    await this.releaseShared();
     await this.conn.close();
     await this.browser.close();
     this.launched = false;
@@ -3265,6 +3542,7 @@ var EngineDriver = class _EngineDriver {
       this.targetId = null;
       this.sessionId = null;
     }
+    await this.releaseShared();
     await this.conn.close().catch(() => {
     });
     this.launched = false;

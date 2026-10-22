@@ -8,11 +8,26 @@ import type { CdpConnection } from './connection.js'
 export class TargetDomain {
   constructor(private conn: CdpConnection) {}
 
-  async createPage(url: string): Promise<string> {
+  async createPage(url: string, browserContextId?: string): Promise<string> {
     const result = await this.conn.send<{ targetId: string }>(
-      'Target.createTarget', { url },
+      'Target.createTarget', browserContextId ? { url, browserContextId } : { url },
     )
     return result.targetId
+  }
+
+  /**
+   * A private browser context: its own cookies, storage and cache. With
+   * disposeOnDetach, Chrome drops it if this connection dies without cleanup.
+   */
+  async createContext(): Promise<string> {
+    const result = await this.conn.send<{ browserContextId: string }>(
+      'Target.createBrowserContext', { disposeOnDetach: true },
+    )
+    return result.browserContextId
+  }
+
+  async disposeContext(browserContextId: string): Promise<void> {
+    await this.conn.send('Target.disposeBrowserContext', { browserContextId })
   }
 
   async attach(targetId: string): Promise<string> {

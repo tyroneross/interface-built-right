@@ -415,6 +415,23 @@ sessions after one hour without an IBR session command, and reaps orphaned
 IBR-owned Chrome processes before the next local launch. The reaper requires an
 IBR profile plus a CDP port and never targets the user's normal Chrome profile.
 
+### One shared Chrome for headless commands
+
+Headless commands share one Chrome per user instead of launching their own.
+Each command gets a private browser context (its own cookies, storage and
+cache), so commands cannot see each other's state. A watchdog stops the shared
+Chrome after 10 idle minutes. Commands that need their own process keep it: a
+visible window (`--headed`), a fixed profile or port, mockup normalization, or
+an explicit `connect` endpoint. If the shared Chrome cannot start, the command
+launches its own and says so.
+
+```bash
+IBR_BROWSER_MODE=local              # turn sharing off
+IBR_SHARED_CHROME_MAX_PAGES=6       # commands using it at once; later ones wait up to 2 minutes
+IBR_SHARED_CHROME_IDLE_MS=600000    # idle time before the watchdog stops it
+IBR_SHARED_CHROME_DIR=~/.ibr/shared-chrome   # state, leases and profile
+```
+
 `--headed` is now the preferred flag for a visible browser window. `--sandbox` remains as a deprecated alias for backwards compatibility.
 
 ## Setup as Agent Plugins
