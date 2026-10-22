@@ -20,7 +20,7 @@ import { createServer } from 'node:net'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import { findChrome } from './browser.js'
+import { findChrome, keychainArgs } from './browser.js'
 
 export interface SharedChromeState {
   pid: number
@@ -229,6 +229,7 @@ async function startSharedChrome(dir: string, options: SharedChromeOptions): Pro
     '--no-default-browser-check',
     '--disable-background-networking',
     '--disable-sync',
+    ...keychainArgs(),
     '--headless=new',
   ], { detached: true, stdio: 'ignore' })
   child.unref()

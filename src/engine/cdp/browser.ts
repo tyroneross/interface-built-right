@@ -258,6 +258,21 @@ export function chromeCodeSignCloneRoot(tempDir: string = tmpdir()): string {
 }
 
 /** How long close() waits after SIGTERM before SIGKILL. */
+/**
+ * Chrome flags that keep macOS Keychain out of IBR runs. Without
+ * --use-mock-keychain, Chrome reads its "Chrome Safe Storage" Keychain item
+ * to encrypt cookies, which can raise a Keychain dialog per profile. IBR
+ * profiles are its own, so a mock key is enough. Set IBR_REAL_KEYCHAIN=1 to
+ * use the real Keychain (for example, a profile whose saved logins need it).
+ */
+export function keychainArgs(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  if (platform !== 'darwin' || env.IBR_REAL_KEYCHAIN === '1') return []
+  return ['--use-mock-keychain']
+}
+
 export const CHROME_EXIT_GRACE_MS = 10_000
 
 /** Leftovers younger than this are left alone, so a Chrome starting right now keeps its copy. */
@@ -845,6 +860,7 @@ export class BrowserManager {
       '--no-default-browser-check',
       '--disable-background-networking',
       '--disable-sync',
+      ...keychainArgs(),
     ]
     if (headless) {
       args.push('--headless=new')

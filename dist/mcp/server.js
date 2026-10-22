@@ -20634,6 +20634,10 @@ function reapOrphanedIbrChromeProcesses(options = {}) {
 function chromeCodeSignCloneRoot(tempDir = (0, import_node_os.tmpdir)()) {
   return (0, import_node_path.join)((0, import_node_path.dirname)(tempDir.replace(/\/+$/, "")), "X", "com.google.Chrome.code_sign_clone");
 }
+function keychainArgs(env = process.env, platform = process.platform) {
+  if (platform !== "darwin" || env.IBR_REAL_KEYCHAIN === "1") return [];
+  return ["--use-mock-keychain"];
+}
 function runningChromeStartTimes(psOutput) {
   const starts = [];
   for (const line of psOutput.split("\n")) {
@@ -21047,7 +21051,8 @@ Checked: ${CHROME_PATHS.join(", ")}`
           "--no-first-run",
           "--no-default-browser-check",
           "--disable-background-networking",
-          "--disable-sync"
+          "--disable-sync",
+          ...keychainArgs()
         ];
         if (headless) {
           args.push("--headless=new");
@@ -21299,6 +21304,7 @@ async function startSharedChrome(dir, options) {
     "--no-default-browser-check",
     "--disable-background-networking",
     "--disable-sync",
+    ...keychainArgs(),
     "--headless=new"
   ], { detached: true, stdio: "ignore" });
   child.unref();

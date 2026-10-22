@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import {
   CODE_SIGN_CLONE_GRACE_MS,
   chromeCodeSignCloneRoot,
+  keychainArgs,
   openCodeSignClones,
   runningChromeStartTimes,
   sweepStaleChromeCodeSignClones,
@@ -108,5 +109,13 @@ describe('sweepStaleChromeCodeSignClones', () => {
     const now = Date.now() + CODE_SIGN_CLONE_GRACE_MS + 60_000
     expect(sweepStaleChromeCodeSignClones({ root, psOutput: '', now, lsofOutput: '', platform: 'linux' }).removed).toEqual([])
     expect(sweepStaleChromeCodeSignClones({ root: join(root, 'missing'), psOutput: '', lsofOutput: '', now, platform: 'darwin' }).removed).toEqual([])
+  })
+})
+
+describe('keychainArgs', () => {
+  it('uses a mock Keychain on macOS unless IBR_REAL_KEYCHAIN=1', () => {
+    expect(keychainArgs({}, 'darwin')).toEqual(['--use-mock-keychain'])
+    expect(keychainArgs({ IBR_REAL_KEYCHAIN: '1' }, 'darwin')).toEqual([])
+    expect(keychainArgs({}, 'linux')).toEqual([])
   })
 })
