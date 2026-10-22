@@ -53,10 +53,13 @@ describe('shouldUseSharedChrome', () => {
       { mode: 'connect' },
       { cdpUrl: 'http://127.0.0.1:9222' },
       { wsEndpoint: 'ws://x' },
+      { chromePath: '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary' },
+      { shareChrome: false },
     ]) {
       expect(shouldUseSharedChrome(options, {}), JSON.stringify(options)).toBe(false)
     }
     expect(shouldUseSharedChrome({}, { IBR_CDP_URL: 'http://127.0.0.1:9222' })).toBe(false)
+    expect(shouldUseSharedChrome({}, { IBR_CHROME_PATH: '/opt/chrome' })).toBe(false)
   })
 
   it('follows IBR_BROWSER_MODE', () => {
@@ -97,6 +100,23 @@ describe.skipIf(!chrome)('shared Chrome (real browser)', () => {
     expect(alive(state.pid)).toBe(false)
     expect(readSharedChromeState(dir)).toBeNull()
   }, 40_000)
+
+  it('replaces a dead watchdog when the shared Chrome is reused', async () => {
+    const dir = tempDir()
+    const first = await acquireSharedChrome({ dir })
+    const before = readSharedChromeState(dir)!
+    expect(before.watchdogPid && alive(before.watchdogPid)).toBe(true)
+    process.kill(before.watchdogPid!, 'SIGKILL')
+    await new Promise((r) => setTimeout(r, 300))
+    const second = await acquireSharedChrome({ dir })
+    const after = readSharedChromeState(dir)!
+    expect(after.pid).toBe(before.pid)
+    expect(after.watchdogPid).not.toBe(before.watchdogPid)
+    expect(alive(after.watchdogPid!)).toBe(true)
+    first.release()
+    second.release()
+    process.kill(after.watchdogPid!, 'SIGTERM')
+  }, 30_000)
 
   it('waits for a free lease when the cap is reached', async () => {
     const dir = tempDir()

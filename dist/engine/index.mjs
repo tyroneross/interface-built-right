@@ -1226,7 +1226,7 @@ function freePort() {
 }
 var WATCHDOG_SOURCE = `
 const fs = require('node:fs'), path = require('node:path');
-const [dir, chromePidArg, idleArg] = process.argv.slice(1);
+const [dir, chromePidArg, idleArg, profileDir] = process.argv.slice(1);
 const chromePid = Number(chromePidArg), idleMs = Number(idleArg);
 const alive = (p) => { try { process.kill(p, 0); return true } catch (e) { return e.code === 'EPERM' } };
 const clearState = () => { try {
@@ -1235,24 +1235,42 @@ const clearState = () => { try {
 } catch {} };
 let lastBusy = Date.now(), stopping = 0;
 setInterval(() => {
-  if (!alive(chromePid)) { clearState(); process.exit(0) }
+  if (!alive(chromePid)) {
+    clearState();
+    if (profileDir) { try { fs.rmSync(profileDir, { recursive: true, force: true }) } catch {} }
+    process.exit(0);
+  }
   if (stopping) {
     if (Date.now() - stopping > 20000) { try { process.kill(chromePid, 'SIGKILL') } catch {} }
     return;
   }
-  let busy = false;
-  try {
-    for (const name of fs.readdirSync(path.join(dir, 'leases'))) {
-      if (alive(Number(name.split('-')[0]))) busy = true;
-      else fs.rmSync(path.join(dir, 'leases', name), { force: true });
-    }
-  } catch {}
-  if (busy) { lastBusy = Date.now(); return }
-  if (Date.now() - lastBusy >= idleMs) {
-    clearState();
-    stopping = Date.now();
-    try { process.kill(chromePid, 'SIGTERM') } catch {}
+  const busy = () => {
+    let any = false;
+    try {
+      for (const name of fs.readdirSync(path.join(dir, 'leases'))) {
+        if (alive(Number(name.split('-')[0]))) any = true;
+        else fs.rmSync(path.join(dir, 'leases', name), { force: true });
+      }
+    } catch {}
+    return any;
+  };
+  if (busy()) { lastBusy = Date.now(); return }
+  if (Date.now() - lastBusy < idleMs) return;
+  // Take the same lock commands use to grant leases, so no lease can be
+  // granted between this last check and retiring the state file.
+  const lockDir = path.join(dir, 'lock');
+  try { fs.mkdirSync(lockDir) } catch {
+    try { if (Date.now() - fs.statSync(lockDir).mtimeMs > 60000) fs.rmSync(lockDir, { recursive: true, force: true }) } catch {}
+    return; // a command holds the lock; look again next tick
   }
+  try {
+    if (busy()) { lastBusy = Date.now(); return }
+    clearState();
+  } finally {
+    try { fs.rmSync(lockDir, { recursive: true, force: true }) } catch {}
+  }
+  stopping = Date.now();
+  try { process.kill(chromePid, 'SIGTERM') } catch {}
 }, 5000);
 `;
 async function startSharedChrome(dir, options) {
@@ -1261,7 +1279,8 @@ async function startSharedChrome(dir, options) {
   const chromePath = options.chromePath ?? process.env.IBR_CHROME_PATH ?? findChrome();
   if (!chromePath) throw new Error("Chrome not found for the shared browser");
   const port = await freePort();
-  const profileDir = join(dir, "profile");
+  pruneOldProfiles(dir);
+  const profileDir = join(dir, `profile-${Date.now().toString(36)}`);
   mkdirSync(profileDir, { recursive: true });
   progress(`starting shared Chrome on port ${port}`);
   const child = spawn(chromePath, [
@@ -1291,14 +1310,37 @@ async function startSharedChrome(dir, options) {
     throw new Error(`shared Chrome did not open its debugger on port ${port}`);
   }
   const state = { pid, port, wsEndpoint, profileDir, startedAt: Date.now() };
+  state.watchdogPid = spawnWatchdog(dir, state, options);
   writeFileSync(join(dir, "state.json"), JSON.stringify(state, null, 2));
-  const idleMs = options.idleMs ?? envInt("IBR_SHARED_CHROME_IDLE_MS", SHARED_CHROME_DEFAULT_IDLE_MS);
-  spawn(process.execPath, ["-e", WATCHDOG_SOURCE, dir, String(pid), String(idleMs)], {
-    detached: true,
-    stdio: "ignore"
-  }).unref();
   progress(`shared Chrome pid ${pid} ready`);
   return state;
+}
+function spawnWatchdog(dir, state, options) {
+  const idleMs = options.idleMs ?? envInt("IBR_SHARED_CHROME_IDLE_MS", SHARED_CHROME_DEFAULT_IDLE_MS);
+  const child = spawn(process.execPath, ["-e", WATCHDOG_SOURCE, dir, String(state.pid), String(idleMs), state.profileDir], {
+    detached: true,
+    stdio: "ignore"
+  });
+  child.unref();
+  return child.pid;
+}
+function pruneOldProfiles(dir) {
+  const current = readSharedChromeState(dir)?.profileDir;
+  let names = [];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    if (!name.startsWith("profile")) continue;
+    const path = join(dir, name);
+    if (path === current) continue;
+    try {
+      if (Date.now() - statSync(path).mtimeMs > 10 * 60 * 1e3) rmSync(path, { recursive: true, force: true });
+    } catch {
+    }
+  }
 }
 async function acquireSharedChrome(options = {}) {
   const dir = options.dir ?? sharedChromeDir();
@@ -1312,11 +1354,15 @@ async function acquireSharedChrome(options = {}) {
     const granted = await withLock(dir, async () => {
       if (liveLeases(dir).length >= maxLeases && Date.now() < waitUntil) return null;
       let state = readSharedChromeState(dir);
-      if (state && !(pidAlive(state.pid) && await debuggerEndpoint(state.port, 2e3))) {
+      if (state && !(pidAlive(state.pid) && await debuggerEndpoint(state.port, 2e3) === state.wsEndpoint)) {
         rmSync(join(dir, "state.json"), { force: true });
         state = null;
       }
       if (!state) state = await startSharedChrome(dir, options);
+      else if (!state.watchdogPid || !pidAlive(state.watchdogPid)) {
+        state.watchdogPid = spawnWatchdog(dir, state, options);
+        writeFileSync(join(dir, "state.json"), JSON.stringify(state, null, 2));
+      }
       const leasePath = join(dir, "leases", `${process.pid}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`);
       writeFileSync(leasePath, "");
       return { state, leasePath };
@@ -1340,11 +1386,13 @@ async function acquireSharedChrome(options = {}) {
   }
 }
 function shouldUseSharedChrome(options, env = process.env) {
+  if (options.shareChrome === false) return false;
   const envMode = env.IBR_BROWSER_MODE;
   if (envMode === "shared") return options.headless !== false;
   if (envMode) return false;
   if (options.mode || options.cdpUrl || options.wsEndpoint || env.IBR_CDP_URL || env.IBR_WS_ENDPOINT) return false;
   if (options.headless === false || options.userDataDir || options.port || options.normalize) return false;
+  if (options.chromePath || env.IBR_CHROME_PATH) return false;
   return true;
 }
 
@@ -3428,30 +3476,43 @@ var EngineDriver = class _EngineDriver {
     } else {
       await this.connectToBrowser(await this.browser.launch(options), progress);
     }
-    this.launched = true;
-    this.targetId = await this.target.createPage("about:blank", this.browserContextId ?? void 0);
-    this.ownsTarget = true;
-    this.sessionId = await this.target.attach(this.targetId);
-    progress("page target attached");
-    this._page = new PageDomain(this.conn, this.sessionId);
-    this.ax = new AccessibilityDomain(this.conn, this.sessionId);
-    this.dom = new DomDomain(this.conn, this.sessionId);
-    this.input = new InputDomain(this.conn, this.sessionId);
-    this.runtime = new RuntimeDomain(this.conn, this.sessionId);
-    this.css = new CssDomain(this.conn, this.sessionId);
-    this.snapshot = new SnapshotDomain(this.conn, this.sessionId);
-    this.emulation = new EmulationDomain(this.conn, this.sessionId);
-    this.network = new NetworkDomain(this.conn, this.sessionId);
-    this.console = new ConsoleDomain(this.conn, this.sessionId);
-    this.fetch = new FetchDomain(this.conn, this.sessionId);
-    progress("enabling CDP domains");
-    await this._page.enableLifecycleEvents();
-    await this.ax.enable();
-    await this.console.enable();
-    await this.network.enable();
-    this.setupDialogHandling();
-    if (options.viewport) {
-      await this.emulation.applyDeviceProfile(options.viewport);
+    try {
+      this.launched = true;
+      this.targetId = await this.target.createPage("about:blank", this.browserContextId ?? void 0);
+      this.ownsTarget = true;
+      this.sessionId = await this.target.attach(this.targetId);
+      progress("page target attached");
+      this._page = new PageDomain(this.conn, this.sessionId);
+      this.ax = new AccessibilityDomain(this.conn, this.sessionId);
+      this.dom = new DomDomain(this.conn, this.sessionId);
+      this.input = new InputDomain(this.conn, this.sessionId);
+      this.runtime = new RuntimeDomain(this.conn, this.sessionId);
+      this.css = new CssDomain(this.conn, this.sessionId);
+      this.snapshot = new SnapshotDomain(this.conn, this.sessionId);
+      this.emulation = new EmulationDomain(this.conn, this.sessionId);
+      this.network = new NetworkDomain(this.conn, this.sessionId);
+      this.console = new ConsoleDomain(this.conn, this.sessionId);
+      this.fetch = new FetchDomain(this.conn, this.sessionId);
+      progress("enabling CDP domains");
+      await this._page.enableLifecycleEvents();
+      await this.ax.enable();
+      await this.console.enable();
+      await this.network.enable();
+      this.setupDialogHandling();
+      if (options.viewport) {
+        await this.emulation.applyDeviceProfile(options.viewport);
+      }
+    } catch (error) {
+      if (this.targetId) await this.target.close(this.targetId).catch(() => {
+      });
+      this.targetId = null;
+      await this.releaseShared();
+      await this.conn.close().catch(() => {
+      });
+      await this.browser.close().catch(() => {
+      });
+      this.launched = false;
+      throw error;
     }
   }
   async connectToBrowser(wsUrl, progress) {
@@ -4054,9 +4115,12 @@ var EngineDriver = class _EngineDriver {
   async getOopifFrameElements(unresolvedByUrl) {
     let targets;
     try {
-      targets = await this.target.list();
+      targets = await this.target.listDetailed();
     } catch {
       return { elements: [], reached: 0 };
+    }
+    if (this.browserContextId) {
+      targets = targets.filter((t) => t.browserContextId === this.browserContextId);
     }
     const elements = [];
     let reached = 0;

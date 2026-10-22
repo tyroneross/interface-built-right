@@ -1191,6 +1191,8 @@ interface CoverageReport {
 }
 interface LaunchOptions extends BrowserOptions {
     viewport?: ViewportConfig;
+    /** false keeps a private Chrome instead of the shared one. */
+    shareChrome?: boolean;
 }
 type WaitStrategy = 'stable' | 'load' | 'none';
 interface NavigateOptions {

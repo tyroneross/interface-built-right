@@ -62,6 +62,8 @@ export interface CoverageReport {
 
 export interface LaunchOptions extends BrowserOptions {
   viewport?: ViewportConfig
+  /** false keeps a private Chrome instead of the shared one. */
+  shareChrome?: boolean
 }
 
 export type WaitStrategy = 'stable' | 'load' | 'none'
@@ -407,43 +409,55 @@ export class EngineDriver implements BrowserDriver {
     } else {
       await this.connectToBrowser(await this.browser.launch(options), progress)
     }
-    this.launched = true
+    try {
+      this.launched = true
 
-    // Create initial page
-    this.targetId = await this.target.createPage('about:blank', this.browserContextId ?? undefined)
-    this.ownsTarget = true
-    this.sessionId = await this.target.attach(this.targetId)
-    progress('page target attached')
+      // Create initial page
+      this.targetId = await this.target.createPage('about:blank', this.browserContextId ?? undefined)
+      this.ownsTarget = true
+      this.sessionId = await this.target.attach(this.targetId)
+      progress('page target attached')
 
-    // Initialize domains with session
-    this._page = new PageDomain(this.conn, this.sessionId)
-    this.ax = new AccessibilityDomain(this.conn, this.sessionId)
-    this.dom = new DomDomain(this.conn, this.sessionId)
-    this.input = new InputDomain(this.conn, this.sessionId)
-    this.runtime = new RuntimeDomain(this.conn, this.sessionId)
-    this.css = new CssDomain(this.conn, this.sessionId)
-    this.snapshot = new SnapshotDomain(this.conn, this.sessionId)
-    this.emulation = new EmulationDomain(this.conn, this.sessionId)
-    this.network = new NetworkDomain(this.conn, this.sessionId)
-    this.console = new ConsoleDomain(this.conn, this.sessionId)
-    this.fetch = new FetchDomain(this.conn, this.sessionId)
+      // Initialize domains with session
+      this._page = new PageDomain(this.conn, this.sessionId)
+      this.ax = new AccessibilityDomain(this.conn, this.sessionId)
+      this.dom = new DomDomain(this.conn, this.sessionId)
+      this.input = new InputDomain(this.conn, this.sessionId)
+      this.runtime = new RuntimeDomain(this.conn, this.sessionId)
+      this.css = new CssDomain(this.conn, this.sessionId)
+      this.snapshot = new SnapshotDomain(this.conn, this.sessionId)
+      this.emulation = new EmulationDomain(this.conn, this.sessionId)
+      this.network = new NetworkDomain(this.conn, this.sessionId)
+      this.console = new ConsoleDomain(this.conn, this.sessionId)
+      this.fetch = new FetchDomain(this.conn, this.sessionId)
 
-    // Enable required domains
-    progress('enabling CDP domains')
-    await this._page.enableLifecycleEvents()
-    await this.ax.enable()
-    await this.console.enable()
-    // E3-B: real Network-domain request/response tracking, backing
-    // networkidle/waitForResponse in compat.ts (see cdp/network.ts).
-    await this.network.enable()
-    // E3-D: capture Page.javascriptDialogOpening instead of letting an
-    // alert()/confirm() hang whatever CDP call triggered it.
-    this.setupDialogHandling()
+      // Enable required domains
+      progress('enabling CDP domains')
+      await this._page.enableLifecycleEvents()
+      await this.ax.enable()
+      await this.console.enable()
+      // E3-B: real Network-domain request/response tracking, backing
+      // networkidle/waitForResponse in compat.ts (see cdp/network.ts).
+      await this.network.enable()
+      // E3-D: capture Page.javascriptDialogOpening instead of letting an
+      // alert()/confirm() hang whatever CDP call triggered it.
+      this.setupDialogHandling()
 
-    // Apply device emulation (metrics + UA + touch) BEFORE the first
-    // navigate so the initial document request sees the emulated device.
-    if (options.viewport) {
-      await this.emulation.applyDeviceProfile(options.viewport)
+      // Apply device emulation (metrics + UA + touch) BEFORE the first
+      // navigate so the initial document request sees the emulated device.
+      if (options.viewport) {
+        await this.emulation.applyDeviceProfile(options.viewport)
+      }
+  
+    } catch (error) {
+      // Do not strand a lease or context in the shared Chrome when set-up fails.
+      if (this.targetId) await this.target.close(this.targetId).catch(() => {})
+      this.targetId = null
+      await this.releaseShared()
+      await this.conn.close().catch(() => {})
+      await this.browser.close().catch(() => {})
+      this.launched = false
+      throw error
     }
   }
 
@@ -1168,11 +1182,15 @@ export class EngineDriver implements BrowserDriver {
   private async getOopifFrameElements(
     unresolvedByUrl: Map<string, string>,
   ): Promise<{ elements: Element[]; reached: number }> {
-    let targets: Array<{ targetId: string; type: string; url: string }>
+    let targets: Array<{ targetId: string; type: string; url: string; browserContextId?: string }>
     try {
-      targets = await this.target.list()
+      targets = await this.target.listDetailed()
     } catch {
       return { elements: [], reached: 0 }
+    }
+    // In the shared Chrome, other commands' frames are visible too; keep ours.
+    if (this.browserContextId) {
+      targets = targets.filter((t) => t.browserContextId === this.browserContextId)
     }
 
     const elements: Element[] = []

@@ -28,6 +28,8 @@ export interface SharedChromeState {
   wsEndpoint: string
   profileDir: string
   startedAt: number
+  /** The idle watchdog's pid, so a dead watchdog can be replaced. */
+  watchdogPid?: number
 }
 
 export interface SharedChromeLease {
@@ -161,7 +163,7 @@ function freePort(): Promise<number> {
  */
 const WATCHDOG_SOURCE = `
 const fs = require('node:fs'), path = require('node:path');
-const [dir, chromePidArg, idleArg] = process.argv.slice(1);
+const [dir, chromePidArg, idleArg, profileDir] = process.argv.slice(1);
 const chromePid = Number(chromePidArg), idleMs = Number(idleArg);
 const alive = (p) => { try { process.kill(p, 0); return true } catch (e) { return e.code === 'EPERM' } };
 const clearState = () => { try {
@@ -170,24 +172,42 @@ const clearState = () => { try {
 } catch {} };
 let lastBusy = Date.now(), stopping = 0;
 setInterval(() => {
-  if (!alive(chromePid)) { clearState(); process.exit(0) }
+  if (!alive(chromePid)) {
+    clearState();
+    if (profileDir) { try { fs.rmSync(profileDir, { recursive: true, force: true }) } catch {} }
+    process.exit(0);
+  }
   if (stopping) {
     if (Date.now() - stopping > 20000) { try { process.kill(chromePid, 'SIGKILL') } catch {} }
     return;
   }
-  let busy = false;
-  try {
-    for (const name of fs.readdirSync(path.join(dir, 'leases'))) {
-      if (alive(Number(name.split('-')[0]))) busy = true;
-      else fs.rmSync(path.join(dir, 'leases', name), { force: true });
-    }
-  } catch {}
-  if (busy) { lastBusy = Date.now(); return }
-  if (Date.now() - lastBusy >= idleMs) {
-    clearState();
-    stopping = Date.now();
-    try { process.kill(chromePid, 'SIGTERM') } catch {}
+  const busy = () => {
+    let any = false;
+    try {
+      for (const name of fs.readdirSync(path.join(dir, 'leases'))) {
+        if (alive(Number(name.split('-')[0]))) any = true;
+        else fs.rmSync(path.join(dir, 'leases', name), { force: true });
+      }
+    } catch {}
+    return any;
+  };
+  if (busy()) { lastBusy = Date.now(); return }
+  if (Date.now() - lastBusy < idleMs) return;
+  // Take the same lock commands use to grant leases, so no lease can be
+  // granted between this last check and retiring the state file.
+  const lockDir = path.join(dir, 'lock');
+  try { fs.mkdirSync(lockDir) } catch {
+    try { if (Date.now() - fs.statSync(lockDir).mtimeMs > 60000) fs.rmSync(lockDir, { recursive: true, force: true }) } catch {}
+    return; // a command holds the lock; look again next tick
   }
+  try {
+    if (busy()) { lastBusy = Date.now(); return }
+    clearState();
+  } finally {
+    try { fs.rmSync(lockDir, { recursive: true, force: true }) } catch {}
+  }
+  stopping = Date.now();
+  try { process.kill(chromePid, 'SIGTERM') } catch {}
 }, 5000);
 `
 
@@ -196,7 +216,10 @@ async function startSharedChrome(dir: string, options: SharedChromeOptions): Pro
   const chromePath = options.chromePath ?? process.env.IBR_CHROME_PATH ?? findChrome()
   if (!chromePath) throw new Error('Chrome not found for the shared browser')
   const port = await freePort()
-  const profileDir = join(dir, 'profile')
+  // A fresh profile per start: a Chrome still shutting down keeps its own
+  // profile lock, so a new Chrome never collides with it.
+  pruneOldProfiles(dir)
+  const profileDir = join(dir, `profile-${Date.now().toString(36)}`)
   mkdirSync(profileDir, { recursive: true })
   progress(`starting shared Chrome on port ${port}`)
   const child = spawn(chromePath, [
@@ -225,14 +248,35 @@ async function startSharedChrome(dir: string, options: SharedChromeOptions): Pro
   }
 
   const state: SharedChromeState = { pid, port, wsEndpoint, profileDir, startedAt: Date.now() }
+  state.watchdogPid = spawnWatchdog(dir, state, options)
   writeFileSync(join(dir, 'state.json'), JSON.stringify(state, null, 2))
-  const idleMs = options.idleMs ?? envInt('IBR_SHARED_CHROME_IDLE_MS', SHARED_CHROME_DEFAULT_IDLE_MS)
-  spawn(process.execPath, ['-e', WATCHDOG_SOURCE, dir, String(pid), String(idleMs)], {
-    detached: true,
-    stdio: 'ignore',
-  }).unref()
   progress(`shared Chrome pid ${pid} ready`)
   return state
+}
+
+function spawnWatchdog(dir: string, state: SharedChromeState, options: SharedChromeOptions): number | undefined {
+  const idleMs = options.idleMs ?? envInt('IBR_SHARED_CHROME_IDLE_MS', SHARED_CHROME_DEFAULT_IDLE_MS)
+  const child = spawn(process.execPath, ['-e', WATCHDOG_SOURCE, dir, String(state.pid), String(idleMs), state.profileDir], {
+    detached: true,
+    stdio: 'ignore',
+  })
+  child.unref()
+  return child.pid
+}
+
+/** Remove profiles no live shared Chrome uses (older than 10 minutes, not the current one). */
+function pruneOldProfiles(dir: string): void {
+  const current = readSharedChromeState(dir)?.profileDir
+  let names: string[] = []
+  try { names = readdirSync(dir) } catch { return }
+  for (const name of names) {
+    if (!name.startsWith('profile')) continue
+    const path = join(dir, name)
+    if (path === current) continue
+    try {
+      if (Date.now() - statSync(path).mtimeMs > 10 * 60 * 1000) rmSync(path, { recursive: true, force: true })
+    } catch { /* in use or gone */ }
+  }
 }
 
 /**
@@ -252,11 +296,18 @@ export async function acquireSharedChrome(options: SharedChromeOptions = {}): Pr
     const granted = await withLock(dir, async () => {
       if (liveLeases(dir).length >= maxLeases && Date.now() < waitUntil) return null
       let state = readSharedChromeState(dir)
-      if (state && !(pidAlive(state.pid) && await debuggerEndpoint(state.port, 2000))) {
+      // Reuse only the exact Chrome recorded: same pid alive and the same
+      // debugger endpoint (a reboot can hand the pid and port to another process).
+      if (state && !(pidAlive(state.pid) && await debuggerEndpoint(state.port, 2000) === state.wsEndpoint)) {
         rmSync(join(dir, 'state.json'), { force: true })
         state = null
       }
       if (!state) state = await startSharedChrome(dir, options)
+      else if (!state.watchdogPid || !pidAlive(state.watchdogPid)) {
+        // Without a watchdog the shared Chrome would never stop.
+        state.watchdogPid = spawnWatchdog(dir, state, options)
+        writeFileSync(join(dir, 'state.json'), JSON.stringify(state, null, 2))
+      }
       const leasePath = join(dir, 'leases', `${process.pid}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`)
       writeFileSync(leasePath, '')
       return { state, leasePath }
@@ -295,13 +346,19 @@ export function shouldUseSharedChrome(
     userDataDir?: string
     port?: number
     normalize?: boolean
+    chromePath?: string
+    /** false keeps a private Chrome (the in-process BrowserPool sets this). */
+    shareChrome?: boolean
   },
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
+  if (options.shareChrome === false) return false
   const envMode = env.IBR_BROWSER_MODE
   if (envMode === 'shared') return options.headless !== false
   if (envMode) return false
   if (options.mode || options.cdpUrl || options.wsEndpoint || env.IBR_CDP_URL || env.IBR_WS_ENDPOINT) return false
   if (options.headless === false || options.userDataDir || options.port || options.normalize) return false
+  // A chosen binary must be the one that runs; the shared Chrome may be another.
+  if (options.chromePath || env.IBR_CHROME_PATH) return false
   return true
 }

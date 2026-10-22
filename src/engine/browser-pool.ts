@@ -35,7 +35,9 @@ export class BrowserPool {
   private closed = false
 
   constructor(options: BrowserPoolOptions = {}) {
-    this.launchOptions = options.launchOptions ?? {}
+    // A warm pool holds its browser for the whole process; keep that private
+    // so it never occupies a shared-Chrome lease indefinitely.
+    this.launchOptions = { shareChrome: false, ...(options.launchOptions ?? {}) }
   }
 
   /**
