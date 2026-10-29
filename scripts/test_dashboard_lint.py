@@ -238,6 +238,53 @@ class KnownFalsePositives(unittest.TestCase):
             '  <p><span class="status-bad"></span> Blocked</p>')
         self.assertNotIn("DB501", fired(page))
 
+    MARK_CSS = ".mk-bad { fill: #a01b16; } .dot-bad { background: #a01b16; }"
+
+    def _db501(self, markup: str) -> list:
+        page = _insert_body(_insert_css(clean_dashboard(), self.MARK_CSS), markup)
+        return [f for f in L.lint_source(Path("m.html"), page) if f.rule == "DB501"]
+
+    def test_an_arrowhead_in_hidden_marker_defs_is_not_colour_alone(self):
+        """A coloured arrowhead inside aria-hidden <defs><marker> is decoration
+        drawn on an edge; the edge's own label carries the state."""
+        found = self._db501(
+            '  <svg width="0" height="0" aria-hidden="true"><defs>'
+            '<marker id="m-bad" viewBox="0 0 10 10"><path d="M0,0 L10,5 L0,10z" '
+            'class="mk-bad"/></marker></defs></svg>')
+        self.assertEqual([], found)
+
+    def test_a_marker_in_defs_is_decoration_even_without_aria_hidden(self):
+        found = self._db501(
+            '  <svg viewBox="0 0 10 10"><defs><marker id="m-bad">'
+            '<path d="M0,0 L10,5z" class="mk-bad"/></marker></defs></svg>')
+        self.assertEqual([], found)
+
+    def test_a_visible_unlabelled_status_dot_is_still_colour_alone(self):
+        found = self._db501('  <div><span class="dot-bad"></span></div>')
+        self.assertEqual(1, len(found), found)
+
+    def test_a_visible_unlabelled_svg_path_is_still_colour_alone(self):
+        """A labelled whole-chart <svg> does not label each coloured mark in it."""
+        found = self._db501(
+            '  <svg viewBox="0 0 10 10" role="img" aria-label="Pipeline">'
+            '<g><path d="M0,0 L10,5z" class="mk-bad"/></g></svg>')
+        self.assertEqual(1, len(found), found)
+
+    def test_a_path_inside_a_labelled_group_is_not_colour_alone(self):
+        for label in ('aria-label="Build failed"', 'aria-labelledby="lbl"'):
+            with self.subTest(label=label):
+                found = self._db501(
+                    '  <svg viewBox="0 0 10 10"><g ' + label + '>'
+                    '<path d="M0,0 L10,5z" class="mk-bad"/></g></svg>'
+                    '<p id="lbl">Build failed</p>')
+                self.assertEqual([], found)
+
+    def test_a_path_with_an_svg_title_is_not_colour_alone(self):
+        found = self._db501(
+            '  <svg viewBox="0 0 10 10"><g><path d="M0,0 L10,5z" class="mk-bad">'
+            '<title>Build failed</title></path></g></svg>')
+        self.assertEqual([], found)
+
     def test_a_width_behind_a_wide_media_query_cannot_overflow_320(self):
         page = _insert_css(
             clean_dashboard(),

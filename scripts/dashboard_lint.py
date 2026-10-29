@@ -427,6 +427,32 @@ def _colour_classes(doc: AL.Document) -> dict[str, int]:
     return painted
 
 
+# SVG containers whose contents are paint resources, not marks a reader sees as a
+# state: a <marker> arrowhead decorates the edge that references it, and the
+# edge (or its label) is what DB501 should judge.
+SVG_RESOURCE_TAGS = {"defs", "marker", "clippath", "mask", "pattern", "lineargradient",
+                     "radialgradient", "filter"}
+# A label on one of these names the marks it groups. The root <svg> is excluded:
+# a whole-chart label does not say which mark is in which state.
+SVG_GROUP_TAGS = {"g", "a"}
+
+
+def _decorative_or_svg_labelled(doc: AL.Document, idx: int) -> bool:
+    """True when the element is hidden, a paint resource, or named by its SVG group."""
+    if _is_hidden(doc, idx):
+        return True
+    for i in AL.ancestors(doc.elements, idx):
+        el = doc.elements[i]
+        if el.tag in SVG_RESOURCE_TAGS:
+            return True
+        if el.tag == "svg":
+            break
+        if el.tag in SVG_GROUP_TAGS and any(
+                el.attrs.get(a, "").strip() for a in ("aria-label", "aria-labelledby")):
+            return True
+    return False
+
+
 def check_state_colour(doc: AL.Document) -> list[Finding]:
     painted = _colour_classes(doc)
     if not painted:
@@ -441,7 +467,10 @@ def check_state_colour(doc: AL.Document) -> list[Finding]:
             continue
         if AL.full_text(doc.elements, idx).strip():
             continue
-        if any(el.attrs.get(a, "").strip() for a in ("aria-label", "title", "alt")):
+        if any(el.attrs.get(a, "").strip()
+               for a in ("aria-label", "aria-labelledby", "title", "alt")):
+            continue
+        if _decorative_or_svg_labelled(doc, idx):
             continue
         # A marker sitting beside its own word is the correct pattern — the colour
         # agrees with the label rather than replacing it.
