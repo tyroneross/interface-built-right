@@ -389,5 +389,109 @@ class Corpus(unittest.TestCase):
         self.assertEqual(0, data["corpus_size"])
 
 
+# ---------------------------------------------------------------------------
+# DB502 theme scopes — which declarations apply in which theme
+# ---------------------------------------------------------------------------
+#
+# Each page states its palette as tokens, so the only variable is which scope a
+# token is read from. Colours: #182430 on #ffffff is 15.7:1, #e6edf5 on #0f1720
+# is 15.5:1, #c8d0d8 on #ffffff is 1.5:1, #26303a on #0f1720 is 1.4:1.
+
+# Every set ends in a non-colour-pair token, as real palettes do: a parser that
+# loses the media wrapper leaks every token but the first into the bare scope,
+# and the last one only escapes detection when it is the one the check reads.
+LIGHT_OK = "--paper:#ffffff;--ink:#182430;--line:#c6d0db"
+DARK_OK = "--paper:#0f1720;--ink:#e6edf5;--line:#34485c"
+LIGHT_BAD = "--paper:#ffffff;--ink:#c8d0d8;--line:#c6d0db"
+DARK_BAD = "--paper:#0f1720;--ink:#26303a;--line:#34485c"
+
+
+def themed_page(root: str, media: str, stamp: str, *, scheme: str = "dark",
+                media_sep: str = " ") -> str:
+    """The three-block theme pattern, written the way generators emit it."""
+    other = "light" if scheme == "dark" else "dark"
+    return (
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+        "<title>Theme scopes</title><style>\n"
+        f":root{{{root}}}\n"
+        f"@media{media_sep}(prefers-color-scheme:{scheme})"
+        f"{{:root:not([data-theme=\"{other}\"]){{{media}}}}}\n"
+        f":root[data-theme=\"{scheme}\"]{{{stamp}}}\n"
+        "body{background:var(--paper);color:var(--ink)}\n"
+        "</style></head><body><p>x</p></body></html>\n")
+
+
+def db502(page: str) -> list[str]:
+    return [f.message for f in L.lint_source(Path("themed.html"), page)
+            if f.rule == "DB502"]
+
+
+class ThemeScopeContrast(unittest.TestCase):
+    def test_three_block_pattern_with_good_contrast_is_silent(self):
+        """The required pattern must lint clean however the media prelude is spaced.
+
+        `@media(prefers-color-scheme:dark)` with no space is valid CSS and is what
+        minifiers and the Architect host renderer emit.
+        """
+        for sep in (" ", ""):
+            with self.subTest(media_sep=repr(sep)):
+                self.assertEqual(
+                    [], db502(themed_page(LIGHT_OK, DARK_OK, DARK_OK, media_sep=sep)))
+
+    def test_a_real_light_failure_is_still_flagged_as_light(self):
+        for sep in (" ", ""):
+            with self.subTest(media_sep=repr(sep)):
+                found = db502(themed_page(LIGHT_BAD, DARK_OK, DARK_OK, media_sep=sep))
+                self.assertEqual(1, len(found), found)
+                self.assertIn("light theme", found[0])
+
+    def test_a_dark_failure_in_only_the_media_block_is_flagged_as_dark(self):
+        found = db502(themed_page(LIGHT_OK, DARK_BAD, DARK_OK, media_sep=""))
+        self.assertEqual(1, len(found), found)
+        self.assertIn("dark theme", found[0])
+
+    def test_a_dark_failure_in_only_the_stamp_block_is_flagged_as_dark(self):
+        """The media and stamp blocks are separate states; a good later block
+        must not mask a bad earlier one, or the reverse."""
+        found = db502(themed_page(LIGHT_OK, DARK_OK, DARK_BAD))
+        self.assertEqual(1, len(found), found)
+        self.assertIn("dark theme", found[0])
+
+    def test_a_dark_first_design_resolves_both_themes(self):
+        """Dark on bare :root, light under prefers-color-scheme: light and
+        [data-theme=light]. Good contrast both ways is silent."""
+        self.assertEqual([], db502(themed_page(DARK_OK, LIGHT_OK, LIGHT_OK,
+                                               scheme="light")))
+
+    def test_a_dark_first_design_flags_a_light_failure_as_light(self):
+        found = db502(themed_page(DARK_OK, LIGHT_BAD, LIGHT_BAD, scheme="light"))
+        self.assertEqual(1, len(found), found)
+        self.assertIn("light theme", found[0])
+
+    def test_a_dark_first_design_flags_a_dark_failure_as_dark(self):
+        found = db502(themed_page(DARK_BAD, LIGHT_OK, LIGHT_OK, scheme="light"))
+        self.assertEqual(1, len(found), found)
+        self.assertIn("dark theme", found[0])
+
+    def test_a_light_stamp_is_read_as_the_light_theme(self):
+        """`:root[data-theme="light"]` alone carries the light palette."""
+        page = ("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+                "<title>Light stamp</title><style>\n"
+                f":root{{{DARK_OK}}}\n"
+                f":root[data-theme=light]{{{LIGHT_BAD}}}\n"
+                "body{background:var(--paper);color:var(--ink)}\n"
+                "</style></head><body><p>x</p></body></html>\n")
+        found = db502(page)
+        self.assertEqual(1, len(found), found)
+        self.assertIn("light theme", found[0])
+
+    def test_a_component_scoped_to_one_theme_is_judged_only_there(self):
+        """A rule inside the dark media block does not apply to the light page."""
+        page = themed_page(LIGHT_OK, DARK_OK, DARK_OK).replace(
+            "</style>",
+            "@media (prefers-color-scheme:dark){p{color:#ffffff}}\n</style>")
+        self.assertEqual([], db502(page))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

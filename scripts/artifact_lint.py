@@ -478,11 +478,41 @@ class CssBlock:
         return any("[data-theme" in s for s in self.selectors)
 
     @property
-    def dark_conditional(self) -> bool:
-        return (
-            any("prefers-color-scheme" in c and "dark" in c for c in self.context)
-            or any('[data-theme="dark"]' in s or "[data-theme='dark']" in s for s in self.selectors)
-        )
+    def theme_scope(self) -> tuple[str, str] | None:
+        """(theme, source) this block is limited to, or None when it is unconditional.
+
+        theme is 'light' or 'dark'; source is 'media' (prefers-color-scheme) or
+        'stamp' (a positive [data-theme=…] selector). The OS-dark media block and
+        the explicit dark stamp are separate states a reader can be in, so a
+        value that fails in either must not be masked by the other. A theme
+        condition this cannot name returns ('unknown', …) and applies in neither.
+        """
+        for c in self.context:
+            m = PREFERS_SCHEME_RE.search(c)
+            if m:
+                return (m.group(1).lower(), "media")
+        if not self.conditional:
+            return None
+        for sel in self.selectors:
+            positive, _ = data_theme_values(sel)
+            for theme in ("dark", "light"):
+                if theme in positive:
+                    return (theme, "stamp")
+        return ("unknown", "stamp")
+
+
+PREFERS_SCHEME_RE = re.compile(r"(?i)prefers-color-scheme\s*:\s*(light|dark)\b")
+DATA_THEME_RE = re.compile(r"""(?i)\[\s*data-theme\s*=\s*["']?\s*([\w-]+)\s*["']?\s*\]""")
+NOT_PSEUDO_RE = re.compile(r"(?i):not\(((?:[^()]|\([^()]*\))*)\)")
+
+
+def data_theme_values(selector: str) -> tuple[set[str], set[str]]:
+    """([data-theme] values a selector requires, values it excludes via :not())."""
+    negated: set[str] = set()
+    for m in NOT_PSEUDO_RE.finditer(selector):
+        negated.update(v.lower() for v in DATA_THEME_RE.findall(m.group(1)))
+    positive = {v.lower() for v in DATA_THEME_RE.findall(NOT_PSEUDO_RE.sub("", selector))}
+    return positive, negated
 
 
 def parse_declarations(body: str) -> list[tuple[str, str]]:
@@ -556,8 +586,11 @@ def parse_css(css: str, line_offset: int = 0) -> list[CssBlock]:
 
 
 def _at_rule_nests(prelude: str) -> bool:
-    name = prelude[1:].split(None, 1)[0].lower() if len(prelude) > 1 else ""
-    return name in NESTING_AT_RULES
+    # `@media(prefers-color-scheme:dark)` is valid CSS with no space after the
+    # keyword; splitting on whitespace read its name as `media(prefers-…)`, parsed
+    # the whole media block as one rule, and leaked its tokens into the bare scope.
+    m = re.match(r"@([A-Za-z-]+)", prelude)
+    return bool(m) and m.group(1).lower() in NESTING_AT_RULES
 
 
 # ---------------------------------------------------------------------------
@@ -955,18 +988,15 @@ def check_theme(doc: Document) -> list[Finding]:
                       f"they are undefined in the un-stamped 'system' state",
                       names + more))
 
-    dark_media = [b for b in blocks
-                  if any("prefers-color-scheme" in c and "dark" in c for c in b.context)]
+    dark_media = [b for b in blocks if b.theme_scope == ("dark", "media")]
     if dark_media:
-        guarded = any('not([data-theme="light"])' in s.replace(" ", "") or
-                      "not([data-theme='light'])" in s.replace(" ", "")
+        guarded = any("light" in data_theme_values(s)[1]
                       for b in dark_media for s in b.selectors)
         if not guarded:
             out.append(_f(doc, "AD103", dark_media[0].line,
                           "dark media block is not guarded with "
                           ':root:not([data-theme="light"])'))
-    has_dark_stamp = any('[data-theme="dark"]' in s or "[data-theme='dark']" in s
-                         for b in blocks for s in b.selectors)
+    has_dark_stamp = any(b.theme_scope == ("dark", "stamp") for b in blocks)
     if dark_media and not has_dark_stamp:
         out.append(_f(doc, "AD104", dark_media[0].line,
                       'no :root[data-theme="dark"] block, so the explicit dark '
@@ -1184,25 +1214,44 @@ EXEMPT_SELECTOR_RE = re.compile(
 )
 
 
-def _theme_token_maps(blocks: Sequence[CssBlock]) -> dict[str, dict[str, str]]:
-    """Token values as they resolve in each theme state.
+THEMES = ("light", "dark")
 
-    'light' is the bare :root cascade — the state an un-stamped document reads.
-    'dark' is that same map with every dark-conditional override applied on top.
+
+def _theme_states(blocks: Sequence[CssBlock]) -> list[tuple[str, tuple[str, str] | None, dict[str, str]]]:
+    """Every theme state a reader can be in, as (theme, scope, tokens).
+
+    Each theme is the bare cascade overlaid with that theme's scoped overrides —
+    one state per scope source (OS media query, explicit stamp), because those
+    are reached separately. A theme with no scoped block of its own reads the
+    bare cascade, so a single-palette page is judged once per theme on the same
+    values. Scoped overrides win over bare values regardless of source order,
+    as their higher specificity does in the browser.
     """
-    light: dict[str, str] = {}
-    dark_over: dict[str, str] = {}
+    base: dict[str, str] = {}
+    scoped: dict[tuple[str, str], dict[str, str]] = {}
     for b in blocks:
+        scope = b.theme_scope
         for prop, val in b.declarations:
             if not CUSTOM_PROP_RE.match(prop):
                 continue
-            if b.dark_conditional:
-                dark_over[prop] = val
-            elif not b.conditional:
-                light[prop] = val
-    dark = dict(light)
-    dark.update(dark_over)
-    return {"light": light, "dark": dark}
+            if scope is None:
+                base[prop] = val
+            elif scope[0] in THEMES:
+                scoped.setdefault(scope, {})[prop] = val
+    states: list[tuple[str, tuple[str, str] | None, dict[str, str]]] = []
+    for theme in THEMES:
+        mine = [(scope, over) for scope, over in scoped.items() if scope[0] == theme]
+        if not mine:
+            states.append((theme, None, dict(base)))
+        for scope, over in mine:
+            states.append((theme, scope, {**base, **over}))
+    return states
+
+
+def _applies_in(block: CssBlock, scope: tuple[str, str] | None) -> bool:
+    """Does this block's rule apply in the given theme state?"""
+    own = block.theme_scope
+    return own is None or own == scope
 
 
 def _resolved_rgb(raw: str, tokens: dict[str, str]) -> tuple[float, float, float, float] | None:
@@ -1230,14 +1279,14 @@ def check_contrast(doc: Document) -> list[Finding]:
     if doc.profile == "markdown" or not doc.css_blocks:
         return []
     blocks = doc.css_blocks
-    maps = _theme_token_maps(blocks)
-    if not maps["light"]:
+    states = _theme_states(blocks)
+    if not any(tokens for _, _, tokens in states):
         return []
 
-    grounds: dict[str, tuple[float, float, float]] = {}
-    for state, tokens in maps.items():
+    grounds: dict[tuple[str, str] | None, tuple[float, float, float]] = {}
+    for _, scope, tokens in states:
         for b in blocks:
-            if b.conditional and state == "light":
+            if not _applies_in(b, scope):
                 continue
             if not any(re.fullmatch(r"(html|body|html\s*,\s*body|body\s*,\s*html)", s)
                        for s in b.selectors):
@@ -1246,7 +1295,7 @@ def check_contrast(doc: Document) -> list[Finding]:
                 if prop in ("background", "background-color"):
                     c = _resolved_rgb(val, tokens)
                     if c and c[3] > 0:
-                        grounds[state] = (c[0], c[1], c[2])
+                        grounds[scope] = (c[0], c[1], c[2])
     if len(grounds) < 1:
         return []
 
@@ -1262,10 +1311,10 @@ def check_contrast(doc: Document) -> list[Finding]:
             continue
         ratios: dict[str, float] = {}
         bg_raw = decls.get("background-color") or decls.get("background")
-        for state, tokens in maps.items():
-            ground = grounds.get(state) or grounds.get("light")
-            if ground is None:
+        for state, scope, tokens in states:
+            if not _applies_in(b, scope):
                 continue
+            ground = grounds.get(scope) or next(iter(grounds.values()))
             fg = _resolved_rgb(fg_raw, tokens)
             if fg is None or fg[3] == 0:
                 continue
@@ -1285,7 +1334,8 @@ def check_contrast(doc: Document) -> list[Finding]:
                 # Only judge an unstated ground for page-level elements; a card or
                 # badge may sit on a surface this linter cannot see.
                 continue
-            ratios[state] = contrast_ratio(composite(fg, bg_rgb), bg_rgb)
+            ratio = contrast_ratio(composite(fg, bg_rgb), bg_rgb)
+            ratios[state] = min(ratio, ratios.get(state, ratio))
 
         failing = {s: r for s, r in ratios.items() if r < WCAG_AA_NORMAL}
         if not failing:

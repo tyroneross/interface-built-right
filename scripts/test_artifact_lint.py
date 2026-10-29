@@ -355,6 +355,27 @@ a {{ color: var(--accent); }}
                    ".card-title { color: #f0f0f0; }\n  .prose { max-width: 62ch;")
         self.assertEqual([], [f for f in lint_source(bad) if f.rule == "AD108"])
 
+    def test_ad108_reads_a_media_prelude_with_no_space_as_nesting(self):
+        """`@media(prefers-color-scheme:dark)` is valid CSS. Reading its name as
+        `media(prefers-…)` parsed the block as a rule and leaked its tokens into
+        the bare :root, so the light theme read dark ink on a light ground."""
+        blocks = AL.parse_css(
+            ':root{--ink:#111}@media(prefers-color-scheme:dark)'
+            '{:root:not([data-theme="light"]){--ink:#eee}}')
+        self.assertEqual([":root", ':root:not([data-theme="light"])'],
+                         [b.selector for b in blocks])
+        self.assertEqual(("dark", "media"), blocks[1].theme_scope)
+        self.assertIsNone(blocks[0].theme_scope)
+
+    def test_ad108_scopes_stamps_by_value_not_by_quote_style(self):
+        for sel, scope in (
+                (':root[data-theme="dark"]', ("dark", "stamp")),
+                (":root[data-theme=dark]", ("dark", "stamp")),
+                (":root[data-theme='light']", ("light", "stamp")),
+                ("[data-theme=sepia] body", ("unknown", "stamp"))):
+            block = AL.parse_css(sel + "{--x:#000}")[0]
+            self.assertEqual(scope, block.theme_scope, sel)
+
     def test_ad108_needs_no_finding_when_there_is_no_palette(self):
         self.assertEqual([], [f for f in lint_source("<title>A B</title><p>x</p>")
                               if f.rule == "AD108"])
