@@ -220,11 +220,15 @@ def _classes(el: AL.Element) -> set[str]:
     return {c for c in re.split(r"\s+", el.attrs.get("class", "")) if c}
 
 
-def _is_hidden(doc: AL.Document, idx: int) -> bool:
-    """True when this element or an ancestor is hidden from sighted readers."""
+def _is_hidden(doc: AL.Document, idx: int, *, aria: bool = True) -> bool:
+    """True when this element or an ancestor is hidden.
+
+    With aria=False only VISUAL hiding counts: aria-hidden removes a mark from
+    the accessibility tree, but a sighted colour-blind reader still sees it.
+    """
     for i in (idx, *AL.ancestors(doc.elements, idx)):
         el = doc.elements[i]
-        if "hidden" in el.attrs or el.attrs.get("aria-hidden") == "true":
+        if "hidden" in el.attrs or (aria and el.attrs.get("aria-hidden") == "true"):
             return True
         if HIDDEN_CLASS_RE.search(el.attrs.get("class", "")):
             return True
@@ -398,15 +402,19 @@ def check_data_binding(doc: AL.Document) -> list[Finding]:
 # DB501 — every state carried by text, not by colour alone
 # ---------------------------------------------------------------------------
 
-STATE_WORD_RE = re.compile(
-    r"(?ix)(^|[-_])("
+STATE_WORDS = (
     r"ok|good|pass|passing|success|healthy|green|"
     r"warn|warning|amber|yellow|caution|degraded|stale|"
     r"err|error|fail|failed|failing|danger|bad|red|critical|blocked|"
     r"active|inactive|idle|pending|running|done|open|closed|"
     r"online|offline|up|down|live|status|state|severity|health"
-    r")([-_]|$)"
 )
+# In a class name: `status-bad`, `mk_ok`.
+STATE_WORD_RE = re.compile(r"(?ix)(^|[-_])(" + STATE_WORDS + r")([-_]|$)")
+# In label prose: "Error: deploy failed". The generic nouns (status, state,
+# health, severity) are left out — "Deploy status" names the topic, not a state.
+STATE_TEXT_RE = re.compile(
+    r"(?i)\b(" + STATE_WORDS.replace("|status|state|severity|health", "") + r")\b")
 
 COLOUR_CARRYING_PROPS = {
     "color", "background", "background-color", "border", "border-color",
@@ -432,23 +440,40 @@ def _colour_classes(doc: AL.Document) -> dict[str, int]:
 # edge (or its label) is what DB501 should judge.
 SVG_RESOURCE_TAGS = {"defs", "marker", "clippath", "mask", "pattern", "lineargradient",
                      "radialgradient", "filter"}
-# A label on one of these names the marks it groups. The root <svg> is excluded:
-# a whole-chart label does not say which mark is in which state.
+# Inside an <svg>, a label on one of these can name the state of the marks it
+# groups. The root <svg> is excluded: a whole-chart label does not say which mark
+# is in which state. Outside an <svg>, <a> is a plain HTML link.
 SVG_GROUP_TAGS = {"g", "a"}
 
 
-def _decorative_or_svg_labelled(doc: AL.Document, idx: int) -> bool:
-    """True when the element is hidden, a paint resource, or named by its SVG group."""
-    if _is_hidden(doc, idx):
+def _accessible_label(doc: AL.Document, el: AL.Element, ids: dict[str, int]) -> str:
+    """aria-label, else the text of every aria-labelledby id that resolves.
+
+    A dangling aria-labelledby id names nothing, so it contributes no text.
+    """
+    label = el.attrs.get("aria-label", "").strip()
+    if label:
+        return label
+    parts = [AL.full_text(doc.elements, ids[ref])
+             for ref in el.attrs.get("aria-labelledby", "").split() if ref in ids]
+    return " ".join(p for p in parts if p).strip()
+
+
+def _decorative_or_svg_labelled(doc: AL.Document, idx: int, ids: dict[str, int]) -> bool:
+    """True when the mark is visually hidden, an SVG paint resource, or sits in
+    an SVG group whose label states its condition in words."""
+    if _is_hidden(doc, idx, aria=False):
         return True
-    for i in AL.ancestors(doc.elements, idx):
+    chain = list(AL.ancestors(doc.elements, idx))
+    if any(doc.elements[i].tag in SVG_RESOURCE_TAGS for i in chain):
+        return True
+    for pos, i in enumerate(chain):
         el = doc.elements[i]
-        if el.tag in SVG_RESOURCE_TAGS:
-            return True
         if el.tag == "svg":
             break
-        if el.tag in SVG_GROUP_TAGS and any(
-                el.attrs.get(a, "").strip() for a in ("aria-label", "aria-labelledby")):
+        in_svg = any(doc.elements[j].tag == "svg" for j in chain[pos + 1:])
+        if in_svg and el.tag in SVG_GROUP_TAGS and STATE_TEXT_RE.search(
+                _accessible_label(doc, el, ids)):
             return True
     return False
 
@@ -458,6 +483,7 @@ def check_state_colour(doc: AL.Document) -> list[Finding]:
     if not painted:
         return []
     out: list[Finding] = []
+    ids = {e.attrs["id"]: i for i, e in enumerate(doc.elements) if e.attrs.get("id")}
     for idx, el in enumerate(doc.elements):
         if el.tag in ("script", "style", "template", "head"):
             continue
@@ -467,10 +493,10 @@ def check_state_colour(doc: AL.Document) -> list[Finding]:
             continue
         if AL.full_text(doc.elements, idx).strip():
             continue
-        if any(el.attrs.get(a, "").strip()
-               for a in ("aria-label", "aria-labelledby", "title", "alt")):
+        if _accessible_label(doc, el, ids) or any(
+                el.attrs.get(a, "").strip() for a in ("title", "alt")):
             continue
-        if _decorative_or_svg_labelled(doc, idx):
+        if _decorative_or_svg_labelled(doc, idx, ids):
             continue
         # A marker sitting beside its own word is the correct pattern — the colour
         # agrees with the label rather than replacing it.

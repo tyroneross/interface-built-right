@@ -238,7 +238,9 @@ class KnownFalsePositives(unittest.TestCase):
             '  <p><span class="status-bad"></span> Blocked</p>')
         self.assertNotIn("DB501", fired(page))
 
-    MARK_CSS = ".mk-bad { fill: #a01b16; } .dot-bad { background: #a01b16; }"
+    MARK_CSS = (".mk-bad { fill: #a01b16; } .dot-bad { background: #a01b16; } "
+                ".status-error { fill: #a01b16; background: #a01b16; } "
+                ".status-ok { fill: #166534; background: #166534; }")
 
     def _db501(self, markup: str) -> list:
         page = _insert_body(_insert_css(clean_dashboard(), self.MARK_CSS), markup)
@@ -278,6 +280,37 @@ class KnownFalsePositives(unittest.TestCase):
                     '<path d="M0,0 L10,5z" class="mk-bad"/></g></svg>'
                     '<p id="lbl">Build failed</p>')
                 self.assertEqual([], found)
+
+    def test_an_aria_hidden_visible_dot_is_still_colour_alone(self):
+        """aria-hidden hides a mark from screen readers, not from a sighted
+        colour-blind reader."""
+        found = self._db501('  <div><span class="status-error" aria-hidden="true">'
+                            '</span></div>')
+        self.assertEqual(1, len(found), found)
+
+    def test_a_labelled_html_link_does_not_label_a_dot_inside_it(self):
+        found = self._db501('  <a href="#s" aria-label="Open settings">'
+                            '<span class="status-ok"></span></a>')
+        self.assertEqual(1, len(found), found)
+
+    def test_a_topic_label_on_a_group_does_not_state_the_mark(self):
+        found = self._db501(
+            '  <svg viewBox="0 0 10 10"><g aria-label="Deployments">'
+            '<circle r="4" class="status-error"/></g></svg>')
+        self.assertEqual(1, len(found), found)
+
+    def test_a_group_label_stating_the_condition_names_the_mark(self):
+        found = self._db501(
+            '  <svg viewBox="0 0 10 10"><g aria-label="Error: deploy failed">'
+            '<circle r="4" class="status-error"/></g></svg>')
+        self.assertEqual([], found)
+
+    def test_a_dangling_labelledby_labels_nothing(self):
+        for host in (('<svg viewBox="0 0 10 10"><g aria-labelledby="nope">'
+                      '<circle r="4" class="status-error"/></g></svg>'),
+                     '<div><span class="status-error" aria-labelledby="nope"></span></div>'):
+            with self.subTest(host=host[:30]):
+                self.assertEqual(1, len(self._db501("  " + host)), host)
 
     def test_a_path_with_an_svg_title_is_not_colour_alone(self):
         found = self._db501(
