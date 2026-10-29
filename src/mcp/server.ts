@@ -7,6 +7,8 @@
  */
 
 import { createInterface } from "readline";
+import { readFileSync } from "fs";
+import { join } from "path";
 import { TOOLS, handleToolCall, closeMcpBrowserPool } from "./tools.js";
 import { configuredSessionIdleMs } from "../session-idle.js";
 import { sweepIdleSessions } from "./sessions.js";
@@ -137,9 +139,22 @@ function sendError(id: string | number, code: number, message: string) {
 
 // --- MCP Protocol ---
 
+// Single source of truth is package.json (dist/mcp/server.js -> ../../package.json).
+function readPackageVersion(): string {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(join(__dirname, "..", "..", "package.json"), "utf8")
+    ) as { version?: unknown };
+    if (typeof pkg.version === "string") return pkg.version;
+  } catch {
+    // Keep the server usable even from unusual bundled locations.
+  }
+  return "0.0.0";
+}
+
 const SERVER_INFO = {
   name: "ibr",
-  version: "1.0.0",
+  version: readPackageVersion(),
 };
 
 const CAPABILITIES = {

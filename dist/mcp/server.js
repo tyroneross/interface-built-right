@@ -41611,6 +41611,8 @@ var init_live = __esm({
 
 // src/mcp/server.ts
 var import_readline = require("readline");
+var import_fs12 = require("fs");
+var import_path24 = require("path");
 
 // src/mcp/tools.ts
 var import_fs10 = require("fs");
@@ -50542,9 +50544,19 @@ function sendResult(id, result) {
 function sendError(id, code, message) {
   send({ jsonrpc: "2.0", id, error: { code, message } });
 }
+function readPackageVersion() {
+  try {
+    const pkg = JSON.parse(
+      (0, import_fs12.readFileSync)((0, import_path24.join)(__dirname, "..", "..", "package.json"), "utf8")
+    );
+    if (typeof pkg.version === "string") return pkg.version;
+  } catch {
+  }
+  return "0.0.0";
+}
 var SERVER_INFO = {
   name: "ibr",
-  version: "1.0.0"
+  version: readPackageVersion()
 };
 var CAPABILITIES = {
   tools: {}
