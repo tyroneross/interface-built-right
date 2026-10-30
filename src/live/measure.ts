@@ -504,7 +504,9 @@ export function finalizeMeasurements(raw: RawLiveElement[]): LiveElementMeasurem
     let resolvedTextColor: string | null = null;
     let ratio: number | null = null;
     let passesAA: boolean | null = null;
-    if (fg) {
+    // Read-only live measurements cannot insert a Canvas probe. An unresolved
+    // backdrop may be dark; do not certify contrast against assumed white.
+    if (fg && effective.resolved && effective.unsupported === undefined) {
       const composited = compositeOver(fg, effective.color);
       resolvedTextColor = formatRgba(composited);
       ratio = contrastRatio(composited, effective.color);

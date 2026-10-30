@@ -483,6 +483,13 @@ export async function extractCssRulesAndMeta(
     // page.evaluate() ships its own closure across CDP, so there is no runtime
     // module to share it from. Keep the two in step; the compositing itself
     // lives in src/rules/color-parse.ts and is genuinely shared.
+    // Resolve the browser canvas in this document's color scheme. Transparent
+    // html/body can paint dark even though no ancestor has an opaque color.
+    const canvasProbe = document.createElement('div');
+    canvasProbe.style.cssText = 'position:fixed;width:0;height:0;pointer-events:none;background-color:Canvas';
+    document.documentElement.appendChild(canvasProbe);
+    const canvasColor = window.getComputedStyle(canvasProbe).backgroundColor;
+    canvasProbe.remove();
     const collectStructuralBackgroundChain = (
       start: HTMLElement,
     ): { chain: string[]; image: boolean } => {
@@ -498,6 +505,7 @@ export async function extractCssRulesAndMeta(
         node = node.parentElement;
         depth++;
       }
+      if (node === null && canvasColor) chain.push(canvasColor);
       return { chain, image };
     };
 

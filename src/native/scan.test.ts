@@ -144,6 +144,8 @@ describe('scanNative — D3: guest-AX-unreachable must cover watchOS, not just i
     const result = await scanNative({ screenshot: false });
 
     expect(result.elements.all.length).toBe(2);
+    expect(result.visualCoverage).toMatchObject({ appearance: 'unmeasured', textContrast: 'unmeasured' });
+    expect(result.visualCoverage!.reason).toContain('no WCAG contrast pass');
     const guestUnreachable = result.issues.find((i) =>
       i.description.includes('guest accessibility tree is unreachable'),
     );

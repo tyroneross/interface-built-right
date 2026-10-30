@@ -29214,6 +29214,11 @@ async function extractInteractiveElements(page, fullText = false) {
         representative: representativeElements[0] === el
       };
     };
+    const canvasProbe = document.createElement("div");
+    canvasProbe.style.cssText = "position:fixed;width:0;height:0;pointer-events:none;background-color:Canvas";
+    document.documentElement.appendChild(canvasProbe);
+    const canvasColor = window.getComputedStyle(canvasProbe).backgroundColor;
+    canvasProbe.remove();
     const collectBackgroundChain = (start) => {
       const chain = [];
       let image = false;
@@ -29244,6 +29249,7 @@ async function extractInteractiveElements(page, fullText = false) {
         node = node.parentElement;
         depth++;
       }
+      if (!bgResolved && node === null && canvasColor) chain.push(canvasColor);
       return { chain, image, ancestorOpacity };
     };
     for (const selector of selectors) {
@@ -29469,6 +29475,11 @@ async function extractContentElements(page, fullText = false) {
       }
       return path.join(" > ").slice(0, 200);
     };
+    const canvasProbe = document.createElement("div");
+    canvasProbe.style.cssText = "position:fixed;width:0;height:0;pointer-events:none;background-color:Canvas";
+    document.documentElement.appendChild(canvasProbe);
+    const canvasColor = window.getComputedStyle(canvasProbe).backgroundColor;
+    canvasProbe.remove();
     const collectBackgroundChain = (start) => {
       const chain = [];
       let image = false;
@@ -29499,6 +29510,7 @@ async function extractContentElements(page, fullText = false) {
         node = node.parentElement;
         depth++;
       }
+      if (!bgResolved && node === null && canvasColor) chain.push(canvasColor);
       return { chain, image, ancestorOpacity };
     };
     const kindFor = (tag) => {
@@ -31881,7 +31893,18 @@ async function analyzeThemeConsistency(page) {
         if (!bg || bg === "rgba(0, 0, 0, 0)" || bg === "transparent") continue;
         const rect = el.getBoundingClientRect();
         if (rect.width < 50 || rect.height < 50) continue;
-        cards.push({ selector: sel, color: bg });
+        const chain = [];
+        let image = false;
+        let node = el;
+        while (node && chain.length < 64) {
+          const style = window.getComputedStyle(node);
+          chain.push(style.backgroundColor);
+          if (style.backgroundImage && style.backgroundImage !== "none") image = true;
+          if (/^rgb\(/i.test(style.backgroundColor)) break;
+          node = node.parentElement;
+        }
+        if (!node) chain.push(canvas);
+        cards.push({ selector: sel, color: bg, chain, image });
         if (cards.length >= 10) break;
       }
       if (cards.length >= 10) break;
@@ -31892,8 +31915,8 @@ async function analyzeThemeConsistency(page) {
   const pageLuminance = resolved.luminance ?? 0.5;
   const pageBackground = { color: resolved.color, luminance: pageLuminance };
   const contentCards = data.cards.map((c) => {
-    const parsed = parseColor2(c.color);
-    const luminance = parsed ? relativeLuminance(parsed.r, parsed.g, parsed.b) : 0.5;
+    const effective = resolveEffectiveBackground(c.chain);
+    const luminance = !c.image && effective.resolved && !effective.unsupported ? relativeLuminance(...effective.rgb) : 0.5;
     return { selector: c.selector, color: c.color, luminance };
   });
   let themeMismatch = false;
@@ -31919,6 +31942,7 @@ var init_consistency = __esm({
     "use strict";
     init_driver();
     init_compat2();
+    init_color_parse();
   }
 });
 
@@ -33428,6 +33452,11 @@ async function extractCssRulesAndMeta(page) {
       return path.join(" > ").slice(0, 200);
     }
     const seenStructural = /* @__PURE__ */ new Set();
+    const canvasProbe = document.createElement("div");
+    canvasProbe.style.cssText = "position:fixed;width:0;height:0;pointer-events:none;background-color:Canvas";
+    document.documentElement.appendChild(canvasProbe);
+    const canvasColor = window.getComputedStyle(canvasProbe).backgroundColor;
+    canvasProbe.remove();
     const collectStructuralBackgroundChain = (start) => {
       const chain = [];
       let image = false;
@@ -33441,6 +33470,7 @@ async function extractCssRulesAndMeta(page) {
         node = node.parentElement;
         depth++;
       }
+      if (node === null && canvasColor) chain.push(canvasColor);
       return { chain, image };
     };
     const structuralElements = [];
@@ -38093,6 +38123,7 @@ async function scanNative(options = {}) {
   const verdict = determineVerdict2(issues);
   const summary = generateNativeSummary(device, elements, issues, extractionSucceeded);
   return {
+    visualCoverage: nativeVisualCoverage,
     url: url2,
     route: `/${device.name}`,
     timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -38198,6 +38229,7 @@ async function scanMacOS(options) {
     []
   );
   return {
+    visualCoverage: nativeVisualCoverage,
     url: url2,
     route,
     timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -38255,6 +38287,8 @@ function formatMacOSScanResult(result) {
     `  Intent:   ${result.semantic.pageIntent.intent} (${Math.round(result.semantic.confidence * 100)}% confidence)`,
     `  Auth:     ${result.semantic.state.auth.authenticated === false ? "Not authenticated" : result.semantic.state.auth.authenticated ? "Authenticated" : "Unknown"}`,
     "",
+    `  Visual:   ${result.visualCoverage?.reason ?? "Appearance and text contrast unmeasured."}`,
+    "",
     ...formatElementsSection(result.elements.audit)
   ];
   const { buttons, links, forms } = result.interactivity;
@@ -38278,6 +38312,8 @@ function formatNativeScanResult(result) {
     "",
     `  ${result.summary}`,
     "",
+    `  Visual:   ${result.visualCoverage?.reason ?? "Appearance and text contrast unmeasured."}`,
+    "",
     ...formatElementsSection(result.elements.audit)
   ];
   if (result.screenshotPath) {
@@ -38287,7 +38323,7 @@ function formatNativeScanResult(result) {
   lines.push("", "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   return lines.join("\n");
 }
-var import_path16;
+var import_path16, nativeVisualCoverage;
 var init_scan2 = __esm({
   "src/native/scan.ts"() {
     "use strict";
@@ -38303,6 +38339,11 @@ var init_scan2 = __esm({
     init_interactivity2();
     init_semantic2();
     init_layout_fill();
+    nativeVisualCoverage = {
+      appearance: "unmeasured",
+      textContrast: "unmeasured",
+      reason: "Native accessibility does not expose rendered foreground/background colors. Inspect a screenshot in the app\u2019s actual light/dark appearance; no WCAG contrast pass is established."
+    };
   }
 });
 
@@ -41388,7 +41429,7 @@ function finalizeMeasurements(raw) {
     let resolvedTextColor = null;
     let ratio = null;
     let passesAA = null;
-    if (fg) {
+    if (fg && effective.resolved && effective.unsupported === void 0) {
       const composited = compositeOver(fg, effective.color);
       resolvedTextColor = formatRgba(composited);
       ratio = contrastRatio2(composited, effective.color);

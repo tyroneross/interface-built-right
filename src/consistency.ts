@@ -1,6 +1,7 @@
 import { EngineDriver } from './engine/driver.js';
 import { CompatPage } from './engine/compat.js';
 import type { PageLike } from './engine/page-like.js';
+import { resolveEffectiveBackground } from './rules/color-parse.js';
 
 // ─── Theme Analysis ──────────────────────────────────────────────────────────
 
@@ -151,7 +152,7 @@ export async function analyzeThemeConsistency(page: PageLike): Promise<ThemeAnal
       'form',
     ];
 
-    const cards: Array<{ selector: string; color: string }> = [];
+    const cards: Array<{ selector: string; color: string; chain: string[]; image: boolean }> = [];
     const seen = new Set<Element>();
 
     for (const sel of containerSelectors) {
@@ -169,7 +170,19 @@ export async function analyzeThemeConsistency(page: PageLike): Promise<ThemeAnal
         // Only count elements with meaningful size (> 50x50px)
         const rect = el.getBoundingClientRect();
         if (rect.width < 50 || rect.height < 50) continue;
-        cards.push({ selector: sel, color: bg });
+        const chain: string[] = [];
+        let image = false;
+        let node: Element | null = el;
+        while (node && chain.length < 64) {
+          const style = window.getComputedStyle(node);
+          chain.push(style.backgroundColor);
+          if (style.backgroundImage && style.backgroundImage !== 'none') image = true;
+          // Stop before an image on an invisible ancestor can taint a solid card.
+          if (/^rgb\(/i.test(style.backgroundColor)) break;
+          node = node.parentElement;
+        }
+        if (!node) chain.push(canvas);
+        cards.push({ selector: sel, color: bg, chain, image });
         if (cards.length >= 10) break;
       }
       if (cards.length >= 10) break;
@@ -186,9 +199,10 @@ export async function analyzeThemeConsistency(page: PageLike): Promise<ThemeAnal
   const pageBackground = { color: resolved.color, luminance: pageLuminance };
 
   // Compute content card luminances
-  const contentCards = data.cards.map((c: { selector: string; color: string }) => {
-    const parsed = parseColor(c.color);
-    const luminance = parsed ? relativeLuminance(parsed.r, parsed.g, parsed.b) : 0.5;
+  const contentCards = data.cards.map((c: { selector: string; color: string; chain: string[]; image: boolean }) => {
+    const effective = resolveEffectiveBackground(c.chain);
+    const luminance = !c.image && effective.resolved && !effective.unsupported
+      ? relativeLuminance(...effective.rgb) : 0.5;
     return { selector: c.selector, color: c.color, luminance };
   });
 

@@ -14,6 +14,12 @@ import { buildNativeSemantic } from './semantic.js';
 import { analyzeLayoutFill, type LayoutFillFinding } from './layout-fill.js';
 import type { AuditResult, EnhancedElement } from '../schemas.js';
 
+const nativeVisualCoverage = {
+  appearance: 'unmeasured' as const,
+  textContrast: 'unmeasured' as const,
+  reason: 'Native accessibility does not expose rendered foreground/background colors. Inspect a screenshot in the app’s actual light/dark appearance; no WCAG contrast pass is established.',
+};
+
 /**
  * Run a comprehensive native simulator scan
  *
@@ -210,6 +216,7 @@ export async function scanNative(options: NativeScanOptions = {}): Promise<Nativ
   const summary = generateNativeSummary(device, elements, issues, extractionSucceeded);
 
   return {
+    visualCoverage: nativeVisualCoverage,
     url,
     route: `/${device.name}`,
     timestamp: new Date().toISOString(),
@@ -376,6 +383,7 @@ export async function scanMacOS(options: MacOSScanOptions): Promise<MacOSScanRes
   );
 
   return {
+    visualCoverage: nativeVisualCoverage,
     url,
     route,
     timestamp: new Date().toISOString(),
@@ -445,6 +453,8 @@ export function formatMacOSScanResult(result: MacOSScanResult): string {
     `  Intent:   ${result.semantic.pageIntent.intent} (${Math.round(result.semantic.confidence * 100)}% confidence)`,
     `  Auth:     ${result.semantic.state.auth.authenticated === false ? 'Not authenticated' : result.semantic.state.auth.authenticated ? 'Authenticated' : 'Unknown'}`,
     '',
+    `  Visual:   ${result.visualCoverage?.reason ?? 'Appearance and text contrast unmeasured.'}`,
+    '',
     ...formatElementsSection(result.elements.audit),
   ];
 
@@ -473,6 +483,8 @@ export function formatNativeScanResult(result: NativeScanResult): string {
     `  Verdict:  ${verdictIcon(result.verdict)} ${result.verdict}`,
     '',
     `  ${result.summary}`,
+    '',
+    `  Visual:   ${result.visualCoverage?.reason ?? 'Appearance and text contrast unmeasured.'}`,
     '',
     ...formatElementsSection(result.elements.audit),
   ];

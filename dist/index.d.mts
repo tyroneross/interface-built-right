@@ -8233,7 +8233,13 @@ interface NativeScanOptions {
 /**
  * Result from scanning a native simulator
  */
+interface NativeVisualCoverage {
+    appearance: 'unmeasured';
+    textContrast: 'unmeasured';
+    reason: string;
+}
 interface NativeScanResult {
+    visualCoverage?: NativeVisualCoverage;
     url: string;
     route: string;
     timestamp: string;
@@ -8365,6 +8371,7 @@ interface MacOSScanOptions {
  * Same shape as web ScanResult for interoperability
  */
 interface MacOSScanResult {
+    visualCoverage?: NativeVisualCoverage;
     url: string;
     route: string;
     timestamp: string;

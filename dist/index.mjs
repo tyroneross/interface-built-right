@@ -7273,8 +7273,192 @@ function buildSelectorPath(el) {
   }
 });
 
-// src/consistency.ts
+// src/rules/color-parse.ts
+function linearToSrgb(c) {
+  const v = c <= 31308e-7 ? 12.92 * c : 1.055 * Math.pow(Math.max(0, c), 1 / 2.4) - 0.055;
+  return clamp255(v * 255);
+}
+function oklabToLinearSrgb(L, a, b) {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.291485548 * b;
+  const l = l_ ** 3, m = m_ ** 3, s = s_ ** 3;
+  return [
+    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s
+  ];
+}
+function labToLinearSrgb(L, a, bb) {
+  const fy = (L + 16) / 116, fx = fy + a / 500, fz = fy - bb / 200;
+  const f = (t) => t ** 3 > 8856e-6 ? t ** 3 : (116 * t - 16) / 903.3;
+  const X = 0.96422 * f(fx), Y = 1 * f(fy), Z = 0.82521 * f(fz);
+  return [
+    3.1338561 * X - 1.6168667 * Y - 0.4906146 * Z,
+    -0.9787684 * X + 1.9161415 * Y + 0.033454 * Z,
+    0.0719453 * X - 0.2289914 * Y + 1.4052427 * Z
+  ];
+}
+function num(tok, pctBasis = 1) {
+  const t = tok.trim();
+  if (t.endsWith("%")) return parseFloat(t) / 100 * pctBasis;
+  return parseFloat(t);
+}
+function splitArgs(body) {
+  const [main, alphaPart] = body.split("/");
+  const parts = main.trim().split(/[\s,]+/).filter(Boolean);
+  const alpha = alphaPart !== void 0 ? num(alphaPart, 1) : 1;
+  return { parts, alpha };
+}
+function hslToRgb(h, s, l) {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const hp = (h % 360 + 360) % 360 / 60;
+  const x = c * (1 - Math.abs(hp % 2 - 1));
+  const [r1, g1, b1] = hp < 1 ? [c, x, 0] : hp < 2 ? [x, c, 0] : hp < 3 ? [0, c, x] : hp < 4 ? [0, x, c] : hp < 5 ? [x, 0, c] : [c, 0, x];
+  const m = l - c / 2;
+  return [clamp255((r1 + m) * 255), clamp255((g1 + m) * 255), clamp255((b1 + m) * 255)];
+}
 function parseColor(color) {
+  const raw = (color ?? "").trim();
+  if (!raw) return { kind: "none", reason: "empty" };
+  const lower = raw.toLowerCase();
+  if (lower === "transparent") return { kind: "none", reason: "transparent" };
+  if (["initial", "inherit", "unset", "revert", "currentcolor", "none", "auto"].includes(lower)) {
+    return { kind: "none", reason: lower };
+  }
+  if (NAMED[lower]) return { kind: "rgb", rgb: NAMED[lower], alpha: 1 };
+  const hex = lower.match(/^#([0-9a-f]{3,8})$/);
+  if (hex) {
+    const h = hex[1];
+    const exp = (i) => parseInt(h[i] + h[i], 16);
+    const pair = (i) => parseInt(h.slice(i, i + 2), 16);
+    if (h.length === 3) return { kind: "rgb", rgb: [exp(0), exp(1), exp(2)], alpha: 1 };
+    if (h.length === 4) return { kind: "rgb", rgb: [exp(0), exp(1), exp(2)], alpha: exp(3) / 255 };
+    if (h.length === 6) return { kind: "rgb", rgb: [pair(0), pair(2), pair(4)], alpha: 1 };
+    if (h.length === 8) return { kind: "rgb", rgb: [pair(0), pair(2), pair(4)], alpha: pair(6) / 255 };
+    return { kind: "unsupported", raw };
+  }
+  const fn = lower.match(/^([a-z]+)\(([^)]*)\)$/);
+  if (!fn) return { kind: "unsupported", raw };
+  const [, name, body] = fn;
+  const { parts, alpha } = splitArgs(body);
+  if (alpha === 0) return { kind: "none", reason: "alpha-0" };
+  const finite2 = (r) => r.kind === "rgb" && (!r.rgb.every(Number.isFinite) || !Number.isFinite(r.alpha)) ? { kind: "unsupported", raw } : r;
+  try {
+    return finite2(parseColorBody(name, parts, alpha, raw));
+  } catch {
+    return { kind: "unsupported", raw };
+  }
+}
+function parseColorBody(name, parts, alpha, raw) {
+  {
+    switch (name) {
+      case "rgb":
+      case "rgba": {
+        const rgb = [
+          clamp255(num(parts[0], 255)),
+          clamp255(num(parts[1], 255)),
+          clamp255(num(parts[2], 255))
+        ];
+        const a = parts[3] !== void 0 ? num(parts[3]) : alpha;
+        return a === 0 ? { kind: "none", reason: "alpha-0" } : { kind: "rgb", rgb, alpha: a };
+      }
+      case "hsl":
+      case "hsla": {
+        const a = parts[3] !== void 0 ? num(parts[3]) : alpha;
+        if (a === 0) return { kind: "none", reason: "alpha-0" };
+        return { kind: "rgb", rgb: hslToRgb(parseFloat(parts[0]), num(parts[1], 1), num(parts[2], 1)), alpha: a };
+      }
+      case "oklch":
+      case "lch": {
+        const L = num(parts[0], name === "oklch" ? 1 : 100);
+        const C = num(parts[1], name === "oklch" ? 0.4 : 150);
+        const H = (parseFloat(parts[2]) || 0) * (Math.PI / 180);
+        const a = C * Math.cos(H), b = C * Math.sin(H);
+        const lin = name === "oklch" ? oklabToLinearSrgb(L, a, b) : labToLinearSrgb(L, a, b);
+        return { kind: "rgb", rgb: lin.map(linearToSrgb), alpha };
+      }
+      case "oklab":
+      case "lab": {
+        const L = num(parts[0], name === "oklab" ? 1 : 100);
+        const a = num(parts[1], name === "oklab" ? 0.4 : 125);
+        const b = num(parts[2], name === "oklab" ? 0.4 : 125);
+        const lin = name === "oklab" ? oklabToLinearSrgb(L, a, b) : labToLinearSrgb(L, a, b);
+        return { kind: "rgb", rgb: lin.map(linearToSrgb), alpha };
+      }
+      case "color": {
+        const space = parts[0];
+        if (space !== "srgb" && space !== "srgb-linear" && space !== "display-p3") {
+          return { kind: "unsupported", raw };
+        }
+        const ch = parts.slice(1, 4).map((p) => num(p, 1));
+        const rgb = space === "srgb-linear" ? ch.map(linearToSrgb) : ch.map((v) => clamp255(v * 255));
+        return { kind: "rgb", rgb, alpha };
+      }
+      default:
+        return { kind: "unsupported", raw };
+    }
+  }
+}
+function flatten(fg, bg) {
+  if (fg.kind !== "rgb") return null;
+  if (fg.alpha >= 1) return fg.rgb;
+  return fg.rgb.map((c, i) => clamp255(c * fg.alpha + bg[i] * (1 - fg.alpha)));
+}
+function resolveEffectiveBackground(chain) {
+  const layers = [];
+  for (const raw of chain) {
+    const parsed = parseColor(raw);
+    if (parsed.kind === "unsupported") {
+      return { rgb: CANVAS_BASE, resolved: false, unsupported: parsed.raw };
+    }
+    if (parsed.kind === "none") continue;
+    layers.push({ rgb: parsed.rgb, alpha: parsed.alpha });
+    if (parsed.alpha >= 1) break;
+  }
+  const bottom = layers[layers.length - 1];
+  const resolved = bottom !== void 0 && bottom.alpha >= 1;
+  let acc = resolved ? bottom.rgb : CANVAS_BASE;
+  for (let i = resolved ? layers.length - 2 : layers.length - 1; i >= 0; i--) {
+    const layer = layers[i];
+    acc = layer.rgb.map(
+      (c, ch) => clamp255(c * layer.alpha + acc[ch] * (1 - layer.alpha))
+    );
+  }
+  return { rgb: acc, resolved };
+}
+var NAMED, clamp255, CANVAS_BASE;
+var init_color_parse = __esm({
+  "src/rules/color-parse.ts"() {
+    NAMED = {
+      black: [0, 0, 0],
+      white: [255, 255, 255],
+      red: [255, 0, 0],
+      green: [0, 128, 0],
+      blue: [0, 0, 255],
+      gray: [128, 128, 128],
+      grey: [128, 128, 128],
+      silver: [192, 192, 192],
+      maroon: [128, 0, 0],
+      olive: [128, 128, 0],
+      lime: [0, 255, 0],
+      aqua: [0, 255, 255],
+      cyan: [0, 255, 255],
+      teal: [0, 128, 128],
+      navy: [0, 0, 128],
+      fuchsia: [255, 0, 255],
+      magenta: [255, 0, 255],
+      purple: [128, 0, 128],
+      yellow: [255, 255, 0],
+      orange: [255, 165, 0]
+    };
+    clamp255 = (v) => Math.max(0, Math.min(255, Math.round(v)));
+    CANVAS_BASE = [255, 255, 255];
+  }
+});
+
+// src/consistency.ts
+function parseColor2(color) {
   if (!color || color === "transparent") return null;
   const rgbMatch = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
   if (rgbMatch) {
@@ -7322,14 +7506,14 @@ function colorAlpha(color) {
   return m ? Number(m[1]) : 1;
 }
 function compositeLuminance(color, backdrop) {
-  const parsed = parseColor(color);
+  const parsed = parseColor2(color);
   if (!parsed) return null;
   const a = colorAlpha(color);
   const mix = (c, d) => c * a + d * (1 - a);
   return relativeLuminance(mix(parsed.r, backdrop.r), mix(parsed.g, backdrop.g), mix(parsed.b, backdrop.b));
 }
 function resolvePageBackground(input) {
-  const canvas = parseColor(input.canvas) ?? { r: 255, g: 255, b: 255 };
+  const canvas = parseColor2(input.canvas) ?? { r: 255, g: 255, b: 255 };
   for (const [color, image] of [[input.bodyColor, input.bodyImage], [input.htmlColor, input.htmlImage]]) {
     if (colorAlpha(color) >= 1) return { color, luminance: compositeLuminance(color, canvas) };
     if (image && image !== "none") {
@@ -7384,7 +7568,18 @@ async function analyzeThemeConsistency(page) {
         if (!bg || bg === "rgba(0, 0, 0, 0)" || bg === "transparent") continue;
         const rect = el.getBoundingClientRect();
         if (rect.width < 50 || rect.height < 50) continue;
-        cards.push({ selector: sel, color: bg });
+        const chain = [];
+        let image = false;
+        let node = el;
+        while (node && chain.length < 64) {
+          const style = window.getComputedStyle(node);
+          chain.push(style.backgroundColor);
+          if (style.backgroundImage && style.backgroundImage !== "none") image = true;
+          if (/^rgb\(/i.test(style.backgroundColor)) break;
+          node = node.parentElement;
+        }
+        if (!node) chain.push(canvas);
+        cards.push({ selector: sel, color: bg, chain, image });
         if (cards.length >= 10) break;
       }
       if (cards.length >= 10) break;
@@ -7395,8 +7590,8 @@ async function analyzeThemeConsistency(page) {
   const pageLuminance = resolved.luminance ?? 0.5;
   const pageBackground = { color: resolved.color, luminance: pageLuminance };
   const contentCards = data.cards.map((c) => {
-    const parsed = parseColor(c.color);
-    const luminance = parsed ? relativeLuminance(parsed.r, parsed.g, parsed.b) : 0.5;
+    const effective = resolveEffectiveBackground(c.chain);
+    const luminance = !c.image && effective.resolved && !effective.unsupported ? relativeLuminance(...effective.rgb) : 0.5;
     return { selector: c.selector, color: c.color, luminance };
   });
   let themeMismatch = false;
@@ -7636,6 +7831,7 @@ var init_consistency = __esm({
   "src/consistency.ts"() {
     init_driver();
     init_compat();
+    init_color_parse();
   }
 });
 
@@ -9497,6 +9693,11 @@ async function extractInteractiveElements(page, fullText = false) {
         representative: representativeElements[0] === el
       };
     };
+    const canvasProbe = document.createElement("div");
+    canvasProbe.style.cssText = "position:fixed;width:0;height:0;pointer-events:none;background-color:Canvas";
+    document.documentElement.appendChild(canvasProbe);
+    const canvasColor = window.getComputedStyle(canvasProbe).backgroundColor;
+    canvasProbe.remove();
     const collectBackgroundChain = (start) => {
       const chain = [];
       let image = false;
@@ -9527,6 +9728,7 @@ async function extractInteractiveElements(page, fullText = false) {
         node = node.parentElement;
         depth++;
       }
+      if (!bgResolved && node === null && canvasColor) chain.push(canvasColor);
       return { chain, image, ancestorOpacity };
     };
     for (const selector of selectors) {
@@ -9752,6 +9954,11 @@ async function extractContentElements(page, fullText = false) {
       }
       return path2.join(" > ").slice(0, 200);
     };
+    const canvasProbe = document.createElement("div");
+    canvasProbe.style.cssText = "position:fixed;width:0;height:0;pointer-events:none;background-color:Canvas";
+    document.documentElement.appendChild(canvasProbe);
+    const canvasColor = window.getComputedStyle(canvasProbe).backgroundColor;
+    canvasProbe.remove();
     const collectBackgroundChain = (start) => {
       const chain = [];
       let image = false;
@@ -9782,6 +9989,7 @@ async function extractContentElements(page, fullText = false) {
         node = node.parentElement;
         depth++;
       }
+      if (!bgResolved && node === null && canvasColor) chain.push(canvasColor);
       return { chain, image, ancestorOpacity };
     };
     const kindFor = (tag) => {
@@ -11392,190 +11600,6 @@ var init_gestalt = __esm({
   }
 });
 
-// src/rules/color-parse.ts
-function linearToSrgb(c) {
-  const v = c <= 31308e-7 ? 12.92 * c : 1.055 * Math.pow(Math.max(0, c), 1 / 2.4) - 0.055;
-  return clamp255(v * 255);
-}
-function oklabToLinearSrgb(L, a, b) {
-  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
-  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
-  const s_ = L - 0.0894841775 * a - 1.291485548 * b;
-  const l = l_ ** 3, m = m_ ** 3, s = s_ ** 3;
-  return [
-    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
-    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
-    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s
-  ];
-}
-function labToLinearSrgb(L, a, bb) {
-  const fy = (L + 16) / 116, fx = fy + a / 500, fz = fy - bb / 200;
-  const f = (t) => t ** 3 > 8856e-6 ? t ** 3 : (116 * t - 16) / 903.3;
-  const X = 0.96422 * f(fx), Y = 1 * f(fy), Z = 0.82521 * f(fz);
-  return [
-    3.1338561 * X - 1.6168667 * Y - 0.4906146 * Z,
-    -0.9787684 * X + 1.9161415 * Y + 0.033454 * Z,
-    0.0719453 * X - 0.2289914 * Y + 1.4052427 * Z
-  ];
-}
-function num(tok, pctBasis = 1) {
-  const t = tok.trim();
-  if (t.endsWith("%")) return parseFloat(t) / 100 * pctBasis;
-  return parseFloat(t);
-}
-function splitArgs(body) {
-  const [main, alphaPart] = body.split("/");
-  const parts = main.trim().split(/[\s,]+/).filter(Boolean);
-  const alpha = alphaPart !== void 0 ? num(alphaPart, 1) : 1;
-  return { parts, alpha };
-}
-function hslToRgb(h, s, l) {
-  const c = (1 - Math.abs(2 * l - 1)) * s;
-  const hp = (h % 360 + 360) % 360 / 60;
-  const x = c * (1 - Math.abs(hp % 2 - 1));
-  const [r1, g1, b1] = hp < 1 ? [c, x, 0] : hp < 2 ? [x, c, 0] : hp < 3 ? [0, c, x] : hp < 4 ? [0, x, c] : hp < 5 ? [x, 0, c] : [c, 0, x];
-  const m = l - c / 2;
-  return [clamp255((r1 + m) * 255), clamp255((g1 + m) * 255), clamp255((b1 + m) * 255)];
-}
-function parseColor2(color) {
-  const raw = (color ?? "").trim();
-  if (!raw) return { kind: "none", reason: "empty" };
-  const lower = raw.toLowerCase();
-  if (lower === "transparent") return { kind: "none", reason: "transparent" };
-  if (["initial", "inherit", "unset", "revert", "currentcolor", "none", "auto"].includes(lower)) {
-    return { kind: "none", reason: lower };
-  }
-  if (NAMED[lower]) return { kind: "rgb", rgb: NAMED[lower], alpha: 1 };
-  const hex = lower.match(/^#([0-9a-f]{3,8})$/);
-  if (hex) {
-    const h = hex[1];
-    const exp = (i) => parseInt(h[i] + h[i], 16);
-    const pair = (i) => parseInt(h.slice(i, i + 2), 16);
-    if (h.length === 3) return { kind: "rgb", rgb: [exp(0), exp(1), exp(2)], alpha: 1 };
-    if (h.length === 4) return { kind: "rgb", rgb: [exp(0), exp(1), exp(2)], alpha: exp(3) / 255 };
-    if (h.length === 6) return { kind: "rgb", rgb: [pair(0), pair(2), pair(4)], alpha: 1 };
-    if (h.length === 8) return { kind: "rgb", rgb: [pair(0), pair(2), pair(4)], alpha: pair(6) / 255 };
-    return { kind: "unsupported", raw };
-  }
-  const fn = lower.match(/^([a-z]+)\(([^)]*)\)$/);
-  if (!fn) return { kind: "unsupported", raw };
-  const [, name, body] = fn;
-  const { parts, alpha } = splitArgs(body);
-  if (alpha === 0) return { kind: "none", reason: "alpha-0" };
-  const finite2 = (r) => r.kind === "rgb" && (!r.rgb.every(Number.isFinite) || !Number.isFinite(r.alpha)) ? { kind: "unsupported", raw } : r;
-  try {
-    return finite2(parseColorBody(name, parts, alpha, raw));
-  } catch {
-    return { kind: "unsupported", raw };
-  }
-}
-function parseColorBody(name, parts, alpha, raw) {
-  {
-    switch (name) {
-      case "rgb":
-      case "rgba": {
-        const rgb = [
-          clamp255(num(parts[0], 255)),
-          clamp255(num(parts[1], 255)),
-          clamp255(num(parts[2], 255))
-        ];
-        const a = parts[3] !== void 0 ? num(parts[3]) : alpha;
-        return a === 0 ? { kind: "none", reason: "alpha-0" } : { kind: "rgb", rgb, alpha: a };
-      }
-      case "hsl":
-      case "hsla": {
-        const a = parts[3] !== void 0 ? num(parts[3]) : alpha;
-        if (a === 0) return { kind: "none", reason: "alpha-0" };
-        return { kind: "rgb", rgb: hslToRgb(parseFloat(parts[0]), num(parts[1], 1), num(parts[2], 1)), alpha: a };
-      }
-      case "oklch":
-      case "lch": {
-        const L = num(parts[0], name === "oklch" ? 1 : 100);
-        const C = num(parts[1], name === "oklch" ? 0.4 : 150);
-        const H = (parseFloat(parts[2]) || 0) * (Math.PI / 180);
-        const a = C * Math.cos(H), b = C * Math.sin(H);
-        const lin = name === "oklch" ? oklabToLinearSrgb(L, a, b) : labToLinearSrgb(L, a, b);
-        return { kind: "rgb", rgb: lin.map(linearToSrgb), alpha };
-      }
-      case "oklab":
-      case "lab": {
-        const L = num(parts[0], name === "oklab" ? 1 : 100);
-        const a = num(parts[1], name === "oklab" ? 0.4 : 125);
-        const b = num(parts[2], name === "oklab" ? 0.4 : 125);
-        const lin = name === "oklab" ? oklabToLinearSrgb(L, a, b) : labToLinearSrgb(L, a, b);
-        return { kind: "rgb", rgb: lin.map(linearToSrgb), alpha };
-      }
-      case "color": {
-        const space = parts[0];
-        if (space !== "srgb" && space !== "srgb-linear" && space !== "display-p3") {
-          return { kind: "unsupported", raw };
-        }
-        const ch = parts.slice(1, 4).map((p) => num(p, 1));
-        const rgb = space === "srgb-linear" ? ch.map(linearToSrgb) : ch.map((v) => clamp255(v * 255));
-        return { kind: "rgb", rgb, alpha };
-      }
-      default:
-        return { kind: "unsupported", raw };
-    }
-  }
-}
-function flatten(fg, bg) {
-  if (fg.kind !== "rgb") return null;
-  if (fg.alpha >= 1) return fg.rgb;
-  return fg.rgb.map((c, i) => clamp255(c * fg.alpha + bg[i] * (1 - fg.alpha)));
-}
-function resolveEffectiveBackground(chain) {
-  const layers = [];
-  for (const raw of chain) {
-    const parsed = parseColor2(raw);
-    if (parsed.kind === "unsupported") {
-      return { rgb: CANVAS_BASE, resolved: false, unsupported: parsed.raw };
-    }
-    if (parsed.kind === "none") continue;
-    layers.push({ rgb: parsed.rgb, alpha: parsed.alpha });
-    if (parsed.alpha >= 1) break;
-  }
-  const bottom = layers[layers.length - 1];
-  const resolved = bottom !== void 0 && bottom.alpha >= 1;
-  let acc = resolved ? bottom.rgb : CANVAS_BASE;
-  for (let i = resolved ? layers.length - 2 : layers.length - 1; i >= 0; i--) {
-    const layer = layers[i];
-    acc = layer.rgb.map(
-      (c, ch) => clamp255(c * layer.alpha + acc[ch] * (1 - layer.alpha))
-    );
-  }
-  return { rgb: acc, resolved };
-}
-var NAMED, clamp255, CANVAS_BASE;
-var init_color_parse = __esm({
-  "src/rules/color-parse.ts"() {
-    NAMED = {
-      black: [0, 0, 0],
-      white: [255, 255, 255],
-      red: [255, 0, 0],
-      green: [0, 128, 0],
-      blue: [0, 0, 255],
-      gray: [128, 128, 128],
-      grey: [128, 128, 128],
-      silver: [192, 192, 192],
-      maroon: [128, 0, 0],
-      olive: [128, 128, 0],
-      lime: [0, 255, 0],
-      aqua: [0, 255, 255],
-      cyan: [0, 255, 255],
-      teal: [0, 128, 128],
-      navy: [0, 0, 128],
-      fuchsia: [255, 0, 255],
-      magenta: [255, 0, 255],
-      purple: [128, 0, 128],
-      yellow: [255, 255, 0],
-      orange: [255, 165, 0]
-    };
-    clamp255 = (v) => Math.max(0, Math.min(255, Math.round(v)));
-    CANVAS_BASE = [255, 255, 255];
-  }
-});
-
 // src/design-system/principles/signal-noise.ts
 function hsl(rgb) {
   const [r, g, b] = rgb.map((c) => c / 255);
@@ -11597,7 +11621,7 @@ function statusLabel(text) {
 }
 function saturatedFill(bg) {
   if (!bg) return null;
-  const parsed = parseColor2(bg);
+  const parsed = parseColor(bg);
   if (parsed.kind !== "rgb") return null;
   if (parsed.alpha < MIN_FILL_ALPHA) return null;
   const { s, l } = hsl(parsed.rgb);
@@ -12298,7 +12322,7 @@ function measureElementContrast(element) {
   if (style.visibility === "hidden" || opacityKnown && opacity <= 0) {
     return { status: "invisible", reason: style.visibility === "hidden" ? "visibility-hidden" : "opacity-0" };
   }
-  const fg = parseColor2(style.color ?? "");
+  const fg = parseColor(style.color ?? "");
   if (fg.kind === "unsupported") {
     return { status: "unmeasurable", raw: fg.raw, text };
   }
@@ -13559,6 +13583,11 @@ async function extractCssRulesAndMeta(page) {
       return path2.join(" > ").slice(0, 200);
     }
     const seenStructural = /* @__PURE__ */ new Set();
+    const canvasProbe = document.createElement("div");
+    canvasProbe.style.cssText = "position:fixed;width:0;height:0;pointer-events:none;background-color:Canvas";
+    document.documentElement.appendChild(canvasProbe);
+    const canvasColor = window.getComputedStyle(canvasProbe).backgroundColor;
+    canvasProbe.remove();
     const collectStructuralBackgroundChain = (start) => {
       const chain = [];
       let image = false;
@@ -13572,6 +13601,7 @@ async function extractCssRulesAndMeta(page) {
         node = node.parentElement;
         depth++;
       }
+      if (node === null && canvasColor) chain.push(canvasColor);
       return { chain, image };
     };
     const structuralElements = [];
@@ -17229,6 +17259,7 @@ async function scanNative(options = {}) {
   const verdict = determineVerdict2(issues);
   const summary = generateNativeSummary(device, elements, issues, extractionSucceeded);
   return {
+    visualCoverage: nativeVisualCoverage,
     url,
     route: `/${device.name}`,
     timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -17334,6 +17365,7 @@ async function scanMacOS(options) {
     []
   );
   return {
+    visualCoverage: nativeVisualCoverage,
     url,
     route,
     timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -17391,6 +17423,8 @@ function formatMacOSScanResult(result) {
     `  Intent:   ${result.semantic.pageIntent.intent} (${Math.round(result.semantic.confidence * 100)}% confidence)`,
     `  Auth:     ${result.semantic.state.auth.authenticated === false ? "Not authenticated" : result.semantic.state.auth.authenticated ? "Authenticated" : "Unknown"}`,
     "",
+    `  Visual:   ${result.visualCoverage?.reason ?? "Appearance and text contrast unmeasured."}`,
+    "",
     ...formatElementsSection(result.elements.audit)
   ];
   const { buttons, links, forms } = result.interactivity;
@@ -17414,6 +17448,8 @@ function formatNativeScanResult(result) {
     "",
     `  ${result.summary}`,
     "",
+    `  Visual:   ${result.visualCoverage?.reason ?? "Appearance and text contrast unmeasured."}`,
+    "",
     ...formatElementsSection(result.elements.audit)
   ];
   if (result.screenshotPath) {
@@ -17423,6 +17459,7 @@ function formatNativeScanResult(result) {
   lines.push("", "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   return lines.join("\n");
 }
+var nativeVisualCoverage;
 var init_scan2 = __esm({
   "src/native/scan.ts"() {
     init_scan();
@@ -17436,6 +17473,11 @@ var init_scan2 = __esm({
     init_interactivity2();
     init_semantic2();
     init_layout_fill();
+    nativeVisualCoverage = {
+      appearance: "unmeasured",
+      textContrast: "unmeasured",
+      reason: "Native accessibility does not expose rendered foreground/background colors. Inspect a screenshot in the app\u2019s actual light/dark appearance; no WCAG contrast pass is established."
+    };
   }
 });
 

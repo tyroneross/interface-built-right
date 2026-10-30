@@ -155,6 +155,14 @@ describe('finalizeMeasurements', () => {
     })]);
     expect(m.color.effectiveBackgroundResolved).toBe(false);
     expect(m.color.effectiveBackgroundColor).toBe('rgb(255, 255, 255)');
+    expect(m.color.contrastRatio).toBeNull();
+    expect(m.color.passesAA).toBeNull();
+  });
+
+  it('does not grade against an undecodable background layer', () => {
+    const [m] = finalizeMeasurements([rawElement({ backgroundChain: ['unrecognized(1)', '#fff'] })]);
+    expect(m.color.contrastRatio).toBeNull();
+    expect(m.color.passesAA).toBeNull();
   });
 
   it('passes geometry, box, typography, layout and baseline through untouched', () => {
