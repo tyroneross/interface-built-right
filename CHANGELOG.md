@@ -181,6 +181,29 @@ increment before it is cut into a release.
   against 23 on disk (`obsidian-plugin-ui` undocumented), commands listed 27/30
   against 31 (`/ibr:ibr` undocumented). Both corrected alongside the new entries.
 
+## [1.6.1](https://github.com/tyroneross/interface-built-right/compare/v1.6.0...v1.6.1) (2026-10-30)
+
+
+### Features
+
+* **design:** add reviewed design and audit lessons ([46daf17](https://github.com/tyroneross/interface-built-right/commit/46daf171c4fd039af833d702daf72f49d06c9496))
+* **native:** add ax-stress to reproduce crashes caused by accessibility reads ([0578b61](https://github.com/tyroneross/interface-built-right/commit/0578b611578039a9981745ee349c2bb615d9cac7))
+* **native:** ax-stress also reads the whole tree in one hierarchy request ([fc960f8](https://github.com/tyroneross/interface-built-right/commit/fc960f8fe3e82ed205d606ceee35ac126ceec762))
+
+
+### Bug Fixes
+
+* **cdp:** fall back to the ws package when Node lacks a global WebSocket ([88b62dd](https://github.com/tyroneross/interface-built-right/commit/88b62dde44b2530d3dfd6b6ab3905f32e9fd9007))
+* **hooks:** declare a timeout on every hook ([d838a12](https://github.com/tyroneross/interface-built-right/commit/d838a12aa59daa016f6e2247eeb1a940fe2c3d1d))
+* **hooks:** declare a timeout on every hook ([b4e6d0a](https://github.com/tyroneross/interface-built-right/commit/b4e6d0ab33bcdf6d1a2a5fc09a9e8f186a2c7ce1))
+* **lint:** narrow DB501 skips to visual hiding and state-bearing SVG labels ([4e9e029](https://github.com/tyroneross/interface-built-right/commit/4e9e029edd553dc0b087800d0783a4698e24e9c9))
+* **lint:** resolve theme scopes so DB502/AD108 stop flagging the three-block pattern ([f735a94](https://github.com/tyroneross/interface-built-right/commit/f735a94dab4a7d44ae59b843c9cfec0dd4f26f9d))
+* **lint:** stop DB501 grading hidden SVG arrowheads as colour-only state ([4428ef0](https://github.com/tyroneross/interface-built-right/commit/4428ef08d2ad4e4bc6aa6040e809a17a7b4ad33f))
+* **mcp:** read server version from package.json instead of a literal ([37b9365](https://github.com/tyroneross/interface-built-right/commit/37b9365c60fe99733b972149e5a59bcbcf569045))
+* **native:** ax-stress refuses to run blind on a locked screen or windowless app ([e9bedcd](https://github.com/tyroneross/interface-built-right/commit/e9bedcd17b979d74607ef4ddc723a383b46285dc))
+* **scan:** detect form submit listeners added with addEventListener ([2e30375](https://github.com/tyroneross/interface-built-right/commit/2e30375e7335e71a593ef545106d94d3f3b6592b))
+* **scan:** stop reading transparent and gradient page backgrounds as black ([9a90f38](https://github.com/tyroneross/interface-built-right/commit/9a90f38bfc6e6c160006ba40b8830b3b06e4d30e))
+
 ## [1.6.0](https://github.com/tyroneross/interface-built-right/compare/v1.5.0...v1.6.0) (2026-09-29)
 
 
