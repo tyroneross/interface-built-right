@@ -250,7 +250,7 @@ describe('T-01g: native_session_read wire shapes (4 modes)', () => {
       hostCursorAffected: false,
     });
     expect(Object.keys(elements[0]).sort()).toEqual(
-      ['actions', 'enabled', 'frame', 'identifier', 'label', 'path', 'role', 'value'].sort(),
+      ['actions', 'enabled', 'focused', 'frame', 'identifier', 'label', 'path', 'role', 'value'].sort(),
     );
     expect(elements[0].label).toBe('Save');
     expect(elements[0].path).toEqual([0]);
@@ -332,6 +332,8 @@ describe('T-01g: native_session_action wire shapes', () => {
       elements: [macElement({ title: 'Save', path: [0] })],
     });
     act.performNativeAction.mockResolvedValue({ success: true, action: 'press' });
+    idx.extractMacOSElements.mockResolvedValueOnce({ window: windowInfo, elements: [macElement({ title: 'Save', path: [0] })] })
+      .mockResolvedValue({ window: windowInfo, elements: [macElement({ title: 'Save', value: 'Saved', path: [0] })] });
     const res = await call('native_session_action', {
       sessionId: SID, action: 'press', target: 'Save', waitTimeoutMs: 0,
     });
@@ -400,6 +402,8 @@ describe('T-01g: cross-tool routes — web session_* on a native session', () =>
       elements: [macElement({ title: 'Save', path: [0] })],
     });
     act.performNativeAction.mockResolvedValue({ success: true, action: 'press' });
+    idx.extractMacOSElements.mockResolvedValueOnce({ window: windowInfo, elements: [macElement({ title: 'Save', path: [0] })] })
+      .mockResolvedValue({ window: windowInfo, elements: [macElement({ title: 'Save', value: 'Saved', path: [0] })] });
     const p = parse(await call('session_action', { sessionId: SID, action: 'click', target: 'Save' }));
     expect(p.success).toBe(true);
     expect(p.backend).toBe('macos-ax');

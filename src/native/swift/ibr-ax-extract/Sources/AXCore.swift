@@ -24,6 +24,7 @@ struct AXExtractedElement: Codable {
     let enabled: Bool
     let focused: Bool
     var selected: Bool? = nil
+    var selectionSettable: Bool? = nil
     let actions: [String]
     let position: Position?
     let size: Size?
@@ -229,6 +230,13 @@ func walkElementFull(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15,
         return AXUIElementCopyAttributeValue(element, kAXSelectedAttribute as CFString, &raw) == .success ? raw : nil
     }()
     let selected = (selectedRaw as? NSNumber)?.boolValue
+    var selectionSettable: Bool? = nil
+    if role == "AXRow" || role == "AXOutlineRow" {
+        var settable = DarwinBoolean(false)
+        if AXUIElementIsAttributeSettable(element, kAXSelectedAttribute as CFString, &settable) == .success {
+            selectionSettable = settable.boolValue
+        }
+    }
     let actions = getActions(element)
 
     // Skip zero-size invisible elements deep in the tree
@@ -256,6 +264,7 @@ func walkElementFull(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15,
         enabled: enabled,
         focused: focused,
         selected: selected,
+        selectionSettable: selectionSettable,
         actions: actions,
         position: position,
         size: size,
@@ -550,6 +559,11 @@ func performAction(pid: pid_t, deviceName: String?, elementPath: [Int], action: 
 
     switch action {
     case "press":
+        var rawActions: CFArray?
+        guard AXUIElementCopyActionNames(element, &rawActions) == .success,
+              let actions = rawActions as? [String], actions.contains(kAXPressAction) else {
+            return (false, "Target does not advertise AXPress")
+        }
         let ok = AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
         return (ok, ok ? nil : "AXPress failed")
     case "select":

@@ -20,6 +20,7 @@ export interface RawElement {
   value?: unknown;
   enabled?: boolean;
   selected?: boolean | null;
+  selectionSettable?: boolean;
   path?: number[];
   windowId?: number;
   frame?: { x: number; y: number; width: number; height: number } | null;
@@ -34,6 +35,7 @@ export interface RefEntry {
   value?: unknown;
   enabled?: boolean;
   selected?: boolean | null;
+  selectionSettable?: boolean;
   path?: number[];
   windowId?: number;
 }
@@ -58,7 +60,7 @@ export function assignRefs(elements: RawElement[], prior?: RefEntry[] | null): R
     const f = el.frame;
     const entry: RefEntry = {
       ref: '', role: el.role ?? 'unknown', label: el.label ?? null,
-      identifier: el.identifier ?? null, value: el.value, enabled: el.enabled, selected: el.selected,
+      identifier: el.identifier ?? null, value: el.value, enabled: el.enabled, selected: el.selected, selectionSettable: el.selectionSettable,
       path: el.path, windowId: el.windowId,
       frame: f ? [Math.round(f.x), Math.round(f.y), Math.round(f.width), Math.round(f.height)] : null,
     };
@@ -94,7 +96,8 @@ export function formatRefLine(e: RefEntry): string {
     if (value !== e.value) parts.push(`[value-truncated length=${String(e.value).length}]`);
   }
   if (e.selected !== undefined && e.selected !== null) parts.push(`selected=${e.selected}`);
-  if (e.enabled === false) parts.push('disabled');
+  if (e.selectionSettable === true) parts.push('selectable');
+  else if (e.enabled === false) parts.push('disabled');
   if (e.frame) parts.push(`@${e.frame[0]},${e.frame[1]} ${e.frame[2]}x${e.frame[3]}`);
   return parts.join(' ');
 }
@@ -110,7 +113,7 @@ export interface RefDiff {
 export function diffRefs(before: RefEntry[], after: RefEntry[]): RefDiff {
   const b = new Map(before.map(e => [keyOf(e), e]));
   const a = new Map(after.map(e => [keyOf(e), e]));
-  const state = (e: RefEntry) => JSON.stringify([e.label, e.value, e.enabled, e.selected, e.frame, e.path]);
+  const state = (e: RefEntry) => JSON.stringify([e.label, e.value, e.enabled, e.selected, e.selectionSettable, e.frame, e.path]);
   // Ambiguous nodes are conservatively retired instead of paired by order.
   const matched = (e: RefEntry, rows: RefEntry[]) => rows.filter(r => keyOf(r) === keyOf(e)).length === 1;
   const same = (e: RefEntry) => b.has(keyOf(e)) && matched(e, before) && matched(e, after);

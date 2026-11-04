@@ -1,0 +1,40 @@
+{
+  "reviewer": "lead Codex inline; not independent",
+  "outcome": "local checks pass; external acceptance partial",
+  "findings": [
+    {
+      "id": "sidebar-selection-capability",
+      "severity": "high",
+      "confirmed": true,
+      "in_scope": true,
+      "status": "fixed",
+      "evidence": "src/native/actions.ts and Swift AXCore: SwiftUI row AXEnabled=false, AXSelected writable",
+      "closure_proof": "Live3/3 named/ref Plan navigation, row.settable regression;413 native tests and67 targeted tests pass"
+    },
+    {
+      "id": "delivery-misreported-as-success",
+      "severity": "high",
+      "confirmed": true,
+      "in_scope": true,
+      "status": "fixed",
+      "evidence": "Baseline28c73a4 reports3/3 successful actions with Today still selected",
+      "closure_proof": "Controller/CLI/MCP/replay/coordinate readback;ignored press tests reject;unsupported live heading undelivered;all repaired trials reach Plan"
+    },
+    {
+      "id": "xcode27-legacy-simulator-observer",
+      "severity": "low",
+      "confirmed": true,
+      "in_scope": false,
+      "status": "open",
+      "evidence": "Legacy observe requires Simulator.app;Xcode27 provides DeviceHub",
+      "scope_rationale": "Separate platform adapter compatibility;sidebar/outcome fixes validated on Mac;iPhone refs/screenshots and CUA DeviceHub checks succeed"
+    }
+  ],
+  "factCheck": "Metrics derive from saved exact trial payloads and xcresult summaries. Payload tokens explicitly exclude model/system/chat/image costs.",
+  "mockData": "All UI fixtures explicitly account-injected and stores in-memory. No production mock introduced.",
+  "security": "Frame length bound64KiB; exact body count;connection close on invalid/truncated input;privacy alias unchanged;no auth/schema/permissions change.",
+  "gaps": [
+    "Independent agent audit not run: Codex delegation lacks user authorization",
+    "No physical Mac/iPhone Bonjour or iCloud proof"
+  ]
+}

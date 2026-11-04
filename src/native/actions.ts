@@ -53,6 +53,8 @@ export interface NativeElementCandidate {
   value?: string | null;
   enabled: boolean;
   selected?: boolean | null;
+  selectionSettable?: boolean;
+  focused?: boolean;
   actions: string[];
   frame?: { x: number; y: number; width: number; height: number };
 }
@@ -188,7 +190,7 @@ export function flattenMacOSElements(elements: MacOSAXElement[]): NativeElementC
       // as distinct from an accessible label, so scan:macos still reports a
       // MISSING_ARIA_LABEL warning on a placeholder-only field. Targeting and
       // a11y grading are different questions with different correct answers here.
-      const label = el.title || el.description || el.value || el.identifier || el.placeholder || '';
+      const label = el.title || el.description || el.value || el.identifier || el.placeholder || selectableRowLabel(el);
       candidates.push({
         path: el.path,
         role: el.role,
@@ -197,6 +199,8 @@ export function flattenMacOSElements(elements: MacOSAXElement[]): NativeElementC
         value: el.value,
         enabled: el.enabled,
         selected: el.selected,
+        selectionSettable: el.selectionSettable,
+        focused: el.focused,
         actions: el.actions,
         frame: el.position && el.size ? {
           x: el.position.x,
@@ -211,6 +215,51 @@ export function flattenMacOSElements(elements: MacOSAXElement[]): NativeElementC
 
   visit(elements);
   return candidates;
+}
+
+const SELECTABLE_ROW_ROLES = new Set(['AXRow', 'AXOutlineRow']);
+
+export function isSelectableMacOSRow(candidate: {
+  role?: string | null; selected?: boolean | null; enabled?: boolean; selectionSettable?: boolean;
+}): boolean {
+  return SELECTABLE_ROW_ROLES.has(candidate.role ?? '') && typeof candidate.selected === 'boolean' &&
+    (candidate.selectionSettable ?? candidate.enabled) === true;
+}
+
+/** A sidebar row often owns selection while its only text is a child Label. */
+function selectableRowLabel(row: MacOSAXElement): string {
+  if (!SELECTABLE_ROW_ROLES.has(row.role)) return '';
+  const labels = new Set<string>();
+  function visit(node: MacOSAXElement): void {
+    if (SELECTABLE_ROW_ROLES.has(node.role) || node.actions.length > 0) return;
+    if (node.role === 'AXStaticText') {
+      const label = node.title || node.description || node.value;
+      if (label) labels.add(label);
+    }
+    node.children.forEach(visit);
+  }
+  row.children.forEach(visit);
+  return labels.size === 1 ? [...labels][0] : '';
+}
+
+/** Use the nearest supported owner; never press an actionless text leaf. */
+export function macOSActionTarget(
+  elements: MacOSAXElement[], matched: NativeElementCandidate, action: NativeAction,
+): { element: NativeElementCandidate; action: NativeAction } | null {
+  if (action !== 'press' && action !== 'select') return { element: matched, action };
+  if (!matched.path) return null;
+  const ancestors = flattenMacOSElements(elements).filter(candidate => candidate.path &&
+    candidate.path.length <= matched.path!.length &&
+    candidate.path.every((part, index) => part === matched.path![index]));
+  ancestors.sort((a, b) => b.path!.length - a.path!.length);
+  for (const candidate of ancestors) {
+    if (isSelectableMacOSRow(candidate)) {
+      return { element: candidate, action: 'select' };
+    }
+    if (!candidate.enabled) return null;
+    if (action === 'press' && candidate.actions.includes('AXPress')) return { element: candidate, action: 'press' };
+  }
+  return null;
 }
 
 export function flattenSimulatorElements(elements: NativeElement[]): NativeElementCandidate[] {

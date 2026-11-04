@@ -21,8 +21,8 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { createHash } from 'crypto';
-import { flattenMacOSElements } from './actions.js';
-import { mapSessionActionToNative } from './session-controller.js';
+import { flattenMacOSElements, macOSActionTarget } from './actions.js';
+import { mapSessionActionToNative, nativeStateSignature } from './session-controller.js';
 import { ResolvedPathCache } from './resolved-path-cache.js';
 import type { NativeBackend } from './backend.js';
 import type { RawElement } from './compact-refs.js';
@@ -67,6 +67,8 @@ export interface StepReport {
   from?: string;
   to?: string;
   error?: string;
+  actionDelivered?: boolean;
+  verificationPassed?: boolean;
 }
 
 // ─── signatures + fingerprints ──────────────────────────────────────────────
@@ -236,9 +238,19 @@ async function replayMacOS(
 
   const mapped = mapSessionActionToNative(step.action, step.value);
   if ('error' in mapped) return { status: 'failed', fingerprint: step.fingerprint, error: mapped.error };
-  const res = await deps.backend.performAction(t, { elementPath: path, action: mapped.action, value: mapped.value });
-  if (!res.success) return { status: 'failed', fingerprint: step.fingerprint, error: res.error ?? 'action failed' };
-  return { status, fingerprint: step.fingerprint, from, to };
+  const matched = cur.candidates.find(c => samePath(c.path, path!));
+  const owner = matched && macOSActionTarget(cur.ex.elements, matched, mapped.action);
+  if (!owner?.element.path) return { status: 'failed', fingerprint: step.fingerprint, actionDelivered: false, verificationPassed: false, error: 'Target has no supported action' };
+  const res = await deps.backend.performAction(t, { elementPath: owner.element.path, action: owner.action, value: mapped.value });
+  if (!res.success) return { status: 'failed', fingerprint: step.fingerprint, actionDelivered: false, verificationPassed: false, error: res.error ?? 'action failed' };
+  const after = await settled(read, r => nativeStateSignature(r.ex.window, r.candidates), settleMs);
+  const observed = after.candidates.find(c => samePath(c.path, owner.element.path!) && sameFingerprint(fingerprintOf(owner.element), c));
+  const verified = owner.action === 'select' ? observed?.selected === true
+    : owner.action === 'setValue' ? observed?.value === mapped.value
+    : owner.action === 'focus' ? observed?.focused === true
+    : nativeStateSignature(cur.ex.window, cur.candidates) !== nativeStateSignature(after.ex.window, after.candidates);
+  if (!verified) return { status: 'failed', fingerprint: step.fingerprint, actionDelivered: true, verificationPassed: false, error: 'Action delivered; no observable effect verified' };
+  return { status, fingerprint: step.fingerprint, from, to, actionDelivered: true, verificationPassed: true };
 }
 
 async function replaySimulator(
@@ -280,7 +292,9 @@ async function replaySimulator(
     const r = await tap(target.udid, point[0], point[1]);
     if (!r.success) return { status: 'failed', fingerprint: step.fingerprint, error: r.error ?? 'tap failed' };
   }
-  return { status, fingerprint: step.fingerprint, from, to };
+  const after = await settled(async () => readEls(target.udid!), els => JSON.stringify(els), settleMs);
+  if (JSON.stringify(after) === JSON.stringify(cur.els)) return { status: 'failed', fingerprint: step.fingerprint, actionDelivered: true, verificationPassed: false, error: 'Tap delivered; no observable effect verified' };
+  return { status, fingerprint: step.fingerprint, from, to, actionDelivered: true, verificationPassed: true };
 }
 
 /** Compact report: one summary line plus one line per healed/failed step only. */

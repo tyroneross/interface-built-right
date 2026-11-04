@@ -1,0 +1,32 @@
+[
+  {
+    "cmd": [
+      "npx",
+      "vitest",
+      "run",
+      "src/native",
+      "src/bin/native-session-cli.test.ts",
+      "src/mcp/native-tools.test.ts"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 42.61258975000237
+  },
+  {
+    "cmd": [
+      "npm",
+      "run",
+      "typecheck"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 5.069348584016552
+  },
+  {
+    "cmd": [
+      "npm",
+      "run",
+      "build"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 10.270669499994256
+  }
+]

@@ -89,6 +89,18 @@ class FakeBackend implements NativeBackend {
   async menu(_t: NativeSessionTarget): Promise<ActionOutcome> { return notImplementedOutcome('menu'); }
 }
 
+/** Positive action fixtures must produce an observed effect, not just AX delivery. */
+function observePress(backend: FakeBackend) {
+  backend.performAction = async () => {
+    if (backend.extractResult.kind === 'macos') {
+      const elements = structuredClone(backend.extractResult.elements);
+      elements[0].value = String(Number(elements[0].value ?? 0) + 1);
+      backend.extractResult = { ...backend.extractResult, elements };
+    }
+    return backend.actionResult;
+  };
+}
+
 /** Build a CliDeps whose controller is backed by a given fake backend, with an
  * in-memory (not file-backed) stub session store — for tests that only care
  * about handler/exit-code/JSON behavior, not filesystem persistence. */
@@ -173,6 +185,7 @@ describe('handleAction', () => {
     const backend = new FakeBackend();
     backend.extractResult = { kind: 'macos', elements: [macElement({ title: 'Save', path: [0] })], window: windowInfo };
     backend.actionResult = { success: true, action: 'press' };
+    observePress(backend);
     const deps = fakeDeps(backend, { s1: { type: 'macos', app: 'TextEdit', pid: 4242, createdAt: 1 } });
 
     const res = await handleAction({ sessionId: 's1', action: 'press', target: 'Save', waitTimeoutMs: 0 }, deps);
@@ -195,6 +208,7 @@ describe('handleAction', () => {
     const backend = new FakeBackend();
     backend.extractResult = { kind: 'macos', elements: [macElement({ title: 'Save', path: [0] })], window: windowInfo };
     backend.actionResult = { success: true, action: 'press' };
+    observePress(backend);
     const deps = fakeDeps(backend, { s1: { type: 'macos', app: 'TextEdit', pid: 4242, createdAt: 1 } });
 
     const res = await handleAction({
@@ -277,6 +291,7 @@ describe('T-03 cross-process repro: start -> action -> close via the real file s
     const backend = new FakeBackend();
     backend.extractResult = { kind: 'macos', elements: [macElement({ title: 'Save', path: [0] })], window: windowInfo };
     backend.actionResult = { success: true, action: 'press' };
+    observePress(backend);
 
     // Process 1: start.
     const startRes = await handleStart({ pid: 555, sessionId: 'repro-1' }, realDepsWithBackend(backend));
@@ -325,6 +340,7 @@ describe('compact refs (--what refs / --ref)', () => {
       elements: [macElement({ title: 'Save', path: [0] }), macElement({ role: 'AXStaticText', title: 'Saved', path: [1] })],
       window: windowInfo,
     };
+    observePress(backend);
     const act = await handleAction({ sessionId: 's1', action: 'press', ref: 'e1', waitFor: 'Save', waitTimeoutMs: 0 }, deps);
     expect(act.exitCode).toBe(EXIT_OK);
     expect(act.json.axChanged).toBe(true);
@@ -377,9 +393,11 @@ describe('record -> replay round trip and ref safety', () => {
     const dir = mkdtempSync(join(tmpdir(), 'ibr-rr-'));
     const file = join(dir, 'flow.json');
     const deps = { ...fakeDeps(backend, seed), refsDir: dir };
+    observePress(backend);
     const rec = await handleAction({ sessionId: 's1', action: 'press', target: 'Seven', record: file, waitTimeoutMs: 0 }, deps);
     expect(rec.exitCode).toBe(EXIT_OK);
     expect(rec.json.recorded).toBe(1);
+    backend.extractResult = { kind: 'macos', elements: tree, window: windowInfo };
     const rep = await handleReplay({ sessionId: 's1', file }, deps, { backend, settleMs: 0 });
     expect(rep.exitCode).toBe(EXIT_OK);
     expect((rep.json.reports as Array<{ status: string }>)[0].status).toBe('cached');
@@ -471,6 +489,7 @@ describe('fused action observation',()=>{
     const dir=mkdtempSync(join(tmpdir(),'ibr-fused-'));
     try{
       const backend=new FakeBackend();backend.extractResult={kind:'macos',window:windowInfo,elements:[macElement({title:'Save',value:'1',path:[0]})]};
+      backend.extractResult.elements[0].value='0';observePress(backend);
       const deps=fakeDeps(backend,{test:{type:'macos',pid:123,app:'Fake',createdAt:1}});deps.refsDir=dir;
       const result=await handleAction({sessionId:'test',action:'click',target:'Save',waitFor:'Save',waitTimeoutMs:0,observe:true,format:'compact'},deps);
       expect(result.exitCode).toBe(EXIT_OK);
@@ -572,4 +591,28 @@ it('never substitutes an unvalidated reread for a missing settled ref snapshot',
   expect(result.json.ok).toBe(false);
   expect(reads).toBe(1); // only pre-dispatch revalidation, never a replacement post-snapshot
   expect(readFileSync(refsPath, 'utf8')).toBe(before);
+});
+
+it('selects a named SwiftUI row by stable ref when AXSelected is settable despite AXEnabled=false', async () => {
+  const backend = new FakeBackend();
+  const row = macElement({ role: 'AXRow', title: null, enabled: false, selected: false,
+    selectionSettable: true, actions: [], path: [0], children: [
+      macElement({ role: 'AXStaticText', title: 'Plan', actions: [], path: [0, 0] }),
+    ] });
+  backend.extractResult = { kind: 'macos', window: windowInfo, elements: [row] };
+  backend.performAction = vi.fn(async () => {
+    backend.extractResult = { kind: 'macos', window: windowInfo, elements: [{ ...row, selected: true }] };
+    return { success: true, action: 'select' };
+  });
+  const dir = mkdtempSync(join(tmpdir(), 'ibr-selectable-row-'));
+  try {
+    const deps = { ...fakeDeps(backend, { row: { type: 'macos', pid: 123, createdAt: 1 } }), refsDir: dir };
+    const before = await handleRead({ sessionId: 'row', what: 'refs' }, deps);
+    expect(before.text).toContain('Row "Plan" selected=false selectable');
+    const result = await handleAction({ sessionId: 'row', action: 'click', ref: 'e1' }, deps);
+    expect(result.json).toMatchObject({ ok: true, actionDelivered: true, verificationPassed: true });
+    expect(backend.performAction).toHaveBeenCalledTimes(1);
+    const again = await handleAction({ sessionId: 'row', action: 'click', ref: 'e1' }, deps);
+    expect(again.json).toMatchObject({ ok: true, verificationPassed: true, axChanged: false });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

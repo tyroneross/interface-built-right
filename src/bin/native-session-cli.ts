@@ -2,6 +2,7 @@ import { captureNativeStream } from '../native/stream-capture.js';
 import { join } from 'node:path';
 import { writeCliOutput } from './cli-output.js';
 import { compactNativeRead, saveNativeReport } from '../native-output.js';
+import { isSelectableMacOSRow } from '../native/actions.js';
 /**
  * `ibr native:session:{start,read,action,close}` — CLI parity for the four
  * native MCP tools (chunk E4-C).
@@ -176,7 +177,7 @@ async function compactActionFailure(result: CliResult, directory: string): Promi
       exitCode: result.exitCode,
       json: { ok: false, exitCode: result.exitCode, sessionId: source.sessionId,
         error: bounded(source.error), errorTruncated: typeof source.error === 'string' && source.error.length > 800,
-        success: source.success, actionDelivered: source.success === true,
+        success: source.success, actionDelivered: source.actionDelivered ?? source.success === true,
         verificationPassed: false, requestedAction: bounded(source.requestedAction),
         target: bounded(source.target), backend: source.backend, pid: source.pid,
         postAction: post ? summary : undefined, fullReport, evidenceSaved: true,
@@ -435,7 +436,7 @@ export async function handleAction(opts: ActionOptions, deps: CliDeps = defaultC
     if (fresh.kind !== 'text' || fresh.isError) return invalidTarget('Could not revalidate ref; read refs again.');
     const live = elementsOf(parsePayload(fresh.text)).filter(e => e.windowId === refEntry!.windowId && e.role === refEntry!.role &&
       (refEntry!.identifier ? e.identifier === refEntry!.identifier : e.label === refEntry!.label));
-    if (live.length !== 1 || live[0].enabled === false) {
+    if (live.length !== 1 || (live[0].enabled === false && !isSelectableMacOSRow(live[0]))) {
       return invalidTarget(`Ref ${opts.ref} is stale, ambiguous, or disabled; read refs again.`, { sessionId: opts.sessionId });
     }
     expectedRef = { role: refEntry.role, label: refEntry.label, identifier: refEntry.identifier, path: live[0].path, windowId: live[0].windowId };
@@ -487,8 +488,9 @@ export async function handleAction(opts: ActionOptions, deps: CliDeps = defaultC
     ? compactActionFailure(failed, refsDir) : failed;
 
   if (result.isError) {
-    if (opts.waitFor && postAction && postAction.settled === false) {
-      return failure(waitFailed(`Wait for "${opts.waitFor}" timed out.`, { sessionId: opts.sessionId, ...payload }));
+    if (payload.actionDelivered === true && postAction?.settled === false) {
+      const message = opts.waitFor ? `Wait for "${opts.waitFor}" timed out.` : 'Action delivered but no settled observation was established.';
+      return failure(waitFailed(message, { sessionId: opts.sessionId, ...payload, error: message }));
     }
     const code = looksLikeTargetProblem(payload, result.text) ? EXIT_INVALID_TARGET : EXIT_ACTION_FAILED;
     const message = typeof payload.error === 'string' ? payload.error : result.text;
@@ -522,7 +524,7 @@ export async function handleAction(opts: ActionOptions, deps: CliDeps = defaultC
     if (resolved?.path) {
       try { recorded = appendReplayStep(opts.record, {
         platform: 'macos',
-        action: opts.action,
+        action: payload.axAction === 'select' ? 'select' : opts.action,
         value: opts.value,
         fingerprint: fingerprintOf(resolved),
         path: resolved.path,
@@ -577,6 +579,7 @@ export async function handleAction(opts: ActionOptions, deps: CliDeps = defaultC
     return {
       exitCode: EXIT_OK,
       json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, action: opts.action, ref: opts.ref,
+        actionDelivered: payload.actionDelivered, verificationPassed: payload.verificationPassed,
         axChanged: d.added.length + d.removed.length + d.updated.length > 0,
         postAction: validation, fullReport, diff: diff.split('\n'), recorded },
       text: `✓ ${opts.action} ${opts.ref}\n${diff}${recNote}`,
@@ -622,7 +625,7 @@ export async function handleComputerUse(opts: ComputerUseOptions, deps: CliDeps 
 
   const before = action.kind === 'screenshot' || action.kind === 'wait'
     ? null
-    : (loadRefs(refsDir, opts.sessionId) ?? assignRefs(await readEls(udid)));
+    : assignRefs(await readEls(udid), loadRefs(refsDir, opts.sessionId));
   // Recording reads the live tree (not persisted refs) so the signature matches what replay will see.
   let recordStep: Parameters<typeof appendReplayStep>[1] | undefined;
   if (opts.record) {
@@ -635,10 +638,6 @@ export async function handleComputerUse(opts: ComputerUseOptions, deps: CliDeps 
   const res = await exec(udid, action, refsDir);
   let recorded: number | undefined;
   let recordError: string | undefined;
-  if (res.success && recordStep && opts.record) {
-    try { recorded = appendReplayStep(opts.record, recordStep); } catch (err) { recordError = err instanceof Error ? err.message : String(err); }
-  }
-  const recNote = recorded ? `\nrecorded step ${recorded} -> ${opts.record}` : recordError ? `\nnot recorded: ${recordError}` : '';
   if (!res.success) return actionFailed(res.error ?? `${action.kind} failed`, { sessionId: opts.sessionId, action: action.kind });
   if (res.screenshot) {
     return { exitCode: EXIT_OK, json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, action: 'screenshot', path: res.screenshot }, text: `screenshot: ${res.screenshot}` };
@@ -659,9 +658,15 @@ export async function handleComputerUse(opts: ComputerUseOptions, deps: CliDeps 
   saveRefs(refsDir, opts.sessionId, after);
   const d = diffRefs(before, after);
   const diff = formatDiff(d);
+  if (d.added.length + d.removed.length + d.updated.length === 0) return actionFailed('Action delivered; no observable AX effect verified.', { sessionId: opts.sessionId, actionDelivered: true, verificationPassed: false, axChanged: false, diff: diff.split('\n') });
+  if (res.success && recordStep && opts.record) {
+    try { recorded = appendReplayStep(opts.record, recordStep); } catch (err) { recordError = err instanceof Error ? err.message : String(err); }
+  }
+  const recNote = recorded ? `\nrecorded step ${recorded} -> ${opts.record}` : recordError ? `\nnot recorded: ${recordError}` : '';
   return {
     exitCode: EXIT_OK,
-    json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, action: action.kind, axChanged: d.added.length + d.removed.length + d.updated.length > 0, diff: diff.split('\n'), recorded },
+    json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, action: action.kind, actionDelivered: true, verificationPassed: d.added.length + d.removed.length + d.updated.length > 0,
+        axChanged: d.added.length + d.removed.length + d.updated.length > 0, diff: diff.split('\n'), recorded },
     text: `✓ ${action.kind}\n${diff}${recNote}`,
   };
 }

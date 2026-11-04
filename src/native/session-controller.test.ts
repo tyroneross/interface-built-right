@@ -138,6 +138,11 @@ describe('NativeSessionController.actionMacOS', () => {
     backend.extractResult = { kind: 'macos', elements: [macElement({ title: 'Save', path: [0] })], window: windowInfo };
     backend.actionResult = { success: true, action: 'press' };
 
+    backend.performAction = async () => {
+      backend.performCalls++;
+      backend.extractResult = { kind: 'macos', elements: [macElement({ title: 'Save', value: 'Saved', path: [0] })], window: windowInfo };
+      return backend.actionResult;
+    };
     const res = await make(backend).actionMacOS(macEntry(), { action: 'press', target: 'Save', waitTimeoutMs: 0 });
     expect(res.kind).toBe('text');
     expect(res.kind === 'text' && res.isError).not.toBe(true);
@@ -171,7 +176,9 @@ describe('NativeSessionController.actionMacOS', () => {
       action: 'press', target: 'Save', waitFor: 'NeverAppears', waitTimeoutMs: 20,
     });
     const p = JSON.parse(res.kind === 'text' ? res.text : '{}');
-    expect(p.success).toBe(true);
+    expect(p.success).toBe(false);
+    expect(p.actionDelivered).toBe(true);
+    expect(p.verificationPassed).toBe(false);
     expect(p.postAction.settled).toBe(false);
     expect(p.postAction.reason).toBe('timeout');
     expect(p.postAction.waitForFound).toBe(false);
@@ -384,4 +391,14 @@ it('bounds a stalled post-action read without retrying delivery', async () => {
       postAction: { settled: false, observationError: expect.stringContaining('timed out') } });
     expect(backend.performCalls).toBe(1);
   } finally { vi.useRealTimers(); }
+});
+
+
+it('does not verify an unchanged simulator action merely because its waiter already exists', async () => {
+  const backend = new FakeBackend();
+  backend.extractResult = { kind: 'simulator', device: simDevice(), elements: [simElement({ role: 'AXButton', label: 'Save', path: [0] })] };
+  const result = await make(backend).actionSimulator(simEntry(), { action: 'click', target: 'Save', waitFor: 'Save', waitTimeoutMs: 0 });
+  expect(result.kind).toBe('text');
+  if (result.kind !== 'text') throw new Error('Expected JSON');
+  expect(JSON.parse(result.text)).toMatchObject({ success: false, actionDelivered: true, verificationPassed: false, postAction: { effectVerified: false, stateChanged: false } });
 });

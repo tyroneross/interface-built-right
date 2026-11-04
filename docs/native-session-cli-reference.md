@@ -322,6 +322,23 @@ stable app identifiers when possible. Native AX does not offer an atomic
 read-and-act transaction. A successful diff means observed change, not proven
 completion. Check `postAction` and the requested postcondition.
 
+macOS sidebar rows inherit a name only from one unambiguous text label.
+Clicking a row or its text selects the nearest selectable AXRow/AXOutlineRow;
+embedded buttons retain their own AXPress action. SwiftUI rows may report
+AXEnabled=false while AXSelected is settable, so the extractor exposes
+`selectionSettable` separately. AXCell is never treated as a selectable row.
+
+Element actions keep `actionDelivered` separate from `verificationPassed`.
+A stable unchanged tree does not verify a press, even if `--wait-for` already
+exists. Selection, value and focus actions verify their absolute target state;
+repeated selection may succeed with `stateChanged:false`. Other actions require
+an observable state change and any requested waiter. This is bounded AX evidence,
+not proof of persistence or causality; supply an app-specific postcondition.
+Delivered actions whose readback fails return nonzero without claiming they
+were not delivered. Replay also reads back the effect before reporting a step
+as cached/verified/healed; these labels describe target resolution.
+Simulator coordinate actions fail verification when their fresh AX diff is empty.
+
 ```sh
 node dist/bin/ibr.js native:session:read SESSION --format compact --json
 node dist/bin/ibr.js native:session:action SESSION --action click --target Save \

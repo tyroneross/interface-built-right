@@ -8317,6 +8317,7 @@ interface MacOSAXElement {
     enabled: boolean;
     focused: boolean;
     selected?: boolean | null;
+    selectionSettable?: boolean;
     actions: string[];
     position: {
         x: number;
@@ -8890,6 +8891,8 @@ interface NativeElementCandidate {
     value?: string | null;
     enabled: boolean;
     selected?: boolean | null;
+    selectionSettable?: boolean;
+    focused?: boolean;
     actions: string[];
     frame?: {
         x: number;

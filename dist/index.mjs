@@ -23138,7 +23138,7 @@ function flattenMacOSElements(elements) {
   const candidates = [];
   function visit(nodes) {
     for (const el of nodes) {
-      const label = el.title || el.description || el.value || el.identifier || el.placeholder || "";
+      const label = el.title || el.description || el.value || el.identifier || el.placeholder || selectableRowLabel(el);
       candidates.push({
         path: el.path,
         role: el.role,
@@ -23147,6 +23147,8 @@ function flattenMacOSElements(elements) {
         value: el.value,
         enabled: el.enabled,
         selected: el.selected,
+        selectionSettable: el.selectionSettable,
+        focused: el.focused,
         actions: el.actions,
         frame: el.position && el.size ? {
           x: el.position.x,
@@ -23160,6 +23162,38 @@ function flattenMacOSElements(elements) {
   }
   visit(elements);
   return candidates;
+}
+var SELECTABLE_ROW_ROLES = /* @__PURE__ */ new Set(["AXRow", "AXOutlineRow"]);
+function isSelectableMacOSRow(candidate) {
+  return SELECTABLE_ROW_ROLES.has(candidate.role ?? "") && typeof candidate.selected === "boolean" && (candidate.selectionSettable ?? candidate.enabled) === true;
+}
+function selectableRowLabel(row) {
+  if (!SELECTABLE_ROW_ROLES.has(row.role)) return "";
+  const labels = /* @__PURE__ */ new Set();
+  function visit(node) {
+    if (SELECTABLE_ROW_ROLES.has(node.role) || node.actions.length > 0) return;
+    if (node.role === "AXStaticText") {
+      const label = node.title || node.description || node.value;
+      if (label) labels.add(label);
+    }
+    node.children.forEach(visit);
+  }
+  row.children.forEach(visit);
+  return labels.size === 1 ? [...labels][0] : "";
+}
+function macOSActionTarget(elements, matched, action) {
+  if (action !== "press" && action !== "select") return { element: matched, action };
+  if (!matched.path) return null;
+  const ancestors = flattenMacOSElements(elements).filter((candidate) => candidate.path && candidate.path.length <= matched.path.length && candidate.path.every((part, index) => part === matched.path[index]));
+  ancestors.sort((a, b) => b.path.length - a.path.length);
+  for (const candidate of ancestors) {
+    if (isSelectableMacOSRow(candidate)) {
+      return { element: candidate, action: "select" };
+    }
+    if (!candidate.enabled) return null;
+    if (action === "press" && candidate.actions.includes("AXPress")) return { element: candidate, action: "press" };
+  }
+  return null;
 }
 function flattenSimulatorElements(elements) {
   const candidates = [];
@@ -24584,7 +24618,7 @@ var NativeSessionController = class {
       if (request.expectedRef) {
         const expected = request.expectedRef;
         const matches = flattenMacOSElements(elements).filter((c) => c.role === expected.role && (expected.identifier ? c.identifier === expected.identifier : c.label === expected.label));
-        if (extraction.window.windowId !== expected.windowId || matches.length !== 1 || !resolution.element.enabled || JSON.stringify(matches[0].path) !== JSON.stringify(expected.path) || JSON.stringify(resolution.element.path) !== JSON.stringify(matches[0].path)) {
+        if (extraction.window.windowId !== expected.windowId || matches.length !== 1 || !resolution.element.enabled && !isSelectableMacOSRow(resolution.element) || JSON.stringify(matches[0].path) !== JSON.stringify(expected.path) || JSON.stringify(resolution.element.path) !== JSON.stringify(matches[0].path)) {
           return errorResult("Ref target changed or became ambiguous during action resolution; read refs again.");
         }
       }
@@ -24593,34 +24627,50 @@ var NativeSessionController = class {
       }
       const mapped = mapSessionActionToNative(request.action, request.value);
       if ("error" in mapped) return errorResult(mapped.error);
+      const actuation = macOSActionTarget(elements, resolution.element, mapped.action);
+      if (!actuation) return nativeActionResponse(false, {
+        actionDelivered: false,
+        verificationPassed: false,
+        requestedAction: request.action,
+        target: request.target,
+        resolved: formatNativeCandidate(resolution.element),
+        error: "Target has no supported press or selection action."
+      });
+      const beforeSignature = nativeStateSignature(extraction.window, flattenMacOSElements(elements));
       const actionResult = await this.backend.performAction(
         { kind: "macos", pid: entry.pid, app: entry.app },
-        { elementPath: resolution.element.path, action: mapped.action, value: mapped.value }
+        { elementPath: actuation.element.path, action: actuation.action, value: mapped.value }
       );
       let postAction;
       if (actionResult.success) {
         try {
-          postAction = await this.waitForMacOSPostAction(entry, request);
+          postAction = await this.waitForMacOSPostAction(entry, request, {
+            beforeSignature,
+            target: actuation.element,
+            action: actuation.action,
+            value: mapped.value
+          });
         } catch (error) {
           postAction = { ...emptyPostActionState(Date.now(), request.waitFor), reason: "observation-failed", observationError: String(error) };
         }
       }
-      return nativeActionResponse(actionResult.success, {
+      const verified = actionResult.success && postAction?.settled === true && postAction.effectVerified === true;
+      return nativeActionResponse(verified, {
         backend: "macos-ax",
         app: entry.app,
         pid: entry.pid,
         actionDelivered: actionResult.success,
-        verificationPassed: postAction?.settled === true,
+        verificationPassed: verified,
         requestedAction: request.action,
-        axAction: mapped.action,
+        axAction: actuation.action,
         target: request.target,
-        resolved: formatNativeCandidate(resolution.element),
+        resolved: formatNativeCandidate(actuation.element),
         confidence: resolution.confidence,
         tier: resolution.tier,
         alternatives: resolution.alternatives,
         postAction,
         hostCursorAffected: false,
-        error: actionResult.error
+        error: actionResult.error ?? (verified ? void 0 : postAction?.reason === "timeout" ? "Action delivered but verification timed out; inspect the evidence before repeating." : "Action delivered but its expected effect was not verified; inspect the evidence before repeating.")
       });
     } catch (err) {
       const classified = classifyExtractorError(err);
@@ -24666,16 +24716,16 @@ var NativeSessionController = class {
       let postAction;
       if (actionResult.success) {
         try {
-          postAction = await this.waitForSimulatorPostAction(entry, request);
+          postAction = await this.waitForSimulatorPostAction(entry, request, nativeStateSignature(entry.device, flattened));
         } catch (error) {
           postAction = { ...emptyPostActionState(Date.now(), request.waitFor), reason: "observation-failed", observationError: String(error) };
         }
       }
-      return nativeActionResponse(actionResult.success, {
+      return nativeActionResponse(actionResult.success && postAction?.settled === true && postAction.effectVerified === true, {
         backend: "simulator-ax",
         device: entry.device,
         actionDelivered: actionResult.success,
-        verificationPassed: postAction?.settled === true,
+        verificationPassed: postAction?.settled === true && postAction.effectVerified === true,
         requestedAction: request.action,
         axAction: mapped.action,
         target: request.target,
@@ -24722,7 +24772,7 @@ var NativeSessionController = class {
     return capabilityOutcomeResult(request.action, outcome);
   }
   // ── post-action settle loops (3e9375a) ────────────────────────────────────
-  async waitForMacOSPostAction(entry, request) {
+  async waitForMacOSPostAction(entry, request, expected) {
     const started = Date.now();
     const timeoutMs = normalizeNativeWaitTimeout(request.waitTimeoutMs, request.waitFor ? 2e3 : 700);
     let previousSignature = null;
@@ -24747,6 +24797,10 @@ var NativeSessionController = class {
       const interactive = candidates.filter((candidate) => candidate.actions.length > 0);
       const resolution = request.waitFor ? resolveMacOSElement(elements, request.waitFor) : null;
       const signature = nativeStateSignature(window2, candidates);
+      const observedTarget = candidates.find((candidate) => candidate.role === expected.target.role && (expected.target.identifier ? candidate.identifier === expected.target.identifier : candidate.label === expected.target.label && JSON.stringify(candidate.path) === JSON.stringify(expected.target.path)));
+      const stateChanged = signature !== expected.beforeSignature;
+      const absoluteEffect = expected.action === "select" ? observedTarget?.selected === true : expected.action === "setValue" ? observedTarget?.value === expected.value : expected.action === "focus" ? observedTarget?.focused === true : void 0;
+      const effectVerified = (absoluteEffect ?? stateChanged) && (!request.waitFor || Boolean(resolution));
       attempts += 1;
       latest = {
         settled: false,
@@ -24755,6 +24809,9 @@ var NativeSessionController = class {
         elapsedMs: Date.now() - started,
         waitFor: request.waitFor,
         waitForFound: Boolean(resolution),
+        effectVerified,
+        stateChanged,
+        targetSelected: observedTarget?.selected,
         window: window2,
         totalElements: candidates.length,
         interactiveElements: interactive.length,
@@ -24773,13 +24830,19 @@ var NativeSessionController = class {
           hostCursorAffected: false
         } : void 0
       };
-      if (resolution) {
+      if (resolution && effectVerified) {
         return {
           ...latest,
           settled: true,
           reason: "waitFor-found",
           elements: [formatNativeCandidate(resolution.element), ...latest.elements.filter((e) => JSON.stringify(e.path) !== JSON.stringify(resolution.element.path))].slice(0, 10)
         };
+      }
+      if (!request.waitFor && absoluteEffect === true) {
+        return { ...latest, settled: true, reason: "target-state" };
+      }
+      if (!request.waitFor && timeoutMs === 0 && effectVerified) {
+        return { ...latest, settled: true, reason: "state-changed" };
       }
       if (!request.waitFor && previousSignature === signature) {
         return { ...latest, settled: true, reason: "tree-stable" };
@@ -24791,7 +24854,7 @@ var NativeSessionController = class {
     } while (Date.now() - started < timeoutMs);
     return latest;
   }
-  async waitForSimulatorPostAction(entry, request) {
+  async waitForSimulatorPostAction(entry, request, beforeSignature) {
     const started = Date.now();
     const timeoutMs = normalizeNativeWaitTimeout(request.waitTimeoutMs, request.waitFor ? 2e3 : 700);
     let previousSignature = null;
@@ -24823,6 +24886,8 @@ var NativeSessionController = class {
       const interactive = candidates.filter((candidate) => candidate.actions.length > 0);
       const resolution = request.waitFor ? resolveSimulatorElement(extraction.elements, request.waitFor) : null;
       const signature = nativeStateSignature(entry.device, candidates);
+      const stateChanged = signature !== beforeSignature;
+      const effectVerified = stateChanged && (!request.waitFor || Boolean(resolution));
       attempts += 1;
       latest = {
         settled: false,
@@ -24831,6 +24896,8 @@ var NativeSessionController = class {
         elapsedMs: Date.now() - started,
         waitFor: request.waitFor,
         waitForFound: Boolean(resolution),
+        stateChanged,
+        effectVerified,
         totalElements: candidates.length,
         interactiveElements: interactive.length,
         elements: interactive.slice(0, 10).map(formatNativeCandidate),
@@ -24846,7 +24913,7 @@ var NativeSessionController = class {
           hostCursorAffected: false
         } : void 0
       };
-      if (resolution) {
+      if (resolution && effectVerified) {
         return {
           ...latest,
           settled: true,
@@ -24872,6 +24939,7 @@ function nativeStateSignature(window2, candidates) {
       candidate.identifier,
       candidate.value,
       candidate.selected,
+      candidate.focused,
       candidate.enabled,
       candidate.actions.join(","),
       candidate.frame
@@ -24986,6 +25054,8 @@ function formatNativeCandidate(candidate) {
     value: candidate.value,
     enabled: candidate.enabled,
     selected: candidate.selected,
+    selectionSettable: candidate.selectionSettable,
+    focused: candidate.focused,
     actions: candidate.actions,
     path: candidate.path,
     frame: candidate.frame

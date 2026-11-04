@@ -1,0 +1,90 @@
+{
+  "already": false,
+  "comments": [],
+  "created_at": "2026-11-04T20:52:56Z",
+  "errors": [],
+  "input_digest": "073d1bb0f1434bba5e0f1a7c41e6b5f50cc7c9e5d7ecf6a24c05b7985902810e",
+  "input_limits": {
+    "directory_scan_truncated": false,
+    "files_read": 1,
+    "skipped_outside": [],
+    "truncated_files": []
+  },
+  "learn_line": "Learn: accruing (1/3 runs)",
+  "outcome": "accruing",
+  "patterns_count": 0,
+  "pending_actions": [],
+  "run_id": "bl-20261104T195654Z-codex-739907",
+  "runs_count": 1,
+  "schema": "build-loop.learn-receipt.v1",
+  "source": "review-g",
+  "stages": {
+    "accrue": {
+      "candidates": 0,
+      "fired": true,
+      "pending_dir": "<workspace>/interface-built-right-sidebar-20261104/.build-loop/learn/pending",
+      "rc": 0,
+      "status": "complete"
+    },
+    "collect": {
+      "drafted_skipped": 0,
+      "enforcement_specs": 0,
+      "learning_proposals": 0,
+      "manual_patterns": 0,
+      "procedural_candidates": 0,
+      "retro_dispositioned_skipped": 0,
+      "retro_patterns": 0,
+      "retro_placeholder_skipped": 0,
+      "security_patterns": 0,
+      "selected": 0,
+      "skipped_by_cap": 0,
+      "status": "complete",
+      "tool_trace_patterns": 0,
+      "truncated_inputs": []
+    },
+    "compatibility": {
+      "disposition": "not-applicable",
+      "evidence": [
+        "<workspace>/interface-built-right-sidebar-20261104/.build-loop/runs/ibr-mobile-20261104-01/review.json",
+        "<workspace>/interface-built-right-sidebar-20261104/.build-loop/runs/ibr-mobile-20261104-01/plan.md"
+      ],
+      "reason": "No agent hook/config compatibility registry changes. Existing SwiftUI AX and Network APIs retained; Mac/iOS compile and transport/controller tests cover the changed contracts. Legacy DeviceHub observer limitation recorded separately.",
+      "review": "<workspace>/interface-built-right-sidebar-20261104/.build-loop/compatibility/bl-20261104T195654Z-codex-739907.json",
+      "status": "complete"
+    },
+    "consolidate": {
+      "return_code": 0,
+      "status": "complete"
+    },
+    "detect": {
+      "return_code": 0,
+      "status": "complete"
+    },
+    "draft": {
+      "count": 0,
+      "status": "not_applicable"
+    },
+    "enforcement": {
+      "count": 0,
+      "status": "not_applicable"
+    },
+    "notify": {
+      "source": "learn_line",
+      "status": "complete"
+    },
+    "record": {
+      "run_id": "bl-20261104T195654Z-codex-739907",
+      "status": "complete"
+    },
+    "sample_sweep": {
+      "reason": "accruing",
+      "status": "skipped"
+    },
+    "signoff": {
+      "count": 0,
+      "status": "not_applicable"
+    }
+  },
+  "status": "complete",
+  "work_orders": []
+}

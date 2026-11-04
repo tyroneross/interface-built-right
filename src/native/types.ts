@@ -150,6 +150,7 @@ export interface MacOSAXElement {
   enabled: boolean;
   focused: boolean;
   selected?: boolean | null;
+  selectionSettable?: boolean;
   actions: string[];
   position: { x: number; y: number } | null;
   size: { width: number; height: number } | null;

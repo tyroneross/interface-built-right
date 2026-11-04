@@ -32,6 +32,8 @@ import {
 import {
   flattenMacOSElements,
   flattenSimulatorElements,
+  macOSActionTarget,
+  isSelectableMacOSRow,
   resolveMacOSElement,
   resolveSimulatorElement,
   type NativeAction,
@@ -184,7 +186,10 @@ export interface NativeSessionActionRequest {
 
 type NativePostActionState = {
   settled: boolean;
-  reason: 'waitFor-found' | 'tree-stable' | 'timeout' | 'observation-failed';
+  reason: 'waitFor-found' | 'target-state' | 'state-changed' | 'tree-stable' | 'timeout' | 'observation-failed';
+  effectVerified?: boolean;
+  stateChanged?: boolean;
+  targetSelected?: boolean | null;
   observationError?: string;
   attempts: number;
   elapsedMs: number;
@@ -448,7 +453,7 @@ export class NativeSessionController {
         const matches = flattenMacOSElements(elements).filter(c => c.role === expected.role &&
           (expected.identifier ? c.identifier === expected.identifier : c.label === expected.label));
         if (extraction.window.windowId !== expected.windowId || matches.length !== 1 ||
-            !resolution.element.enabled || JSON.stringify(matches[0].path) !== JSON.stringify(expected.path) ||
+            (!resolution.element.enabled && !isSelectableMacOSRow(resolution.element)) || JSON.stringify(matches[0].path) !== JSON.stringify(expected.path) ||
             JSON.stringify(resolution.element.path) !== JSON.stringify(matches[0].path)) {
           return errorResult('Ref target changed or became ambiguous during action resolution; read refs again.');
         }
@@ -460,33 +465,47 @@ export class NativeSessionController {
       const mapped = mapSessionActionToNative(request.action, request.value);
       if ('error' in mapped) return errorResult(mapped.error);
 
+      const actuation = macOSActionTarget(elements, resolution.element, mapped.action);
+      if (!actuation) return nativeActionResponse(false, {
+        actionDelivered: false, verificationPassed: false, requestedAction: request.action,
+        target: request.target, resolved: formatNativeCandidate(resolution.element),
+        error: 'Target has no supported press or selection action.',
+      });
+
+      const beforeSignature = nativeStateSignature(extraction.window, flattenMacOSElements(elements));
       const actionResult = await this.backend.performAction(
         { kind: 'macos', pid: entry.pid!, app: entry.app },
-        { elementPath: resolution.element.path, action: mapped.action, value: mapped.value },
+        { elementPath: actuation.element.path!, action: actuation.action, value: mapped.value },
       );
 
       let postAction: NativePostActionState | undefined;
       if (actionResult.success) {
-        try { postAction = await this.waitForMacOSPostAction(entry, request); }
+        try { postAction = await this.waitForMacOSPostAction(entry, request, {
+          beforeSignature,
+          target: actuation.element, action: actuation.action, value: mapped.value,
+        }); }
         catch (error) { postAction = { ...emptyPostActionState(Date.now(), request.waitFor), reason: 'observation-failed', observationError: String(error) }; }
       }
 
-      return nativeActionResponse(actionResult.success, {
+      const verified = actionResult.success && postAction?.settled === true && postAction.effectVerified === true;
+      return nativeActionResponse(verified, {
         backend: 'macos-ax',
         app: entry.app,
         pid: entry.pid,
         actionDelivered: actionResult.success,
-        verificationPassed: postAction?.settled === true,
+        verificationPassed: verified,
         requestedAction: request.action,
-        axAction: mapped.action,
+        axAction: actuation.action,
         target: request.target,
-        resolved: formatNativeCandidate(resolution.element),
+        resolved: formatNativeCandidate(actuation.element),
         confidence: resolution.confidence,
         tier: resolution.tier,
         alternatives: resolution.alternatives,
         postAction,
         hostCursorAffected: false,
-        error: actionResult.error,
+        error: actionResult.error ?? (verified ? undefined : postAction?.reason === 'timeout'
+          ? 'Action delivered but verification timed out; inspect the evidence before repeating.'
+          : 'Action delivered but its expected effect was not verified; inspect the evidence before repeating.'),
       });
     } catch (err) {
       const classified = classifyExtractorError(err);
@@ -545,15 +564,15 @@ export class NativeSessionController {
 
       let postAction: NativePostActionState | undefined;
       if (actionResult.success) {
-        try { postAction = await this.waitForSimulatorPostAction(entry, request); }
+        try { postAction = await this.waitForSimulatorPostAction(entry, request, nativeStateSignature(entry.device, flattened)); }
         catch (error) { postAction = { ...emptyPostActionState(Date.now(), request.waitFor), reason: 'observation-failed', observationError: String(error) }; }
       }
 
-      return nativeActionResponse(actionResult.success, {
+      return nativeActionResponse(actionResult.success && postAction?.settled === true && postAction.effectVerified === true, {
         backend: 'simulator-ax',
         device: entry.device,
         actionDelivered: actionResult.success,
-        verificationPassed: postAction?.settled === true,
+        verificationPassed: postAction?.settled === true && postAction.effectVerified === true,
         requestedAction: request.action,
         axAction: mapped.action,
         target: request.target,
@@ -609,6 +628,7 @@ export class NativeSessionController {
   private async waitForMacOSPostAction(
     entry: SessionEntry,
     request: NativeSessionActionRequest,
+    expected: { beforeSignature: string; target: NativeElementCandidate; action: NativeAction; value?: string },
   ): Promise<NativePostActionState> {
     const started = Date.now();
     const timeoutMs = normalizeNativeWaitTimeout(request.waitTimeoutMs, request.waitFor ? 2000 : 700);
@@ -635,6 +655,14 @@ export class NativeSessionController {
         ? resolveMacOSElement(elements, request.waitFor)
         : null;
       const signature = nativeStateSignature(window, candidates);
+      const observedTarget = candidates.find(candidate => candidate.role === expected.target.role &&
+        (expected.target.identifier ? candidate.identifier === expected.target.identifier :
+          candidate.label === expected.target.label && JSON.stringify(candidate.path) === JSON.stringify(expected.target.path)));
+      const stateChanged = signature !== expected.beforeSignature;
+      const absoluteEffect = expected.action === 'select' ? observedTarget?.selected === true
+        : expected.action === 'setValue' ? observedTarget?.value === expected.value
+        : expected.action === 'focus' ? observedTarget?.focused === true : undefined;
+      const effectVerified = (absoluteEffect ?? stateChanged) && (!request.waitFor || Boolean(resolution));
 
       attempts += 1;
       latest = {
@@ -644,6 +672,7 @@ export class NativeSessionController {
         elapsedMs: Date.now() - started,
         waitFor: request.waitFor,
         waitForFound: Boolean(resolution),
+        effectVerified, stateChanged, targetSelected: observedTarget?.selected,
         window,
         totalElements: candidates.length,
         interactiveElements: interactive.length,
@@ -657,13 +686,20 @@ export class NativeSessionController {
         } : undefined,
       };
 
-      if (resolution) {
+      if (resolution && effectVerified) {
         return {
           ...latest,
           settled: true,
           reason: 'waitFor-found',
           elements: [formatNativeCandidate(resolution.element), ...latest.elements.filter(e => JSON.stringify(e.path) !== JSON.stringify(resolution.element.path))].slice(0, 10),
         };
+      }
+
+      if (!request.waitFor && absoluteEffect === true) {
+        return { ...latest, settled: true, reason: 'target-state' };
+      }
+      if (!request.waitFor && timeoutMs === 0 && effectVerified) {
+        return { ...latest, settled: true, reason: 'state-changed' };
       }
 
       if (!request.waitFor && previousSignature === signature) {
@@ -685,6 +721,7 @@ export class NativeSessionController {
   private async waitForSimulatorPostAction(
     entry: SessionEntry,
     request: NativeSessionActionRequest,
+    beforeSignature: string,
   ): Promise<NativePostActionState> {
     const started = Date.now();
     const timeoutMs = normalizeNativeWaitTimeout(request.waitTimeoutMs, request.waitFor ? 2000 : 700);
@@ -718,6 +755,8 @@ export class NativeSessionController {
         ? resolveSimulatorElement(extraction.elements, request.waitFor)
         : null;
       const signature = nativeStateSignature(entry.device, candidates);
+      const stateChanged = signature !== beforeSignature;
+      const effectVerified = stateChanged && (!request.waitFor || Boolean(resolution));
 
       attempts += 1;
       latest = {
@@ -727,6 +766,7 @@ export class NativeSessionController {
         elapsedMs: Date.now() - started,
         waitFor: request.waitFor,
         waitForFound: Boolean(resolution),
+        stateChanged, effectVerified,
         totalElements: candidates.length,
         interactiveElements: interactive.length,
         elements: interactive.slice(0, 10).map(formatNativeCandidate),
@@ -738,7 +778,7 @@ export class NativeSessionController {
         } : undefined,
       };
 
-      if (resolution) {
+      if (resolution && effectVerified) {
         return {
           ...latest,
           settled: true,
@@ -772,6 +812,7 @@ export function nativeStateSignature(window: unknown, candidates: NativeElementC
       candidate.identifier,
       candidate.value,
       candidate.selected,
+      candidate.focused,
       candidate.enabled,
       candidate.actions.join(','),
       candidate.frame,
@@ -917,6 +958,8 @@ export function formatNativeCandidate(candidate: NativeElementCandidate): Record
     value: candidate.value,
     enabled: candidate.enabled,
     selected: candidate.selected,
+    selectionSettable: candidate.selectionSettable,
+    focused: candidate.focused,
     actions: candidate.actions,
     path: candidate.path,
     frame: candidate.frame,

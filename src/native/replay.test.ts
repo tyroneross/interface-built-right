@@ -35,14 +35,14 @@ describe('replay (macOS)', () => {
   };
 
   it('acts on the recorded path with a cache hit when the tree is unchanged', async () => {
-    const { backend, pressed } = fakeBackend([tree]);
+    const { backend, pressed } = fakeBackend([tree, [...tree, btn('result', [2], 40)]]);
     const r = await replay(file, target, { backend, settleMs: 0 });
     expect(r[0].status).toBe('cached');
     expect(pressed).toEqual([[0]]);
   });
 
   it('verifies without re-resolving when the tree changed but the path still holds the element', async () => {
-    const { backend, pressed } = fakeBackend([tree], { w: 300 });
+    const { backend, pressed } = fakeBackend([tree, [...tree, btn('result', [2], 40)]], { w: 300 });
     const r = await replay(file, target, { backend, settleMs: 0 });
     expect(r[0].status).toBe('verified');
     expect(pressed).toEqual([[0]]);
@@ -50,11 +50,18 @@ describe('replay (macOS)', () => {
 
   it('heals by fingerprint when the recorded path now addresses a different element', async () => {
     const moved = [btn('AC', [0], 0), btn('7', [3], 40)];
-    const { backend, pressed } = fakeBackend([moved]);
+    const { backend, pressed } = fakeBackend([moved, [...moved, btn('result', [4], 60)]]);
     const r = await replay(file, target, { backend, settleMs: 0 });
     expect(r[0]).toMatchObject({ status: 'healed', from: '0', to: '3' });
     expect(pressed).toEqual([[3]]);
     expect(formatReplayReport(r, 1)).toContain('healed #1 Button "7" 0 -> 3');
+  });
+
+  it('does not report an unchanged delivered press as verified replay', async () => {
+    const { backend, pressed } = fakeBackend([tree]);
+    const r = await replay(file, target, { backend, settleMs: 0 });
+    expect(r[0]).toMatchObject({ status: 'failed', actionDelivered: true, verificationPassed: false });
+    expect(pressed).toEqual([[0]]);
   });
 
   it('fails instead of guessing when the fingerprint matches two distinct elements', async () => {
@@ -84,17 +91,25 @@ describe('replay (simulator)', () => {
   };
   const simTarget = { sessionId: 's2', kind: 'simulator' as const, udid: 'U' };
 
+  it('rejects a delivered tap with no observed effect', async () => {
+    const reports = await replay(file, simTarget, { backend: {} as NativeBackend,
+      readSimulatorElements: async () => els, tapSimulator: async () => ({ success: true }), settleMs: 0 });
+    expect(reports[0]).toMatchObject({ status: 'failed', actionDelivered: true, verificationPassed: false });
+  });
+
   it('elementAtPoint picks the smallest containing frame', () => {
     expect(elementAtPoint(els, 200, 120)?.label).toBe('General');
   });
 
   it('taps the recorded point when unchanged and heals to the new center when the row moved', async () => {
+    let tapped = false;
     const taps: number[][] = [];
-    const tap = async (_u: string, x: number, y: number) => { taps.push([x, y]); return { success: true }; };
-    const same = await replay(file, simTarget, { backend: {} as NativeBackend, readSimulatorElements: async () => els, tapSimulator: tap, settleMs: 0 });
+    const tap = async (_u: string, x: number, y: number) => { tapped = true; taps.push([x, y]); return { success: true }; };
+    const same = await replay(file, simTarget, { backend: {} as NativeBackend, readSimulatorElements: async () => tapped ? [...els, { role: 'Text', label: 'opened' }] : els, tapSimulator: tap, settleMs: 0 });
     expect(same[0].status).toBe('cached');
+    tapped = false;
     const moved = [els[0], { ...els[1], frame: { x: 0, y: 300, width: 400, height: 40 } }];
-    const healed = await replay(file, simTarget, { backend: {} as NativeBackend, readSimulatorElements: async () => moved, tapSimulator: tap, settleMs: 0 });
+    const healed = await replay(file, simTarget, { backend: {} as NativeBackend, readSimulatorElements: async () => tapped ? [...moved, { role: 'Text', label: 'opened' }] : moved, tapSimulator: tap, settleMs: 0 });
     expect(healed[0]).toMatchObject({ status: 'healed', from: '200,120', to: '200,320' });
     expect(taps).toEqual([[200, 120], [200, 320]]);
   });
