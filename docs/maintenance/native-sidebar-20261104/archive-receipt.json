@@ -1,0 +1,21 @@
+{
+  "branch": "codex/native-sidebar-20261104",
+  "commit": "d3fbe1a0a0ff0450172187a84f8710e5b983ea1c",
+  "integratedInto": "local main",
+  "tag": "archive/native-sidebar-20261104",
+  "bundle": ".build-loop/archives/ibr-native-sidebar-20261104/branch.bundle",
+  "bundleSHA256": "be96622a6435f3d3756b5c0fb7611774b7f78c0be2793c7ff5788937e009acac",
+  "runArchive": ".build-loop/archives/ibr-native-sidebar-20261104/worktree-run.tar.gz",
+  "runArchiveSHA256": "e7aebaf00ce22499366e6c02fbac060011a5690ffc51ca42d445b23fd428a733",
+  "archivedFiles": 159,
+  "excludedRebuildable": [
+    "Swift .build",
+    "tokenizer venv/cache"
+  ],
+  "worktree": "<workspace>/interface-built-right-sidebar-20261104",
+  "worktreeRemoval": "complete; clean source at merged commit, task symlink removed, ignored run archived and index verified",
+  "nodeModules": "Task-created symlink only;shared canonical target preserved",
+  "noPush": true,
+  "branchRemoval": "complete; archive tag and verified delta bundle retained",
+  "proceduralPreservedAt": ".build-loop/archives/ibr-native-sidebar-20261104/procedural-worktree"
+}
