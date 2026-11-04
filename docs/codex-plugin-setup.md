@@ -10,6 +10,8 @@ Codex uses:
 - `.codex-plugin/skills/` for the agent-facing design, validation, and native routing guidance.
 - `references/` for detailed UI/UX reference files used by the compact Codex skills.
 
+The Codex manifest explicitly sets `"hooks": {}`. Omitting the field makes Codex discover `hooks/hooks.json` automatically, which activates Claude-oriented hook discovery and fingerprints the package even when those hooks are untrusted. The empty map preserves skills plus the CLI as the on-demand Codex workflow; Claude keeps its own hook registration.
+
 Codex does not load Claude slash-command routing from `commands/`, Claude hooks from `hooks/`, or Claude-style agent frontmatter from `agents/`. The larger shared `skills/` directory remains the source library for Claude/source workflows; the Codex manifest intentionally points at the compact `.codex-plugin/skills/` layer to keep activation costs low.
 
 ## Install This Checkout Locally

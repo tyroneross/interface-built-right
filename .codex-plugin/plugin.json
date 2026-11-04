@@ -22,6 +22,7 @@
     "codex"
   ],
   "skills": "./.codex-plugin/skills",
+  "hooks": {},
   "interface": {
     "displayName": "Interface Built Right",
     "shortDescription": "Design and build UI/UX; audit and refine the result.",

@@ -203,6 +203,13 @@ class CodexRuntimeSurfaceTests(unittest.TestCase):
         ),
     }
 
+    def test_codex_explicitly_disables_implicit_claude_hook_discovery(self) -> None:
+        manifest = load_json(REPO_ROOT / ".codex-plugin" / "plugin.json")
+        self.assertIn("hooks", manifest)
+        self.assertEqual(manifest["hooks"], {})
+        # Keep Claude's hook workflow available in its own host.
+        self.assertTrue(load_json(REPO_ROOT / "hooks" / "hooks.json")["hooks"])
+
     def test_codex_skills_route_to_cli_without_mcp(self) -> None:
         for relative_path, required_fragments in self.REQUIRED_CLI_GUIDANCE.items():
             with self.subTest(skill=relative_path):
