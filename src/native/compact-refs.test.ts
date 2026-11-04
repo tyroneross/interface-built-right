@@ -47,3 +47,38 @@ describe('assignRefs with prior refs', () => {
     expect(after.map((r) => `${r.ref}:${r.label}`)).toEqual(['e3:New', 'e1:A', 'e2:B']);
   });
 });
+
+describe('state and identity regressions', () => {
+  it('keeps a unique ref while reporting value, enabled, label, and geometry changes', () => {
+    const before = assignRefs([{ role: 'AXCheckBox', identifier: 'approve', label: 'Approve', value: '0', enabled: true, frame }]);
+    const after = assignRefs([{ role: 'AXCheckBox', identifier: 'approve', label: 'Approved', value: '1', enabled: false, frame: { ...frame, x: 90 } }], before);
+    expect(after[0].ref).toBe(before[0].ref);
+    expect(diffRefs(before, after)).toMatchObject({ added: [], removed: [], updated: [after[0]], unchanged: 0 });
+    expect(formatDiff(diffRefs(before, after))).toContain('value="1" disabled');
+  });
+  it('never reuses retired refs, including after an empty persisted snapshot', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ibr-refs-empty-'));
+    const before = assignRefs([{ role: 'AXButton', label: 'Delete' }]);
+    saveRefs(dir, 's', assignRefs([], before), 'generation1');
+    const after = assignRefs([{ role: 'AXButton', label: 'Other' }], loadRefs(dir, 's', 'generation1'));
+    expect(after[0].ref).toBe('e2');
+    saveRefs(dir, 's', after, 'generation1');
+    const generation2 = loadRefs(dir, 's', 'generation2');
+    expect(generation2).toHaveLength(0);
+    expect(assignRefs([{ role: 'AXButton', label: 'Other' }], generation2)[0].ref).toBe('e3');
+  });
+  it('retires ambiguous twins instead of transferring a cached ref', () => {
+    const before = assignRefs([{ role: 'AXButton', label: 'Delete', frame }]);
+    const after = assignRefs([{ role: 'AXButton', label: 'Delete', frame }, { role: 'AXButton', label: 'Delete', frame: { ...frame, y: 80 } }], before);
+    expect(after.map(e => e.ref)).not.toContain('e1');
+  });
+});
+
+it('retires refs when the window identity changes and reports selection-only changes', () => {
+  const before = assignRefs([{ role: 'AXButton', identifier: 'tab', selected: false, windowId: 1 }]);
+  const selected = assignRefs([{ role: 'AXButton', identifier: 'tab', selected: true, windowId: 1 }], before);
+  expect(selected[0].ref).toBe('e1');
+  expect(diffRefs(before, selected).updated).toHaveLength(1);
+  const otherWindow = assignRefs([{ role: 'AXButton', identifier: 'tab', selected: true, windowId: 2 }], selected);
+  expect(otherWindow[0].ref).toBe('e2');
+});

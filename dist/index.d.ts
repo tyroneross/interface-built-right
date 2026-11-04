@@ -8316,6 +8316,7 @@ interface MacOSAXElement {
     placeholder: string | null;
     enabled: boolean;
     focused: boolean;
+    selected?: boolean | null;
     actions: string[];
     position: {
         x: number;
@@ -8888,6 +8889,7 @@ interface NativeElementCandidate {
     identifier?: string | null;
     value?: string | null;
     enabled: boolean;
+    selected?: boolean | null;
     actions: string[];
     frame?: {
         x: number;
@@ -9321,6 +9323,16 @@ interface NativeSessionActionRequest {
     role?: string;
     waitFor?: string;
     waitTimeoutMs?: number;
+    /** macOS element actions: include the exact validated post-action snapshot. */
+    includeObservation?: boolean;
+    /** Exact ref fingerprint checked against the action extraction, never fuzzy resolution. */
+    expectedRef?: {
+        role: string;
+        label: string | null;
+        identifier: string | null;
+        path?: number[];
+        windowId?: number;
+    };
     chord?: string;
     delivery?: 'background' | 'foreground';
     width?: number;

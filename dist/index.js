@@ -16634,7 +16634,9 @@ async function extractMacOSElements(options) {
 }
 async function runMacOSExtraction(extractorPath, args) {
   const { stdout, stderr } = await execFileAsync4(extractorPath, args, {
-    timeout: 3e4
+    timeout: 3e4,
+    // AX trees can include long document values; keep a bounded 16 MiB budget.
+    maxBuffer: 16 * 1024 * 1024
   });
   if (stderr && stderr.includes("Error:")) {
     throw new Error(stderr.trim());
@@ -23169,6 +23171,7 @@ function flattenMacOSElements(elements) {
         identifier: el.identifier,
         value: el.value,
         enabled: el.enabled,
+        selected: el.selected,
         actions: el.actions,
         frame: el.position && el.size ? {
           x: el.position.x,
@@ -24603,6 +24606,13 @@ var NativeSessionController = class {
       if (!resolution) {
         return nativeTargetNotFound(request.target ?? "", flattenMacOSElements(elements));
       }
+      if (request.expectedRef) {
+        const expected = request.expectedRef;
+        const matches = flattenMacOSElements(elements).filter((c) => c.role === expected.role && (expected.identifier ? c.identifier === expected.identifier : c.label === expected.label));
+        if (extraction.window.windowId !== expected.windowId || matches.length !== 1 || !resolution.element.enabled || JSON.stringify(matches[0].path) !== JSON.stringify(expected.path) || JSON.stringify(resolution.element.path) !== JSON.stringify(matches[0].path)) {
+          return errorResult("Ref target changed or became ambiguous during action resolution; read refs again.");
+        }
+      }
       if (!resolution.element.path) {
         return errorResult(`Element "${request.target}" was found but has no AX path. Rebuild the native extractor and try again.`);
       }
@@ -24612,11 +24622,20 @@ var NativeSessionController = class {
         { kind: "macos", pid: entry.pid, app: entry.app },
         { elementPath: resolution.element.path, action: mapped.action, value: mapped.value }
       );
-      const postAction = actionResult.success ? await this.waitForMacOSPostAction(entry, request) : void 0;
+      let postAction;
+      if (actionResult.success) {
+        try {
+          postAction = await this.waitForMacOSPostAction(entry, request);
+        } catch (error) {
+          postAction = { ...emptyPostActionState(Date.now(), request.waitFor), reason: "observation-failed", observationError: String(error) };
+        }
+      }
       return nativeActionResponse(actionResult.success, {
         backend: "macos-ax",
         app: entry.app,
         pid: entry.pid,
+        actionDelivered: actionResult.success,
+        verificationPassed: postAction?.settled === true,
         requestedAction: request.action,
         axAction: mapped.action,
         target: request.target,
@@ -24656,16 +24675,32 @@ var NativeSessionController = class {
       if (!resolution.element.path) {
         return errorResult(`Element "${request.target}" was found but has no AX path. Rebuild the native extractor and try again.`);
       }
+      if (request.expectedRef) {
+        const expected = request.expectedRef;
+        const matches = flattened.filter((c) => c.role === expected.role && (expected.identifier ? c.identifier === expected.identifier : c.label === expected.label));
+        if (matches.length !== 1 || !resolution.element.enabled || JSON.stringify(matches[0].path) !== JSON.stringify(expected.path) || JSON.stringify(resolution.element.path) !== JSON.stringify(matches[0].path)) {
+          return errorResult("Ref target changed or became ambiguous during simulator action resolution; read refs again.");
+        }
+      }
       const mapped = mapSessionActionToNative(request.action, request.value);
       if ("error" in mapped) return errorResult(mapped.error);
       const actionResult = await this.backend.performAction(
         { kind: "simulator", device: { udid: device.udid, name: device.name } },
         { elementPath: resolution.element.path, action: mapped.action, value: mapped.value }
       );
-      const postAction = actionResult.success ? await this.waitForSimulatorPostAction(entry, request) : void 0;
+      let postAction;
+      if (actionResult.success) {
+        try {
+          postAction = await this.waitForSimulatorPostAction(entry, request);
+        } catch (error) {
+          postAction = { ...emptyPostActionState(Date.now(), request.waitFor), reason: "observation-failed", observationError: String(error) };
+        }
+      }
       return nativeActionResponse(actionResult.success, {
         backend: "simulator-ax",
         device: entry.device,
+        actionDelivered: actionResult.success,
+        verificationPassed: postAction?.settled === true,
         requestedAction: request.action,
         axAction: mapped.action,
         target: request.target,
@@ -24722,8 +24757,16 @@ var NativeSessionController = class {
       if (attempts === 0 && timeoutMs > 0) {
         await sleep6(Math.min(120, timeoutMs));
       }
-      const extraction = await this.backend.extract({ kind: "macos", pid: entry.pid, app: entry.app });
-      if (extraction.kind !== "macos") break;
+      const budget = timeoutMs === 0 ? 250 : timeoutMs - (Date.now() - started);
+      if (budget <= 0) break;
+      let extraction;
+      try {
+        extraction = await boundedObservation(() => this.backend.extract({ kind: "macos", pid: entry.pid, app: entry.app }), budget);
+      } catch (error) {
+        return { ...latest, reason: "observation-failed", observationError: String(error), elapsedMs: Date.now() - started };
+      }
+      if (timeoutMs > 0 && Date.now() - started > timeoutMs) break;
+      if (extraction.kind !== "macos") return { ...latest, reason: "observation-failed", observationError: "Native extraction unavailable", elapsedMs: Date.now() - started };
       const { elements, window: window2 } = extraction;
       const candidates = flattenMacOSElements(elements);
       const interactive = candidates.filter((candidate) => candidate.actions.length > 0);
@@ -24740,20 +24783,36 @@ var NativeSessionController = class {
         window: window2,
         totalElements: candidates.length,
         interactiveElements: interactive.length,
-        elements: interactive.slice(0, 10).map(formatNativeCandidate)
+        elements: interactive.slice(0, 10).map(formatNativeCandidate),
+        observation: request.includeObservation ? {
+          type: "macos",
+          backend: "macos-ax",
+          app: entry.app,
+          pid: entry.pid,
+          window: window2,
+          totalElements: candidates.length,
+          interactiveElements: interactive.length,
+          returned: candidates.length,
+          observedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          elements: candidates.map((candidate) => ({ ...formatNativeCandidate(candidate), value: candidate.value })),
+          hostCursorAffected: false
+        } : void 0
       };
       if (resolution) {
         return {
           ...latest,
           settled: true,
           reason: "waitFor-found",
-          elements: [formatNativeCandidate(resolution.element), ...latest.elements].slice(0, 10)
+          elements: [formatNativeCandidate(resolution.element), ...latest.elements.filter((e) => JSON.stringify(e.path) !== JSON.stringify(resolution.element.path))].slice(0, 10)
         };
       }
       if (!request.waitFor && previousSignature === signature) {
         return { ...latest, settled: true, reason: "tree-stable" };
       }
       previousSignature = signature;
+      const remainingMs = timeoutMs - (Date.now() - started);
+      if (remainingMs <= 0) break;
+      await sleep6(Math.min(32, remainingMs));
     } while (Date.now() - started < timeoutMs);
     return latest;
   }
@@ -24767,7 +24826,15 @@ var NativeSessionController = class {
       if (attempts === 0 && timeoutMs > 0) {
         await sleep6(Math.min(120, timeoutMs));
       }
-      const extraction = await this.backend.extract({ kind: "simulator", device: entry.device });
+      const budget = timeoutMs === 0 ? 250 : timeoutMs - (Date.now() - started);
+      if (budget <= 0) break;
+      let extraction;
+      try {
+        extraction = await boundedObservation(() => this.backend.extract({ kind: "simulator", device: entry.device }), budget);
+      } catch (error) {
+        return { ...latest, reason: "observation-failed", observationError: String(error), elapsedMs: Date.now() - started };
+      }
+      if (timeoutMs > 0 && Date.now() - started > timeoutMs) break;
       if (extraction.kind === "not-found") {
         return {
           ...latest,
@@ -24791,14 +24858,25 @@ var NativeSessionController = class {
         waitForFound: Boolean(resolution),
         totalElements: candidates.length,
         interactiveElements: interactive.length,
-        elements: interactive.slice(0, 10).map(formatNativeCandidate)
+        elements: interactive.slice(0, 10).map(formatNativeCandidate),
+        observation: request.includeObservation ? {
+          type: "simulator",
+          backend: "simulator-ax",
+          device: entry.device,
+          totalElements: candidates.length,
+          interactiveElements: interactive.length,
+          returned: candidates.length,
+          observedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          elements: candidates.map(formatNativeCandidate),
+          hostCursorAffected: false
+        } : void 0
       };
       if (resolution) {
         return {
           ...latest,
           settled: true,
           reason: "waitFor-found",
-          elements: [formatNativeCandidate(resolution.element), ...latest.elements].slice(0, 10)
+          elements: [formatNativeCandidate(resolution.element), ...latest.elements.filter((e) => JSON.stringify(e.path) !== JSON.stringify(resolution.element.path))].slice(0, 10)
         };
       }
       if (!request.waitFor && previousSignature === signature) {
@@ -24813,11 +24891,12 @@ var nativeSessionController = new NativeSessionController();
 function nativeStateSignature(window2, candidates) {
   return JSON.stringify({
     window: window2,
-    candidates: candidates.slice(0, 200).map((candidate) => [
+    candidates: candidates.map((candidate) => [
       candidate.role,
       candidate.label,
       candidate.identifier,
       candidate.value,
+      candidate.selected,
       candidate.enabled,
       candidate.actions.join(","),
       candidate.frame
@@ -24911,6 +24990,16 @@ function normalizeNativeWaitTimeout(value, fallback) {
 function safeFilePart(value) {
   return value.replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "native-session";
 }
+async function boundedObservation(operation, timeoutMs) {
+  let timer;
+  try {
+    return await Promise.race([operation(), new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Post-action observation timed out")), timeoutMs);
+    })]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 function sleep6(ms) {
   return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
@@ -24919,7 +25008,9 @@ function formatNativeCandidate(candidate) {
     role: candidate.role,
     label: candidate.label || null,
     identifier: candidate.identifier || null,
+    value: candidate.value,
     enabled: candidate.enabled,
+    selected: candidate.selected,
     actions: candidate.actions,
     path: candidate.path,
     frame: candidate.frame

@@ -1,3 +1,7 @@
+import { captureNativeStream } from '../native/stream-capture.js';
+import { join } from 'node:path';
+import { writeCliOutput } from './cli-output.js';
+import { compactNativeRead, saveNativeReport } from '../native-output.js';
 /**
  * `ibr native:session:{start,read,action,close}` — CLI parity for the four
  * native MCP tools (chunk E4-C).
@@ -15,7 +19,7 @@
  * JSON shapes directly, against an injected fake `NativeBackend`, without a
  * real macOS app or spawning a subprocess. `registerNativeSessionCommands`
  * wires those handlers into commander and is the only place that calls
- * `console.log`/`console.error`/`process.exit`.
+ * `console.log`/`console.error` and sets the process exit status.
  */
 
 import type { Command } from 'commander';
@@ -157,6 +161,36 @@ function waitFailed(message: string, extra: Record<string, unknown> = {}): CliRe
   };
 }
 
+/** Compact failures retain the original status and the complete local evidence. */
+async function compactActionFailure(result: CliResult, directory: string): Promise<CliResult> {
+  try {
+    const fullReport = await saveNativeReport(result.json, directory);
+    const source = result.json;
+    const post = postActionOf(source);
+    const bounded = (value: unknown) => typeof value === 'string' ? value.slice(0, 800) : value;
+    const summary: Record<string, unknown> = {};
+    for (const key of ['settled', 'reason', 'attempts', 'elapsedMs', 'waitFor', 'waitForFound', 'totalElements', 'interactiveElements']) {
+      if (post?.[key] !== undefined) summary[key] = bounded(post[key]);
+    }
+    return {
+      exitCode: result.exitCode,
+      json: { ok: false, exitCode: result.exitCode, sessionId: source.sessionId,
+        error: bounded(source.error), errorTruncated: typeof source.error === 'string' && source.error.length > 800,
+        success: source.success, actionDelivered: source.success === true,
+        verificationPassed: false, requestedAction: bounded(source.requestedAction),
+        target: bounded(source.target), backend: source.backend, pid: source.pid,
+        postAction: post ? summary : undefined, fullReport, evidenceSaved: true,
+        snapshotAvailable: Boolean(post?.observation), hostCursorAffected: source.hostCursorAffected },
+      text: `✗ ${bounded(source.error)}\nComplete failure evidence: ${fullReport}`,
+    };
+  } catch (error) {
+    // If storage fails, preserve the full diagnostic inline rather than lose
+    // evidence or imply that a delivered action is safe to repeat.
+    return { ...result, json: { ...result.json, evidenceSaved: false,
+      compactFallback: 'inline-evidence', evidenceError: String(error).slice(0, 800) } };
+  }
+}
+
 /**
  * A target-resolution problem, distinguished from a generic action failure.
  * `nativeTargetNotFound()`'s payload is the only failure shape carrying
@@ -171,9 +205,9 @@ function looksLikeTargetProblem(payload: Record<string, unknown>, rawText: strin
   return rawText.includes('not found') || rawText.includes('no AX path');
 }
 
-function postActionOf(payload: Record<string, unknown>): { settled?: boolean; reason?: string } | undefined {
+function postActionOf(payload: Record<string, unknown>): { settled?: boolean; reason?: string } & Record<string, unknown> | undefined {
   const postAction = payload.postAction;
-  return postAction && typeof postAction === 'object' ? (postAction as { settled?: boolean; reason?: string }) : undefined;
+  return postAction && typeof postAction === 'object' ? (postAction as { settled?: boolean; reason?: string } & Record<string, unknown>) : undefined;
 }
 
 // ─── start ─────────────────────────────────────────────────────────────────
@@ -232,6 +266,7 @@ export interface ReadOptions {
   sessionId: string;
   what?: string;
   limit?: number;
+  format?: 'full' | 'compact';
 }
 
 export async function handleRead(opts: ReadOptions, deps: CliDeps = defaultCliDeps()): Promise<CliResult> {
@@ -241,19 +276,23 @@ export async function handleRead(opts: ReadOptions, deps: CliDeps = defaultCliDe
   const entry = toSessionEntry(stored);
   const store = new Map<string, SessionEntry>([[opts.sessionId, entry]]);
   const controller = deps.makeController(store);
+  if (opts.format && !['full', 'compact'].includes(opts.format)) return invalidTarget('Use --format full or compact.');
+  if (opts.limit !== undefined && (!Number.isInteger(opts.limit) || opts.limit < 0)) return invalidTarget('Read limit must be a non-negative integer.');
   const requested = opts.what ?? 'observe';
   const compact = requested === 'refs';
-  const what = compact ? 'observe' : requested;
+  const what = compact || (opts.format === 'compact' && ['observe', 'extract'].includes(requested)) ? 'extract' : requested;
   // refs reads must cover the same element window as the 200-element post-action
   // re-read, or the first diff reports every element past the limit as added.
-  const limit = opts.what === 'refs' ? Math.max(opts.limit ?? 200, 200) : (opts.limit ?? 50);
+  const limit = opts.format === 'compact' && requested !== 'refs' && ['observe', 'extract'].includes(what)
+    ? Number.MAX_SAFE_INTEGER
+    : opts.what === 'refs' ? Number.MAX_SAFE_INTEGER : (opts.limit ?? 50);
 
   // Simulator guest AX is only reachable through idb; the host AX walk sees Simulator.app chrome.
   if (compact && entry.type !== 'macos' && stored.device) {
     const readEls = deps.readSimulatorElements ?? readSimulatorElements;
     try {
       const elements = await readEls(stored.device.udid);
-      return compactRead(opts.sessionId, { elements }, deps.refsDir ?? DEFAULT_SESSION_STORE_DIR);
+      return compactRead(opts.sessionId, { elements }, deps.refsDir ?? DEFAULT_SESSION_STORE_DIR, JSON.stringify(stored));
     } catch (err) {
       return actionFailed(`idb describe-all failed: ${err instanceof Error ? err.message : String(err)}`, { sessionId: opts.sessionId });
     }
@@ -264,7 +303,7 @@ export async function handleRead(opts: ReadOptions, deps: CliDeps = defaultCliDe
     : await controller.readSimulator(entry, what, limit);
 
   if (compact && result.kind === 'text' && !result.isError) {
-    return compactRead(opts.sessionId, parsePayload(result.text), deps.refsDir ?? DEFAULT_SESSION_STORE_DIR);
+    return compactRead(opts.sessionId, parsePayload(result.text), deps.refsDir ?? DEFAULT_SESSION_STORE_DIR, JSON.stringify(stored));
   }
 
   if (result.kind === 'image') {
@@ -287,6 +326,15 @@ export async function handleRead(opts: ReadOptions, deps: CliDeps = defaultCliDe
   }
 
   const payload = parsePayload(result.text);
+  if (opts.format === 'compact' && ['observe', 'extract'].includes(what)) {
+    try {
+      const fullReport = await saveNativeReport(payload, deps.refsDir ?? DEFAULT_SESSION_STORE_DIR);
+      const compact = compactNativeRead(payload, fullReport, opts.limit ?? Number.MAX_SAFE_INTEGER);
+      return { exitCode: EXIT_OK, json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, ...compact }, text: JSON.stringify(compact) };
+    } catch (error) {
+      return actionFailed(`Could not save native evidence: ${error instanceof Error ? error.message : String(error)}`, { sessionId: opts.sessionId });
+    }
+  }
   return {
     exitCode: EXIT_OK,
     json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, ...payload },
@@ -295,14 +343,18 @@ export async function handleRead(opts: ReadOptions, deps: CliDeps = defaultCliDe
 }
 
 function elementsOf(payload: Record<string, unknown>): RawElement[] {
-  return Array.isArray(payload.elements) ? payload.elements as RawElement[] : [];
+  const windowId = (payload.window as { windowId?: number } | undefined)?.windowId;
+  return Array.isArray(payload.elements) ? (payload.elements as RawElement[]).map(e => ({ ...e, windowId })) : [];
 }
 
 /** `--what refs`: numbered refs inline, full payload file-out, refs persisted for `--ref`. */
-function compactRead(sessionId: string, payload: Record<string, unknown>, dir: string): CliResult {
-  const refs = assignRefs(elementsOf(payload), loadRefs(dir, sessionId));
-  saveRefs(dir, sessionId, refs);
+function compactRead(sessionId: string, payload: Record<string, unknown>, dir: string, scope?: string): CliResult {
+  if (!Array.isArray(payload.elements) || (typeof payload.totalElements === 'number' && payload.elements.length < payload.totalElements)) {
+    return actionFailed('Incomplete observation cannot reconcile refs.');
+  }
+  const refs = assignRefs(elementsOf(payload), loadRefs(dir, sessionId, scope));
   const full = writeFullPayload(dir, sessionId, 'observe', payload);
+  saveRefs(dir, sessionId, refs, scope);
   const lines = refs.map(formatRefLine);
   return {
     exitCode: EXIT_OK,
@@ -316,6 +368,8 @@ function compactRead(sessionId: string, payload: Record<string, unknown>, dir: s
 export interface ActionOptions {
   sessionId: string;
   action: string;
+  observe?: boolean;
+  format?: 'full' | 'compact';
   target?: string;
   value?: string;
   role?: string;
@@ -341,6 +395,11 @@ export async function handleAction(opts: ActionOptions, deps: CliDeps = defaultC
   const stored = deps.readSession(opts.sessionId);
   if (!stored) return sessionNotFound(opts.sessionId);
 
+  if (opts.format && !['full', 'compact'].includes(opts.format)) return invalidTarget('Use --format full or compact.');
+  if (opts.observe && (stored.type !== 'macos' || !ELEMENT_ACTIONS.has(opts.action) || opts.ref)) {
+    return invalidTarget('--observe requires a macOS element action without --ref.');
+  }
+  if (opts.format === 'compact' && !opts.observe) return invalidTarget('Action --format compact requires --observe.');
   const entry = toSessionEntry(stored);
   const store = new Map<string, SessionEntry>([[opts.sessionId, entry]]);
   const controller = deps.makeController(store);
@@ -348,8 +407,9 @@ export async function handleAction(opts: ActionOptions, deps: CliDeps = defaultC
 
   let refEntry: RefEntry | undefined;
   let beforeRefs: RefEntry[] | null = null;
+  let expectedRef: NativeSessionActionRequest['expectedRef'];
   if (opts.ref) {
-    beforeRefs = loadRefs(refsDir, opts.sessionId);
+    beforeRefs = loadRefs(refsDir, opts.sessionId, JSON.stringify(stored));
     refEntry = beforeRefs?.find((r) => r.ref === opts.ref);
     if (!refEntry) {
       return invalidTarget(`Unknown ref "${opts.ref}". Run: ibr native:session:read ${opts.sessionId} --what refs`, { sessionId: opts.sessionId });
@@ -359,16 +419,33 @@ export async function handleAction(opts: ActionOptions, deps: CliDeps = defaultC
     }
     // The controller resolves by name + role, so a ref whose name+role is shared by
     // another element could act on the wrong one. Refuse rather than guess.
-    const name = refEntry.label ?? refEntry.identifier;
-    const twins = beforeRefs!.filter((r) => r.role === refEntry!.role && (r.label ?? r.identifier) === name);
+    const name = refEntry.identifier || refEntry.label;
+    const twins = beforeRefs!.filter((r) => r.role === refEntry!.role && (r.identifier || r.label) === name);
     if (twins.length > 1) {
       return invalidTarget(`Ref ${opts.ref} is ambiguous: ${twins.map((r) => r.ref).join(', ')} share role ${refEntry.role} and name ${JSON.stringify(name)}.`, { sessionId: opts.sessionId });
     }
   }
 
+  if (refEntry) {
+    // Revalidate the live target before dispatch; a stale name must not silently
+    // resolve to a newly ambiguous control. The backend performs final resolution.
+    const fresh = entry.type === 'macos'
+      ? await controller.readMacOS(entry, 'extract', 100000)
+      : await controller.readSimulator(entry, 'extract', 100000);
+    if (fresh.kind !== 'text' || fresh.isError) return invalidTarget('Could not revalidate ref; read refs again.');
+    const live = elementsOf(parsePayload(fresh.text)).filter(e => e.windowId === refEntry!.windowId && e.role === refEntry!.role &&
+      (refEntry!.identifier ? e.identifier === refEntry!.identifier : e.label === refEntry!.label));
+    if (live.length !== 1 || live[0].enabled === false) {
+      return invalidTarget(`Ref ${opts.ref} is stale, ambiguous, or disabled; read refs again.`, { sessionId: opts.sessionId });
+    }
+    expectedRef = { role: refEntry.role, label: refEntry.label, identifier: refEntry.identifier, path: live[0].path, windowId: live[0].windowId };
+  }
+
   const request: NativeSessionActionRequest = {
     action: opts.action,
-    target: refEntry ? (refEntry.label ?? refEntry.identifier ?? undefined) : opts.target,
+    includeObservation: opts.observe || !!opts.ref,
+    expectedRef,
+    target: refEntry ? (refEntry.identifier || refEntry.label || undefined) : opts.target,
     value: opts.value,
     role: refEntry ? refEntry.role : opts.role,
     waitFor: opts.waitFor,
@@ -406,18 +483,20 @@ export async function handleAction(opts: ActionOptions, deps: CliDeps = defaultC
 
   const payload = parsePayload(result.text);
   const postAction = postActionOf(payload);
+  const failure = (failed: CliResult) => (opts.observe && opts.format === 'compact') || opts.ref
+    ? compactActionFailure(failed, refsDir) : failed;
 
   if (result.isError) {
     if (opts.waitFor && postAction && postAction.settled === false) {
-      return waitFailed(`Wait for "${opts.waitFor}" timed out.`, { sessionId: opts.sessionId, ...payload });
+      return failure(waitFailed(`Wait for "${opts.waitFor}" timed out.`, { sessionId: opts.sessionId, ...payload }));
     }
     const code = looksLikeTargetProblem(payload, result.text) ? EXIT_INVALID_TARGET : EXIT_ACTION_FAILED;
     const message = typeof payload.error === 'string' ? payload.error : result.text;
-    return {
+    return failure({
       exitCode: code,
       json: { ok: false, exitCode: code, sessionId: opts.sessionId, ...payload, error: message },
       text: `✗ ${message}`,
-    };
+    });
   }
 
   // The AX/capability call itself succeeded, but an explicit --wait-for may
@@ -426,10 +505,14 @@ export async function handleAction(opts: ActionOptions, deps: CliDeps = defaultC
   // controller's wait-timeout unit-test shape: success:true, postAction
   // .settled:false, reason:'timeout').
   if (opts.waitFor && postAction && postAction.settled === false) {
-    return waitFailed(`Action succeeded but wait for "${opts.waitFor}" timed out.`, {
+    return failure(waitFailed(`Action delivered but wait for "${opts.waitFor}" timed out.`, {
       sessionId: opts.sessionId,
       ...payload,
-    });
+    }));
+  }
+
+  if ((opts.observe || opts.ref) && postAction?.settled !== true) {
+    return failure(waitFailed('Action delivered but no settled observation was established.', { sessionId: opts.sessionId, ...payload }));
   }
 
   let recorded: number | undefined;
@@ -451,22 +534,53 @@ export async function handleAction(opts: ActionOptions, deps: CliDeps = defaultC
   }
   const recNote = recorded ? `\nrecorded step ${recorded} -> ${opts.record}` : recordError ? `\nnot recorded: ${recordError}` : '';
 
-  if (refEntry && beforeRefs) {
-    // success:true is not actuation: re-read the AX tree and report only the delta.
-    const reread = entry.type === 'macos'
-      ? await controller.readMacOS(entry, 'observe', 200)
-      : await controller.readSimulator(entry, 'observe', 200);
-    if (reread.kind === 'text' && !reread.isError) {
-      const afterRefs = assignRefs(elementsOf(parsePayload(reread.text)), beforeRefs);
-      saveRefs(refsDir, opts.sessionId, afterRefs);
-      const d = diffRefs(beforeRefs, afterRefs);
-      const diff = formatDiff(d);
-      return {
-        exitCode: EXIT_OK,
-        json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, action: opts.action, ref: opts.ref, axChanged: d.added.length + d.removed.length > 0, diff: diff.split('\n'), recorded },
-        text: `✓ ${opts.action} ${opts.ref}\n${diff}${recNote}`,
-      };
+  if (opts.observe) {
+    const raw = postAction?.observation;
+    if (!raw || typeof raw !== 'object') return failure(actionFailed('Post-action observation unavailable.', { sessionId: opts.sessionId, ...payload }));
+    try {
+      const fullReport = await saveNativeReport(payload, refsDir);
+      const { observation: _snapshot, ...postSummary } = postAction!;
+      const observation = opts.format === 'compact'
+        ? compactNativeRead(raw as Record<string, unknown>, fullReport, Number.MAX_SAFE_INTEGER)
+        : raw;
+      const { elements: _controls, ...validation } = postSummary;
+      const actionSummary = opts.format === 'compact'
+        ? { action: opts.action, target: opts.target, success: payload.success, actionDelivered: payload.actionDelivered, verificationPassed: payload.verificationPassed, backend: payload.backend, hostCursorAffected: payload.hostCursorAffected }
+        : payload;
+      return { exitCode: EXIT_OK, json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, ...actionSummary,
+        postAction: opts.format === 'compact' ? validation : postSummary, observation, fullReport, recorded },
+        text: `Action and validated observation saved: ${fullReport}` };
+    } catch (error) {
+      return failure(actionFailed(`Action delivered; evidence could not be saved: ${error instanceof Error ? error.message : String(error)}`,
+        { sessionId: opts.sessionId, ...payload }));
     }
+  }
+
+  if (refEntry && beforeRefs) {
+    const observation = postAction?.observation;
+    if (!observation || typeof observation !== 'object') {
+      return failure(actionFailed('Action delivered; settled observation unavailable for ref reconciliation.',
+        { sessionId: opts.sessionId, ...payload, actionDelivered: true, refReconciliation: 'missing-settled-observation' }));
+    }
+    const after = observation as Record<string, unknown>;
+    let fullReport: string;
+    try { fullReport = await saveNativeReport({ action: payload, before: beforeRefs, after, observedAt: new Date().toISOString() }, refsDir); }
+    catch (error) { return actionFailed(`Action delivered; evidence could not be saved: ${String(error)}`, { sessionId: opts.sessionId, ...payload }); }
+    const afterRefs = assignRefs(elementsOf(after), beforeRefs);
+    if (!Array.isArray(after.elements) || (typeof after.totalElements === 'number' && after.elements.length < after.totalElements)) {
+      return actionFailed('Action delivered; incomplete observation cannot reconcile refs.', { sessionId: opts.sessionId, ...payload, actionDelivered: true, refReconciliation: 'rejected-partial', fullReport });
+    }
+    const d = diffRefs(beforeRefs, afterRefs);
+    const diff = formatDiff(d);
+    saveRefs(refsDir, opts.sessionId, afterRefs, JSON.stringify(stored));
+    const { observation: _snapshot, elements: _elements, ...validation } = postAction ?? {};
+    return {
+      exitCode: EXIT_OK,
+      json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, action: opts.action, ref: opts.ref,
+        axChanged: d.added.length + d.removed.length + d.updated.length > 0,
+        postAction: validation, fullReport, diff: diff.split('\n'), recorded },
+      text: `✓ ${opts.action} ${opts.ref}\n${diff}${recNote}`,
+    };
   }
 
   return {
@@ -540,14 +654,14 @@ export async function handleComputerUse(opts: ComputerUseOptions, deps: CliDeps 
     const next = assignRefs(await readEls(udid), before);
     const same = diffRefs(after, next);
     after = next;
-    if (same.added.length === 0 && same.removed.length === 0) break;
+    if (same.added.length === 0 && same.removed.length === 0 && same.updated.length === 0) break;
   }
   saveRefs(refsDir, opts.sessionId, after);
   const d = diffRefs(before, after);
   const diff = formatDiff(d);
   return {
     exitCode: EXIT_OK,
-    json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, action: action.kind, axChanged: d.added.length + d.removed.length > 0, diff: diff.split('\n'), recorded },
+    json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, action: action.kind, axChanged: d.added.length + d.removed.length + d.updated.length > 0, diff: diff.split('\n'), recorded },
     text: `✓ ${action.kind}\n${diff}${recNote}`,
   };
 }
@@ -632,13 +746,13 @@ export async function handleClose(opts: CloseOptions, deps: CliDeps = defaultCli
  */
 function emit(result: CliResult, json: boolean | undefined): void {
   if (json) {
-    console.log(JSON.stringify(result.json, null, 2));
+    writeCliOutput(JSON.stringify(result.json), result.exitCode);
   } else if (result.exitCode === EXIT_OK) {
     console.log(result.text);
   } else {
     console.error(result.text);
   }
-  process.exit(result.exitCode);
+  process.exitCode = result.exitCode;
 }
 
 /**
@@ -666,13 +780,51 @@ export function registerNativeSessionCommands(program: Command): void {
     });
 
   program
+    .command('native:session:capture <sessionId>')
+    .description('Record bounded native AX deltas and selected screenshots; does not infer task completion')
+    .option('--duration-ms <n>', 'Recording duration, 100..60000ms', '5000')
+    .option('--interval-ms <n>', 'Minimum sampling interval, 100..duration', '250')
+    .option('--max-frames <n>', 'Screenshot budget, baseline and final reserved when possible, 0..20', '4')
+    .option('--keyframe-on <text...>', 'Capture once when each literal text appears', [])
+    .option('--output-dir <path>', 'New private evidence directory')
+    .option('--json', 'Emit structured JSON')
+    .action(async (sessionId: string, opts) => {
+      const stored = readSession(sessionId);
+      if (!stored) { emit(sessionNotFound(sessionId), opts.json); return; }
+      if (stored.type !== 'macos') { emit(invalidTarget('Streaming capture currently supports macOS sessions.'), opts.json); return; }
+      const entry = toSessionEntry(stored);
+      const controller = defaultCliDeps().makeController(new Map([[sessionId, entry]]));
+      try {
+        const result = await captureNativeStream({ durationMs: Number(opts.durationMs), intervalMs: Number(opts.intervalMs),
+          maxFrames: Number(opts.maxFrames), keyframeOn: opts.keyframeOn,
+          outputDir: opts.outputDir ?? join(DEFAULT_SESSION_STORE_DIR, `capture-${randomUUID()}`) }, {
+          read: async () => {
+            const result = await controller.readMacOS(entry, 'extract', 100000);
+            if (result.kind !== 'text' || result.isError) throw new Error('Native extraction failed');
+            const payload = parsePayload(result.text);
+            if (!Array.isArray(payload.elements)) throw new Error('Native extraction omitted elements');
+            return { ...payload, elements: elementsOf(payload) };
+          },
+          screenshot: async () => {
+            const result = await controller.readMacOS(entry, 'screenshot', 0);
+            if (result.kind !== 'image') throw new Error('Native screenshot failed');
+            return parsePayload(result.metadata);
+          },
+        });
+        emit({ exitCode: result.complete ? EXIT_OK : EXIT_ACTION_FAILED,
+          json: { ok: result.complete, ...result }, text: `Capture evidence: ${result.eventsPath}` }, opts.json);
+      } catch (error) { emit(actionFailed(String(error)), opts.json); }
+    });
+
+  program
     .command('native:session:read <sessionId>')
     .description('Read a native session — observe/extract/state/screenshot (CLI parity for native_session_read)')
     .option('--what <mode>', 'refs (compact numbered refs, full payload written to a file) | observe | extract | screenshot | state', 'observe')
-    .option('--limit <n>', 'Maximum elements to return', '50')
+    .option('--limit <n>', 'Maximum elements: full defaults to 50; compact returns all controls unless limited')
+    .option('--format <mode>', 'full or compact; compact saves full evidence and returns controls', 'full')
     .option('--json', 'Emit structured JSON to stdout')
-    .action(async (sessionId: string, opts: { what: string; limit: string; json?: boolean }) => {
-      const result = await handleRead({ sessionId, what: opts.what, limit: parseInt(opts.limit, 10) });
+    .action(async (sessionId: string, opts: { what: string; limit?: string; format: string; json?: boolean }) => {
+      const result = await handleRead({ sessionId, what: opts.what, limit: opts.limit === undefined ? undefined : Number(opts.limit), format: opts.format as 'full' | 'compact' });
       emit(result, opts.json);
     });
 
@@ -695,9 +847,13 @@ export function registerNativeSessionCommands(program: Command): void {
     .option('--app <name>', "App name/bundle id for the 'app' action's lifecycle op")
     .option('--menu-path <items>', "Comma-separated AXMenu titles for the 'menuPath' action, e.g. 'File,New Window'")
     .option('--record <file>', 'Append the resolved step to a replay file (macOS element actions); re-run with native:replay')
+    .option('--observe', 'Return the exact validated post-action snapshot; saves complete evidence')
+    .option('--format <mode>', 'full or compact (compact requires --observe)', 'full')
     .option('--json', 'Emit structured JSON to stdout')
     .action(async (sessionId: string, opts: {
       action: string;
+      observe?: boolean;
+      format?: 'full' | 'compact';
       target?: string;
       value?: string;
       role?: string;
@@ -718,6 +874,8 @@ export function registerNativeSessionCommands(program: Command): void {
       const result = await handleAction({
         sessionId,
         action: opts.action,
+        observe: opts.observe,
+        format: opts.format,
         target: opts.target,
         value: opts.value,
         role: opts.role,

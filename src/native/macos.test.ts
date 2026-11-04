@@ -65,6 +65,18 @@ describe('extractMacOSElements', () => {
     expect(result.elements[0]).toMatchObject({ role: 'AXButton', title: 'Save', path: [0] });
   });
 
+  it('accepts a long document AX value beyond the child-process default buffer', async () => {
+    const value = 'x'.repeat(2 * 1024 * 1024);
+    const stdout = 'WINDOW:42:800x600:Long note\n' + JSON.stringify([{ role: 'AXTextArea', value, children: [], path: [0] }]);
+    execFileMock.mockImplementation((_cmd, _args, opts, callback: unknown) => {
+      expect((opts as { maxBuffer: number }).maxBuffer).toBeGreaterThan(Buffer.byteLength(stdout));
+      const cb = callback as (err: null, result: { stdout: string; stderr: string }) => void;
+      cb(null, { stdout, stderr: '' });
+      return {} as ReturnType<typeof execFile>;
+    });
+    expect((await extractMacOSElements({ pid: 1234 })).elements[0].value).toBe(value);
+  });
+
   it('foregrounds the process and retries once after a No windows found failure', async () => {
     mockExecFileSequence([
       (cmd, args) => {

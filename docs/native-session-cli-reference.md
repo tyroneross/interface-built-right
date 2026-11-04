@@ -240,3 +240,114 @@ Keyboard chords use one delivery, `--delivery background` by default or explicit
 the intended element separately. An unchanged AX tree is an unverified effect,
 not permission to repeat: inspect before issuing another key. A lost daemon
 response never automatically replays a key or a resize.
+
+## Compact native output and large documents
+
+Use `native:session:read <id> --format compact --json` for agent observations.
+It saves the complete observation before output filtering to a unique
+`fullReport` file, filters structural scroll/show-menu nodes, and then applies
+`--limit` when explicitly supplied (otherwise all controls). Full mode still defaults to 50. The response returns named controls/headings with bounds,
+`controlsAvailable`, `omittedStructural` and `truncated`. Disabled and unlabeled
+controls remain visible. A truncated response must be expanded with a larger
+limit before claiming all controls were checked. Existing full output and
+`--what refs` retain their schemas. Compact mode does not assert a visual or
+accessibility pass. Screenshot/state reads retain their existing small outputs.
+
+`scan:macos --pid <pid> --format compact --json` saves the complete scan under
+`.ibr/reports/` (override with `--report-dir`) and returns every issue, verdict,
+console error, semantic error/state, visual coverage limit, layout-fill finding and design-system
+result. Full evidence files use mode 0600 and are never overwritten. Keep them
+private: native AX trees can contain document text.
+
+Native extraction accepts up to 16 MiB of subprocess output, preserving long
+notes while bounding memory. Larger trees fail explicitly. Native session
+output and macOS scan JSON drain stdout before normal process exit, including
+exit 1 for a FAIL scan; piping a complete JSON response is supported.
+
+### Fused action and validated observation
+
+For macOS element actions, `--observe --format compact` returns the exact
+post-action snapshot that satisfied the existing settling check. It avoids a
+separate `read` command; it does not skip fresh target resolution or settlement.
+
+```
+ibr native:session:action "$SESSION_ID" --action click --target "Edit text" \
+  --wait-for "Save changes" --observe --format compact --json
+```
+
+The response contains `observation`, `postAction`, and `fullReport`. The report
+retains the complete action payload and unabridged snapshot locally. A missing
+settled snapshot or failed evidence write produces a nonzero result even if the
+action was delivered; inspect the current UI before retrying an action.
+`--observe` cannot be combined with `--ref` or non-element actions.
+
+The macOS extractor batches the same accessibility attributes using
+`AXUIElementCopyMultipleAttributeValues`, preserving traversal order and fields.
+Unsupported attributes remain absent; transient attribute errors fall back to an
+individual read. Set `IBR_AX_ATTRIBUTE_MODE=single` for parity diagnosis or rollback.
+Action names are still queried separately. No cached snapshot authorizes a later
+action, and post-action settling deadlines are unchanged.
+
+### Verification timing and compact failures
+
+macOS settling yields 32 ms between unresolved full-tree observations so the
+application has an idle turn to publish asynchronous accessibility updates. The
+initial delay, caller timeout, required postcondition, fresh target resolution,
+and two-identical-tree requirement for an implicit wait remain unchanged. The
+idle interval consumes the existing deadline; no action is replayed.
+
+A failed `--observe --format compact` action also saves its complete original
+failure payload and last snapshot in `fullReport`. The short receipt preserves
+the nonzero exit status and reports `actionDelivered`, `verificationPassed:
+false`, `postAction`, and `evidenceSaved`. Delivery does not prove verification.
+If the report cannot be written, `evidenceSaved: false` and `compactFallback:
+inline-evidence` explicitly retain the original diagnostic inline; this
+exception can be large because silently losing evidence is unacceptable.
+
+### State-preserving refs and bounded capture
+
+Native candidate responses preserve `value`, `enabled`, and optional `selected`.
+Numeric AX values use strings (for example checkbox `"0"` / `"1"`); missing values
+remain unknown. Compact reads retain control values, including editable text.
+Full reports remain private local files. Compact output covers controls rather
+than all static text; use `extract` or capture evidence for document content.
+
+Refs match a unique role and identifier (otherwise accessible label) in the same
+window. Geometry and state changes produce `~` updates. Ambiguous identities are
+retired, and removed ref numbers are not reused, including across persisted empty
+reads. Refs are scoped to the stored session generation and revalidated against
+the live tree before dispatch. Name-only identity cannot distinguish an app that
+replaces a control with an identical accessible name between observations; use
+stable app identifiers when possible. Native AX does not offer an atomic
+read-and-act transaction. A successful diff means observed change, not proven
+completion. Check `postAction` and the requested postcondition.
+
+```sh
+node dist/bin/ibr.js native:session:read SESSION --format compact --json
+node dist/bin/ibr.js native:session:action SESSION --action click --target Save \
+  --wait-for Saved --observe --format compact --json
+node dist/bin/ibr.js native:session:capture SESSION --duration-ms 7000 \
+  --interval-ms 150 --max-frames 5 \
+  --keyframe-on 'Error' 'Cancelled' 'Complete' --json
+```
+
+Capture currently supports macOS. It records a baseline and ordered AX deltas to
+`events.jsonl`, plus a manifest and selected native screenshots. It uses bounded
+polling, not an AX notification or ScreenCaptureKit subscription. Each literal
+keyframe trigger fires once; baseline and final frames share the budget (0–20).
+AX extraction and screenshots are separate observations. Screenshot cost can
+lengthen the actual sample interval, which the manifest reports. States shorter
+than that gap can be missed. Neither an idle tree nor the end of the recording
+establishes task completion. Capture directories must be new; existing evidence
+is not overwritten. Errors preserve a partial recording and return failure.
+
+Capture permits up to 1000 ms of finalization after the sampling duration.
+Backend reads and screenshot acquisition have deadline watchdogs. The existing
+backend cannot cancel an in-flight read-only operation; it may finish after a
+timeout. Local filesystem finalization is best effort because OS writes are not
+cancellable. Screenshot receipts retain acquisition times, private immutable PNG
+copies, dimensions, byte sizes, and SHA-256 hashes. Images are limited to 16 MiB
+and 32 million decoded pixels. A one-frame budget captures the baseline only.
+Detected triggers have separate events even when no screenshot budget remains.
+Long control-value previews are capped at 256 characters with explicit truncation
+and original-length markers; the complete value remains in the full report.

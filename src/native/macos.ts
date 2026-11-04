@@ -113,6 +113,8 @@ async function runMacOSExtraction(
 ): Promise<{ elements: MacOSAXElement[]; window: MacOSWindowInfo }> {
   const { stdout, stderr } = await execFileAsync(extractorPath, args, {
     timeout: 30000,
+    // AX trees can include long document values; keep a bounded 16 MiB budget.
+    maxBuffer: 16 * 1024 * 1024,
   });
 
   if (stderr && stderr.includes('Error:')) {

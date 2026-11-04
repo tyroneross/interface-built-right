@@ -52,6 +52,7 @@ export interface NativeElementCandidate {
   identifier?: string | null;
   value?: string | null;
   enabled: boolean;
+  selected?: boolean | null;
   actions: string[];
   frame?: { x: number; y: number; width: number; height: number };
 }
@@ -195,6 +196,7 @@ export function flattenMacOSElements(elements: MacOSAXElement[]): NativeElementC
         identifier: el.identifier,
         value: el.value,
         enabled: el.enabled,
+        selected: el.selected,
         actions: el.actions,
         frame: el.position && el.size ? {
           x: el.position.x,

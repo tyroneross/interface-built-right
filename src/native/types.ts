@@ -149,6 +149,7 @@ export interface MacOSAXElement {
   placeholder: string | null;
   enabled: boolean;
   focused: boolean;
+  selected?: boolean | null;
   actions: string[];
   position: { x: number; y: number } | null;
   size: { width: number; height: number } | null;

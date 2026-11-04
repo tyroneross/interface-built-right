@@ -1,3 +1,5 @@
+import { writeCliOutput } from './cli-output.js';
+import { compactNativeScanReport, saveNativeReport } from '../native-output.js';
 import './node-version-guard.js';
 import { applyOutputMode, compactScanReport, saveFullScanReport, resolveScanOutput } from '../scan-output.js';
 import { randomUUID } from 'node:crypto';
@@ -4291,8 +4293,11 @@ program
   .option('--pid <pid>', 'Process ID')
   .option('--screenshot <path>', 'Save screenshot to path')
   .option('--json', 'Output as JSON')
-  .action(async (options: { app?: string; bundleId?: string; pid?: string; screenshot?: string; json?: boolean }) => {
+  .option('--format <mode>', 'full or compact; compact saves complete evidence', 'full')
+  .option('--report-dir <dir>', 'Directory for private full reports in compact mode', '.ibr/reports')
+  .action(async (options: { app?: string; bundleId?: string; pid?: string; screenshot?: string; json?: boolean; format: string; reportDir: string }) => {
     try {
+      if (!['full', 'compact'].includes(options.format)) throw new Error('Use --format full or compact.');
       if (process.platform !== 'darwin') {
         console.error('Error: scan:macos is only available on macOS');
         process.exit(EXIT_TOOL_ERROR);
@@ -4317,14 +4322,17 @@ program
         outputDir: program.opts().output || '.ibr',
       });
 
-      if (options.json) {
-        console.log(JSON.stringify(result, null, 2));
+      if (options.format === 'compact') {
+        const fullReport = await saveNativeReport(result, options.reportDir);
+        writeCliOutput(JSON.stringify(compactNativeScanReport(result, fullReport)), result.verdict === 'FAIL' ? EXIT_ISSUES : EXIT_PASS);
+      } else if (options.json) {
+        writeCliOutput(JSON.stringify(result, null, 2), result.verdict === 'FAIL' ? EXIT_ISSUES : EXIT_PASS);
       } else {
         console.log(formatMacOSScanResult(result));
       }
 
       if (result.verdict === 'FAIL') {
-        process.exit(EXIT_ISSUES);
+        process.exitCode = EXIT_ISSUES;
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);

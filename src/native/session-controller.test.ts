@@ -15,6 +15,7 @@ import type { MacOSAXElement, MacOSWindowInfo, NativeElement, SimulatorDevice } 
 import type { NativeActionResult } from './actions.js';
 import {
   NativeSessionController,
+  nativeStateSignature,
   mapSessionActionToNative,
   type ElementActionRequest,
   type KeystrokeActionRequest,
@@ -254,4 +255,133 @@ describe('frozen action surface — target optionality (type-level)', () => {
     expect(app.action).toBe('app');
     expect(missingTarget.action).toBe('click');
   });
+});
+
+describe('validated post-action observations', () => {
+  it('returns the snapshot from the successful settle read without another extraction', async () => {
+    const backend=new FakeBackend();
+    backend.extractResult={kind:'macos',window:windowInfo,elements:[macElement({title:'Edit text',path:[0]})]};
+    backend.performAction=async()=>{
+      backend.performCalls++;
+      backend.extractResult={kind:'macos',window:windowInfo,elements:[macElement({title:'Save changes',path:[0]}),macElement({title:'Read',value:'0',path:[1]})]};
+      return {success:true,action:'press'};
+    };
+    const result=await make(backend).actionMacOS(macEntry(),{action:'click',target:'Edit text',waitFor:'Save changes',includeObservation:true});
+    const data=JSON.parse(result.kind==='text'?result.text:'{}');
+    expect(data.postAction.settled).toBe(true);
+    expect(data.postAction.observation.elements.map((e:{label:string})=>e.label)).toEqual(['Save changes','Read']);
+    expect(data.postAction.observation.elements[1].value).toBe('0');
+    expect(data.postAction.observation.observedAt).toEqual(expect.any(String));
+    expect(backend.extractCalls).toBe(2);expect(backend.performCalls).toBe(1);
+  });
+  it('keeps the legacy result small when no observation was requested', async()=>{
+    const backend=new FakeBackend();backend.extractResult={kind:'macos',window:windowInfo,elements:[macElement({title:'Save',path:[0]})]};
+    const result=await make(backend).actionMacOS(macEntry(),{action:'click',target:'Save',waitFor:'Save',waitTimeoutMs:0});
+    expect(JSON.parse(result.kind==='text'?result.text:'{}').postAction).not.toHaveProperty('observation');
+  });
+});
+
+describe('macOS post-action poll pacing', () => {
+  it('leaves idle time between fresh reads without repeating the action', async () => {
+    vi.useFakeTimers();
+    try {
+      const backend = new FakeBackend();
+      let delivered = false;
+      let reads = 0;
+      let lastEnd = 0;
+      const gaps: number[] = [];
+      backend.performAction = async () => { backend.performCalls++; delivered = true; return backend.actionResult; };
+      backend.extract = async () => {
+        backend.extractCalls++;
+        if (!delivered) return { kind: 'macos', window: windowInfo, elements: [macElement({ title: 'Edit', path: [0] })] };
+        const gap = Date.now() - lastEnd;
+        if (reads++) gaps.push(gap);
+        await new Promise(resolve => setTimeout(resolve, 5));
+        lastEnd = Date.now();
+        return { kind: 'macos', window: windowInfo, elements: [macElement({ title: reads > 1 && gap >= 32 ? 'Save' : 'Edit', path: [0] })] };
+      };
+      const controller = new NativeSessionController({ backend, store: new Map() });
+      const result = controller.actionMacOS(macEntry(), { action: 'click', target: 'Edit', waitFor: 'Save', waitTimeoutMs: 250, includeObservation: true });
+      await vi.advanceTimersByTimeAsync(300);
+      const response = await result;
+      if (response.kind !== 'text') throw new Error('Expected text response');
+      const payload = JSON.parse(response.text);
+      expect(payload.postAction).toMatchObject({ settled: true, reason: 'waitFor-found', attempts: 2 });
+      expect(gaps).toEqual([32]);
+      expect(backend.performCalls).toBe(1);
+      expect(payload.postAction.elapsedMs).toBeLessThanOrEqual(250);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('does not extend a caller deadline to fit another poll or pass a missing target', async () => {
+    vi.useFakeTimers();
+    try {
+      const backend = new FakeBackend();
+      backend.extractResult = { kind: 'macos', window: windowInfo, elements: [macElement({ title: 'Edit', path: [0] })] };
+      const controller = new NativeSessionController({ backend, store: new Map() });
+      const started = Date.now();
+      const result = controller.actionMacOS(macEntry(), { action: 'click', target: 'Edit', waitFor: 'Missing', waitTimeoutMs: 135 });
+      await vi.advanceTimersByTimeAsync(135);
+      const response = await result;
+      if (response.kind !== 'text') throw new Error('Expected text response');
+      const payload = JSON.parse(response.text);
+      expect(Date.now() - started).toBe(135);
+      expect(payload.postAction).toMatchObject({ settled: false, waitForFound: false, attempts: 1 });
+      expect(backend.extractCalls).toBe(2); // fresh target resolution + one post-action read
+      expect(backend.performCalls).toBe(1);
+    } finally { vi.useRealTimers(); }
+  });
+});
+
+
+describe('ref dispatch and full state stability regressions', () => {
+  it('rejects a ref whose path changes in the final action extraction', async () => {
+    const backend = new FakeBackend();
+    backend.extractResult = { kind: 'macos', window: windowInfo, elements: [macElement({ title: 'Save', identifier: 'save', path: [1] })] };
+    const result = await make(backend).actionMacOS(macEntry(), { action: 'click', target: 'save', expectedRef: { role: 'AXButton', label: 'Save', identifier: 'save', path: [0], windowId: 7 } });
+    expect(result.kind === 'text' && result.isError).toBe(true);
+    expect(backend.performCalls).toBe(0);
+  });
+  it('rejects simulator refs when final semantic resolution differs', async () => {
+    const backend = new FakeBackend();
+    backend.extractResult = { kind: 'simulator', device: simDevice(), elements: [simElement({ role: 'AXButton', label: 'Save', identifier: 'save', path: [1] })] };
+    const result = await make(backend).actionSimulator(simEntry(), { action: 'click', target: 'save', expectedRef: { role: 'AXButton', label: 'Save', identifier: 'save', path: [0] } });
+    expect(result.kind === 'text' && result.isError).toBe(true);
+    expect(backend.performCalls).toBe(0);
+  });
+  it('includes selection and controls past index 200 in stability checks', () => {
+    const candidates = Array.from({ length: 201 }, (_, index) => ({ role: 'AXButton', label: `Control ${index}`, enabled: true, selected: false, actions: ['AXPress'] }));
+    const before = nativeStateSignature(windowInfo, candidates);
+    candidates[200].selected = true;
+    expect(nativeStateSignature(windowInfo, candidates)).not.toBe(before);
+  });
+});
+
+it('retains delivery evidence when the post-action extraction fails', async () => {
+  const backend = new FakeBackend();
+  backend.extract = async () => {
+    if (backend.performCalls) throw new Error('AX disconnected');
+    return { kind: 'macos', window: windowInfo, elements: [macElement({ title: 'Save', path: [0] })] };
+  };
+  const result = await make(backend).actionMacOS(macEntry(), { action: 'click', target: 'Save', waitTimeoutMs: 0 });
+  if (result.kind !== 'text') throw new Error('Expected action evidence');
+  expect(JSON.parse(result.text)).toMatchObject({ actionDelivered: true, verificationPassed: false,
+    postAction: { settled: false, reason: 'observation-failed', observationError: expect.stringContaining('AX disconnected') } });
+  expect(backend.performCalls).toBe(1);
+});
+
+it('bounds a stalled post-action read without retrying delivery', async () => {
+  vi.useFakeTimers();
+  try {
+    const backend = new FakeBackend();
+    backend.extract = async () => backend.performCalls ? new Promise(() => {})
+      : { kind: 'macos', window: windowInfo, elements: [macElement({ title: 'Save', path: [0] })] };
+    const pending = make(backend).actionMacOS(macEntry(), { action: 'click', target: 'Save', waitFor: 'Saved', waitTimeoutMs: 200 });
+    await vi.advanceTimersByTimeAsync(200);
+    const result = await pending;
+    if (result.kind !== 'text') throw new Error('Expected action evidence');
+    expect(JSON.parse(result.text)).toMatchObject({ actionDelivered: true, verificationPassed: false,
+      postAction: { settled: false, observationError: expect.stringContaining('timed out') } });
+    expect(backend.performCalls).toBe(1);
+  } finally { vi.useRealTimers(); }
 });

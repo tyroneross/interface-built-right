@@ -23,6 +23,7 @@ struct AXExtractedElement: Codable {
     let placeholder: String?
     let enabled: Bool
     let focused: Bool
+    var selected: Bool? = nil
     let actions: [String]
     let position: Position?
     let size: Size?
@@ -61,6 +62,19 @@ struct LegacyElement: Codable {
 }
 
 // MARK: - AX Attribute Helpers
+
+/// Keep the public string value shape while preserving numeric/bool control state.
+func axScalarValue(_ raw: Any?) -> String? {
+    if let text = raw as? String { return text }
+    if let number = raw as? NSNumber { return number.stringValue }
+    return nil
+}
+func getValueAttribute(_ element: AXUIElement) -> String? {
+    var raw: AnyObject?
+    guard AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &raw) == .success else { return nil }
+    return axScalarValue(raw)
+}
+
 
 func getStringAttribute(_ element: AXUIElement, _ attribute: String) -> String? {
     var value: AnyObject?
@@ -118,6 +132,60 @@ func getFrame(_ element: AXUIElement) -> LegacyElement.Frame {
     )
 }
 
+// One AX IPC for the same attributes the full walker previously fetched separately.
+// Individual reads remain the fallback and an explicit parity/rollback mode.
+let useBatchedAXAttributes = ProcessInfo.processInfo.environment["IBR_AX_ATTRIBUTE_MODE"] != "single"
+struct AXAttributeSnapshot {
+    static let names: [String] = [kAXRoleAttribute, kAXSubroleAttribute, kAXTitleAttribute,
+        kAXDescriptionAttribute, "AXIdentifier", kAXValueAttribute, "AXPlaceholderValue",
+        kAXEnabledAttribute, kAXFocusedAttribute, kAXSelectedAttribute, kAXPositionAttribute, kAXSizeAttribute, kAXChildrenAttribute]
+    let values: [String: Any]
+    let fallback: (String) -> Any?
+
+    init(values: [Any], fallback: @escaping (String) -> Any? = { _ in nil }) {
+        self.values = Dictionary(uniqueKeysWithValues: zip(Self.names, values))
+        self.fallback = fallback
+    }
+    static func read(_ element: AXUIElement) -> AXAttributeSnapshot? {
+        var raw: CFArray?
+        let result = AXUIElementCopyMultipleAttributeValues(element, names as CFArray,
+            AXCopyMultipleAttributeOptions(rawValue: 0), &raw)
+        guard result == .success, let values = raw as? [Any], values.count == names.count else { return nil }
+        return AXAttributeSnapshot(values: values, fallback: { name in
+            var value: AnyObject?
+            return AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success ? value : nil
+        })
+    }
+    func raw(_ name: String) -> Any? {
+        guard let value = values[name], !(value is NSNull) else { return nil }
+        if CFGetTypeID(value as CFTypeRef) == AXValueGetTypeID() {
+            let ax = value as! AXValue
+            if AXValueGetType(ax) == .axError {
+                var error = AXError.success
+                guard AXValueGetValue(ax, .axError, &error) else { return fallback(name) }
+                if error == .attributeUnsupported || error == .noValue { return nil }
+                return fallback(name)
+            }
+        }
+        return value
+    }
+    func string(_ name: String) -> String? { raw(name) as? String }
+    func bool(_ name: String) -> Bool { (raw(name) as? NSNumber)?.boolValue ?? false }
+    func point() -> AXExtractedElement.Position? {
+        guard let raw = raw(kAXPositionAttribute), CFGetTypeID(raw as CFTypeRef) == AXValueGetTypeID() else { return nil }
+        var point = CGPoint.zero
+        guard AXValueGetValue(raw as! AXValue, .cgPoint, &point) else { return nil }
+        return AXExtractedElement.Position(x: point.x, y: point.y)
+    }
+    func size() -> AXExtractedElement.Size? {
+        guard let raw = raw(kAXSizeAttribute), CFGetTypeID(raw as CFTypeRef) == AXValueGetTypeID() else { return nil }
+        var size = CGSize.zero
+        guard AXValueGetValue(raw as! AXValue, .cgSize, &size) else { return nil }
+        return AXExtractedElement.Size(width: size.width, height: size.height)
+    }
+    func children() -> [AXUIElement] { raw(kAXChildrenAttribute) as? [AXUIElement] ?? [] }
+}
+
 // MARK: - AX Tree Walkers
 
 /// Elements already emitted in one walk, compared with CFEqual. Some apps
@@ -144,17 +212,23 @@ func walkElementFull(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15,
     guard depth < maxDepth else { return nil }
     guard visited.insert(element) else { return nil }
 
-    let role = getStringAttribute(element, kAXRoleAttribute) ?? "AXUnknown"
-    let subrole = getStringAttribute(element, kAXSubroleAttribute)
-    let title = getStringAttribute(element, kAXTitleAttribute)
-    let descriptionAttr = getStringAttribute(element, kAXDescriptionAttribute)
-    let identifier = getStringAttribute(element, "AXIdentifier")
-    let value = getStringAttribute(element, kAXValueAttribute as String)
-    let placeholder = getStringAttribute(element, "AXPlaceholderValue")
-    let enabled = getBoolAttribute(element, kAXEnabledAttribute)
-    let focused = getBoolAttribute(element, kAXFocusedAttribute)
-    let position = getPosition(element)
-    let size = getSize(element)
+    let attributes = useBatchedAXAttributes ? AXAttributeSnapshot.read(element) : nil
+    let role = attributes != nil ? (attributes!.string(kAXRoleAttribute) ?? "AXUnknown") : (getStringAttribute(element, kAXRoleAttribute) ?? "AXUnknown")
+    let subrole = attributes != nil ? attributes!.string(kAXSubroleAttribute) : getStringAttribute(element, kAXSubroleAttribute)
+    let title = attributes != nil ? attributes!.string(kAXTitleAttribute) : getStringAttribute(element, kAXTitleAttribute)
+    let descriptionAttr = attributes != nil ? attributes!.string(kAXDescriptionAttribute) : getStringAttribute(element, kAXDescriptionAttribute)
+    let identifier = attributes != nil ? attributes!.string("AXIdentifier") : getStringAttribute(element, "AXIdentifier")
+    let value = attributes != nil ? axScalarValue(attributes!.raw(kAXValueAttribute as String)) : getValueAttribute(element)
+    let placeholder = attributes != nil ? attributes!.string("AXPlaceholderValue") : getStringAttribute(element, "AXPlaceholderValue")
+    let enabled = attributes != nil ? attributes!.bool(kAXEnabledAttribute) : getBoolAttribute(element, kAXEnabledAttribute)
+    let focused = attributes != nil ? attributes!.bool(kAXFocusedAttribute) : getBoolAttribute(element, kAXFocusedAttribute)
+    let position = attributes != nil ? attributes!.point() : getPosition(element)
+    let size = attributes != nil ? attributes!.size() : getSize(element)
+    let selectedRaw: Any? = attributes != nil ? attributes!.raw(kAXSelectedAttribute) : {
+        var raw: AnyObject?
+        return AXUIElementCopyAttributeValue(element, kAXSelectedAttribute as CFString, &raw) == .success ? raw : nil
+    }()
+    let selected = (selectedRaw as? NSNumber)?.boolValue
     let actions = getActions(element)
 
     // Skip zero-size invisible elements deep in the tree
@@ -162,7 +236,7 @@ func walkElementFull(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15,
         return nil
     }
 
-    let axChildren = getChildren(element)
+    let axChildren = attributes != nil ? attributes!.children() : getChildren(element)
     var childElements: [AXExtractedElement] = []
     for (index, child) in axChildren.enumerated() {
         let childPath = currentPath + [index]
@@ -181,6 +255,7 @@ func walkElementFull(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15,
         placeholder: placeholder,
         enabled: enabled,
         focused: focused,
+        selected: selected,
         actions: actions,
         position: position,
         size: size,
@@ -201,7 +276,7 @@ func walkElementLegacy(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 1
         ?? ""
     let identifier = getStringAttribute(element, "AXIdentifier") ?? ""
     let isEnabled = getBoolAttribute(element, kAXEnabledAttribute)
-    let value = getStringAttribute(element, kAXValueAttribute as String)
+    let value = getValueAttribute(element)
     let frame = getFrame(element)
 
     if frame.width <= 0 && frame.height <= 0 && depth > 2 {

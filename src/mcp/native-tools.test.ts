@@ -250,7 +250,7 @@ describe('T-01g: native_session_read wire shapes (4 modes)', () => {
       hostCursorAffected: false,
     });
     expect(Object.keys(elements[0]).sort()).toEqual(
-      ['actions', 'enabled', 'frame', 'identifier', 'label', 'path', 'role'].sort(),
+      ['actions', 'enabled', 'frame', 'identifier', 'label', 'path', 'role', 'value'].sort(),
     );
     expect(elements[0].label).toBe('Save');
     expect(elements[0].path).toEqual([0]);

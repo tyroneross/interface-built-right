@@ -318,14 +318,14 @@ describe('compact refs (--what refs / --ref)', () => {
     const read = await handleRead({ sessionId: 's1', what: 'refs' }, deps);
     expect(read.exitCode).toBe(EXIT_OK);
     expect(read.text).toMatch(/^e1 Button "Save"/);
-    expect(read.json.full).toMatch(/s1\.observe\.json$/);
+    expect(read.json.full).toMatch(/s1\.observe\.[a-f0-9-]+\.json$/);
 
     backend.extractResult = {
       kind: 'macos',
       elements: [macElement({ title: 'Save', path: [0] }), macElement({ role: 'AXStaticText', title: 'Saved', path: [1] })],
       window: windowInfo,
     };
-    const act = await handleAction({ sessionId: 's1', action: 'press', ref: 'e1', waitTimeoutMs: 0 }, deps);
+    const act = await handleAction({ sessionId: 's1', action: 'press', ref: 'e1', waitFor: 'Save', waitTimeoutMs: 0 }, deps);
     expect(act.exitCode).toBe(EXIT_OK);
     expect(act.json.axChanged).toBe(true);
     expect(act.text).toContain('+ e2 StaticText "Saved"');
@@ -422,4 +422,154 @@ describe('native window/key CLI parity', () => {
     expect(result.exitCode).not.toBe(EXIT_OK);
     expect(keys).not.toHaveBeenCalled();
   });
+});
+
+describe('compact native observation', () => {
+  it('finds controls after hundreds of structural nodes and saves complete evidence', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ibr-compact-read-'));
+    try {
+      const backend = new FakeBackend();
+      backend.extractResult = {kind:'macos',window:windowInfo,elements:[
+        ...Array.from({length:300},(_,i)=>macElement({role:'AXGroup',actions:['AXScrollToVisible'],path:[i]})),
+        macElement({title:'Save changes',path:[300]}),
+        macElement({role:'AXLink',title:'obsidian://atlas-area?area=notes',path:[301]}),
+      ]};
+      const deps = fakeDeps(backend, {test:{type:'macos',app:'Fake',pid:123,createdAt:1}});
+      deps.refsDir = dir;
+      const result=await handleRead({sessionId:'test',format:'compact',limit:50},deps);
+      expect(result.exitCode).toBe(EXIT_OK);
+      expect((result.json.controls as Array<{name:string}>).map(e=>e.name)).toEqual(['Save changes','obsidian://atlas-area?area=notes']);
+      expect(result.json.truncated).toBe(false);
+      const {readFileSync}=await import('node:fs');
+      const full=JSON.parse(readFileSync(result.json.fullReport as string,'utf8'));
+      expect(full.elements).toHaveLength(302);
+    } finally {rmSync(dir,{recursive:true,force:true});}
+  });
+  it('returns controls past the legacy 50-item default unless an explicit limit is supplied', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ibr-compact-all-'));
+    try {
+      const backend=new FakeBackend();
+      backend.extractResult={kind:'macos',window:windowInfo,elements:[
+        ...Array.from({length:60},(_,i)=>macElement({role:'AXGroup',title:`Sidebar ${i}`,path:[i]})),
+        macElement({role:'AXLink',title:'obsidian://atlas-area?area=notes',path:[60]}),
+      ]};
+      const deps=fakeDeps(backend,{test:{type:'macos',app:'Fake',pid:123,createdAt:1}});deps.refsDir=dir;
+      const result=await handleRead({sessionId:'test',format:'compact'},deps);
+      expect(result.json.returned).toBe(61);expect(result.json.truncated).toBe(false);
+      expect((result.json.controls as Array<{name:string}>)[60].name).toBe('obsidian://atlas-area?area=notes');
+    } finally {rmSync(dir,{recursive:true,force:true});}
+  });
+  it('rejects unsupported format/limits without attempting extraction', async () => {
+    const deps=fakeDeps(new FakeBackend(),{test:{type:'macos',app:'Fake',pid:123,createdAt:1}});
+    expect((await handleRead({sessionId:'test',format:'tiny' as 'full'},deps)).exitCode).toBe(EXIT_INVALID_TARGET);
+    expect((await handleRead({sessionId:'test',limit:NaN},deps)).exitCode).toBe(EXIT_INVALID_TARGET);
+  });
+});
+
+describe('fused action observation',()=>{
+  it('saves exact full evidence and returns compact controls from the settled read',async()=>{
+    const dir=mkdtempSync(join(tmpdir(),'ibr-fused-'));
+    try{
+      const backend=new FakeBackend();backend.extractResult={kind:'macos',window:windowInfo,elements:[macElement({title:'Save',value:'1',path:[0]})]};
+      const deps=fakeDeps(backend,{test:{type:'macos',pid:123,app:'Fake',createdAt:1}});deps.refsDir=dir;
+      const result=await handleAction({sessionId:'test',action:'click',target:'Save',waitFor:'Save',waitTimeoutMs:0,observe:true,format:'compact'},deps);
+      expect(result.exitCode).toBe(EXIT_OK);
+      const observation=result.json.observation as {controls:Array<{name:string;value:string}>;observedAt:string};
+      expect(observation.controls[0]).toMatchObject({name:'Save',value:'1'});
+      expect(result.json.postAction).not.toHaveProperty('observation');
+      const {readFileSync}=await import('node:fs');const full=JSON.parse(readFileSync(result.json.fullReport as string,'utf8'));
+      expect(full.postAction.observation.elements[0].label).toBe('Save');
+      expect(full.postAction.observation.observedAt).toBe(observation.observedAt);
+    }finally{rmSync(dir,{recursive:true,force:true});}
+  });
+  it('refuses an unsettled observation rather than reporting it as verified',async()=>{
+    const backend=new FakeBackend();backend.extractResult={kind:'macos',window:windowInfo,elements:[macElement({title:'Save',path:[0]})]};
+    const deps=fakeDeps(backend,{test:{type:'macos',pid:123,app:'Fake',createdAt:1}});
+    const result=await handleAction({sessionId:'test',action:'click',target:'Save',waitTimeoutMs:0,observe:true,format:'compact'},deps);
+    expect(result.exitCode).toBe(EXIT_WAIT_FAILED);expect(result.json.ok).toBe(false);
+  });
+  it('rejects incompatible flags before delivering any action',async()=>{
+    const deps=fakeDeps(new FakeBackend(),{test:{type:'macos',pid:123,app:'Fake',createdAt:1}});
+    expect((await handleAction({sessionId:'test',action:'keystroke',observe:true},deps)).exitCode).toBe(EXIT_INVALID_TARGET);
+    expect((await handleAction({sessionId:'test',action:'click',format:'compact'},deps)).exitCode).toBe(EXIT_INVALID_TARGET);
+  });
+});
+
+describe('compact native failures retain complete evidence', () => {
+  it('bounds a delivered-but-unverified timeout and retains the entire last snapshot', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ibr-compact-failure-'));
+    try {
+      const backend = new FakeBackend();
+      const body = 'private diagnostic '.repeat(100000);
+      backend.extractResult = { kind: 'macos', window: windowInfo, elements: [macElement({ title: 'Edit', path: [0] }), macElement({ role: 'AXTextArea', value: body, path: [1] })] };
+      const deps = fakeDeps(backend, { test: { type: 'macos', pid: 123, app: 'Fake', createdAt: 1 } }); deps.refsDir = dir;
+      const action = vi.spyOn(backend, 'performAction');
+      const result = await handleAction({ sessionId: 'test', action: 'click', target: 'Edit', waitFor: 'Save', waitTimeoutMs: 0, observe: true, format: 'compact' }, deps);
+      expect(result.exitCode).toBe(EXIT_WAIT_FAILED);
+      expect(result.json).toMatchObject({ ok: false, actionDelivered: true, verificationPassed: false, evidenceSaved: true, snapshotAvailable: true, postAction: { settled: false, waitForFound: false } });
+      expect(JSON.stringify(result.json).length).toBeLessThan(4000);
+      expect(result.json.postAction).not.toHaveProperty('observation');
+      const { readFileSync } = await import('node:fs');
+      const full = JSON.parse(readFileSync(result.json.fullReport as string, 'utf8'));
+      expect(full.exitCode).toBe(EXIT_WAIT_FAILED);
+      expect(full.postAction.observation.elements[1].value).toBe(body);
+      expect(action).toHaveBeenCalledTimes(1);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it('keeps inline evidence and the failure status if report storage is unavailable', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ibr-failure-storage-'));
+    try {
+      const { writeFileSync } = await import('node:fs');
+      const blocked = join(dir, 'file-not-directory'); writeFileSync(blocked, 'occupied');
+      const backend = new FakeBackend(); backend.extractResult = { kind: 'macos', window: windowInfo, elements: [macElement({ title: 'Edit', path: [0] })] };
+      const deps = fakeDeps(backend, { test: { type: 'macos', pid: 123, app: 'Fake', createdAt: 1 } }); deps.refsDir = blocked;
+      const result = await handleAction({ sessionId: 'test', action: 'click', target: 'Edit', waitFor: 'Missing', waitTimeoutMs: 0, observe: true, format: 'compact' }, deps);
+      expect(result.exitCode).toBe(EXIT_WAIT_FAILED);
+      expect(result.json).toMatchObject({ ok: false, evidenceSaved: false, compactFallback: 'inline-evidence' });
+      expect(result.json.postAction).toHaveProperty('observation');
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+});
+
+
+it('compact default reads retain disabled controls that expose no AX actions', async () => {
+  const backend = new FakeBackend();
+  backend.extractResult = { kind: 'macos', window: windowInfo, elements: [macElement({ role: 'AXTextField', title: 'Draft', value: 'Preserve me', enabled: false, actions: [], path: [0] })] };
+  const deps = { ...fakeDeps(backend, { s1: { type: 'macos', app: 'Fake', pid: 123, createdAt: 1 } }), refsDir: mkdtempSync(join(tmpdir(), 'ibr-disabled-')) };
+  const result = await handleRead({ sessionId: 's1', format: 'compact' }, deps);
+  expect(result.json.controls).toEqual(expect.arrayContaining([expect.objectContaining({ value: 'Preserve me', enabled: false })]));
+});
+
+it('ref actions reject unsettled observations rather than silently falling back to a single read', async () => {
+  const backend = new FakeBackend();
+  backend.extractResult = { kind: 'macos', window: windowInfo, elements: [macElement({ title: 'Save', path: [0] })] };
+  const deps = { ...fakeDeps(backend, { s1: { type: 'macos', app: 'Fake', pid: 123, createdAt: 1 } }), refsDir: mkdtempSync(join(tmpdir(), 'ibr-ref-unsettled-')) };
+  await handleRead({ sessionId: 's1', what: 'refs' }, deps);
+  const result = await handleAction({ sessionId: 's1', action: 'press', ref: 'e1', waitTimeoutMs: 0 }, deps);
+  expect(result.exitCode).toBe(EXIT_WAIT_FAILED);
+  expect(result.json.ok).toBe(false);
+});
+
+it('never substitutes an unvalidated reread for a missing settled ref snapshot', async () => {
+  const backend = new FakeBackend();
+  backend.extractResult = { kind: 'macos', window: windowInfo, elements: [macElement({ title: 'Save', path: [0] })] };
+  const deps = { ...fakeDeps(backend, { s1: { type: 'macos', app: 'Fake', pid: 123, createdAt: 1 } }), refsDir: mkdtempSync(join(tmpdir(), 'ibr-ref-missing-')) };
+  await handleRead({ sessionId: 's1', what: 'refs' }, deps);
+  const { readFileSync } = await import('fs');
+  const refsPath = join(deps.refsDir, 's1.refs.json');
+  const before = readFileSync(refsPath, 'utf8');
+  const original = deps.makeController;
+  let reads = 0;
+  deps.makeController = store => {
+    const controller = original(store);
+    const read = controller.readMacOS.bind(controller);
+    controller.readMacOS = async (...args) => { reads++; return read(...args); };
+    controller.actionMacOS = async () => ({ kind: 'text', text: JSON.stringify({ success: true, actionDelivered: true, postAction: { settled: true } }) });
+    return controller;
+  };
+  const result = await handleAction({ sessionId: 's1', action: 'press', ref: 'e1' }, deps);
+  expect(result.json.ok).toBe(false);
+  expect(reads).toBe(1); // only pre-dispatch revalidation, never a replacement post-snapshot
+  expect(readFileSync(refsPath, 'utf8')).toBe(before);
 });

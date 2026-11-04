@@ -106,9 +106,9 @@ var init_net_timeout = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/ws/lib/constants.js
+// node_modules/ws/lib/constants.js
 var require_constants = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/ws/lib/constants.js"(exports2, module2) {
+  "node_modules/ws/lib/constants.js"(exports2, module2) {
     "use strict";
     var BINARY_TYPES = ["nodebuffer", "arraybuffer", "fragments"];
     var hasBlob = typeof Blob !== "undefined";
@@ -129,9 +129,9 @@ var require_constants = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/ws/lib/buffer-util.js
+// node_modules/ws/lib/buffer-util.js
 var require_buffer_util = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/ws/lib/buffer-util.js"(exports2, module2) {
+  "node_modules/ws/lib/buffer-util.js"(exports2, module2) {
     "use strict";
     var { EMPTY_BUFFER } = require_constants();
     var FastBuffer = Buffer[Symbol.species];
@@ -204,9 +204,9 @@ var require_buffer_util = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/ws/lib/limiter.js
+// node_modules/ws/lib/limiter.js
 var require_limiter = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/ws/lib/limiter.js"(exports2, module2) {
+  "node_modules/ws/lib/limiter.js"(exports2, module2) {
     "use strict";
     var kDone = /* @__PURE__ */ Symbol("kDone");
     var kRun = /* @__PURE__ */ Symbol("kRun");
@@ -254,9 +254,9 @@ var require_limiter = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/ws/lib/permessage-deflate.js
+// node_modules/ws/lib/permessage-deflate.js
 var require_permessage_deflate = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/ws/lib/permessage-deflate.js"(exports2, module2) {
+  "node_modules/ws/lib/permessage-deflate.js"(exports2, module2) {
     "use strict";
     var zlib = require("zlib");
     var bufferUtil = require_buffer_util();
@@ -637,9 +637,9 @@ var require_permessage_deflate = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/ws/lib/validation.js
+// node_modules/ws/lib/validation.js
 var require_validation = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/ws/lib/validation.js"(exports2, module2) {
+  "node_modules/ws/lib/validation.js"(exports2, module2) {
     "use strict";
     var { isUtf8 } = require("buffer");
     var { hasBlob } = require_constants();
@@ -838,9 +838,9 @@ var require_validation = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/ws/lib/receiver.js
+// node_modules/ws/lib/receiver.js
 var require_receiver = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/ws/lib/receiver.js"(exports2, module2) {
+  "node_modules/ws/lib/receiver.js"(exports2, module2) {
     "use strict";
     var { Writable } = require("stream");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -1461,9 +1461,9 @@ var require_receiver = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/ws/lib/sender.js
+// node_modules/ws/lib/sender.js
 var require_sender = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/ws/lib/sender.js"(exports2, module2) {
+  "node_modules/ws/lib/sender.js"(exports2, module2) {
     "use strict";
     var { Duplex } = require("stream");
     var { randomFillSync } = require("crypto");
@@ -1954,9 +1954,9 @@ var require_sender = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/ws/lib/event-target.js
+// node_modules/ws/lib/event-target.js
 var require_event_target = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/ws/lib/event-target.js"(exports2, module2) {
+  "node_modules/ws/lib/event-target.js"(exports2, module2) {
     "use strict";
     var { kForOnEventAttribute, kListener } = require_constants();
     var kCode = /* @__PURE__ */ Symbol("kCode");
@@ -2183,9 +2183,9 @@ var require_event_target = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/ws/lib/extension.js
+// node_modules/ws/lib/extension.js
 var require_extension = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/ws/lib/extension.js"(exports2, module2) {
+  "node_modules/ws/lib/extension.js"(exports2, module2) {
     "use strict";
     var { tokenChars } = require_validation();
     function push(dest, name, elem) {
@@ -2336,16 +2336,16 @@ var require_extension = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/ws/lib/websocket.js
+// node_modules/ws/lib/websocket.js
 var require_websocket = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/ws/lib/websocket.js"(exports2, module2) {
+  "node_modules/ws/lib/websocket.js"(exports2, module2) {
     "use strict";
     var EventEmitter2 = require("events");
     var https = require("https");
     var http = require("http");
     var net = require("net");
     var tls = require("tls");
-    var { randomBytes: randomBytes5, createHash: createHash6 } = require("crypto");
+    var { randomBytes: randomBytes5, createHash: createHash7 } = require("crypto");
     var { Duplex, Readable } = require("stream");
     var { URL: URL3 } = require("url");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -3026,7 +3026,7 @@ var require_websocket = __commonJS({
           abortHandshake(websocket, socket, "Invalid Upgrade header");
           return;
         }
-        const digest = createHash6("sha1").update(key + GUID).digest("base64");
+        const digest = createHash7("sha1").update(key + GUID).digest("base64");
         if (res.headers["sec-websocket-accept"] !== digest) {
           abortHandshake(websocket, socket, "Invalid Sec-WebSocket-Accept header");
           return;
@@ -3245,9 +3245,9 @@ var require_websocket = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/ws/lib/stream.js
+// node_modules/ws/lib/stream.js
 var require_stream = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/ws/lib/stream.js"(exports2, module2) {
+  "node_modules/ws/lib/stream.js"(exports2, module2) {
     "use strict";
     var WebSocket2 = require_websocket();
     var { Duplex } = require("stream");
@@ -3343,9 +3343,9 @@ var require_stream = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/ws/lib/subprotocol.js
+// node_modules/ws/lib/subprotocol.js
 var require_subprotocol = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/ws/lib/subprotocol.js"(exports2, module2) {
+  "node_modules/ws/lib/subprotocol.js"(exports2, module2) {
     "use strict";
     var { tokenChars } = require_validation();
     function parse3(header) {
@@ -3388,14 +3388,14 @@ var require_subprotocol = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/ws/lib/websocket-server.js
+// node_modules/ws/lib/websocket-server.js
 var require_websocket_server = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/ws/lib/websocket-server.js"(exports2, module2) {
+  "node_modules/ws/lib/websocket-server.js"(exports2, module2) {
     "use strict";
     var EventEmitter2 = require("events");
     var http = require("http");
     var { Duplex } = require("stream");
-    var { createHash: createHash6 } = require("crypto");
+    var { createHash: createHash7 } = require("crypto");
     var extension2 = require_extension();
     var PerMessageDeflate2 = require_permessage_deflate();
     var subprotocol2 = require_subprotocol();
@@ -3702,7 +3702,7 @@ var require_websocket_server = __commonJS({
           );
         }
         if (this._state > RUNNING) return abortHandshake(socket, 503);
-        const digest = createHash6("sha1").update(key + GUID).digest("base64");
+        const digest = createHash7("sha1").update(key + GUID).digest("base64");
         const headers = [
           "HTTP/1.1 101 Switching Protocols",
           "Upgrade: websocket",
@@ -3789,7 +3789,7 @@ var require_websocket_server = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/ws/wrapper.mjs
+// node_modules/ws/wrapper.mjs
 var wrapper_exports = {};
 __export(wrapper_exports, {
   PerMessageDeflate: () => import_permessage_deflate.default,
@@ -3804,7 +3804,7 @@ __export(wrapper_exports, {
 });
 var import_stream, import_extension, import_permessage_deflate, import_receiver, import_sender, import_subprotocol, import_websocket, import_websocket_server, wrapper_default;
 var init_wrapper = __esm({
-  "../../git-folder/interface-built-right/node_modules/ws/wrapper.mjs"() {
+  "node_modules/ws/wrapper.mjs"() {
     "use strict";
     import_stream = __toESM(require_stream(), 1);
     import_extension = __toESM(require_extension(), 1);
@@ -3860,7 +3860,7 @@ var init_connection = __esm({
         const timeoutMs = options?.timeoutMs ?? WS_CONNECT_TIMEOUT_MS;
         const started = Date.now();
         const WebSocketImpl = await loadWebSocketCtor();
-        return new Promise((resolve8, reject) => {
+        return new Promise((resolve10, reject) => {
           const ws = new WebSocketImpl(wsUrl);
           let settled2 = false;
           const timer = setTimeout(() => {
@@ -3884,7 +3884,7 @@ var init_connection = __esm({
             ws.addEventListener("message", (event) => this.handleMessage(event));
             ws.addEventListener("close", () => this.handleClose());
             ws.addEventListener("error", () => this.handleClose());
-            resolve8();
+            resolve10();
           };
           const onError = () => {
             if (settled2) return;
@@ -3901,7 +3901,7 @@ var init_connection = __esm({
           throw new Error("Not connected");
         }
         const id = ++this.nextId;
-        return new Promise((resolve8, reject) => {
+        return new Promise((resolve10, reject) => {
           const timer = setTimeout(() => {
             if (this.pending.has(id)) {
               this.pending.delete(id);
@@ -3912,7 +3912,7 @@ var init_connection = __esm({
             }
           }, this.timeoutMs);
           this.pending.set(id, {
-            resolve: resolve8,
+            resolve: resolve10,
             reject,
             timer
           });
@@ -3940,14 +3940,14 @@ var init_connection = __esm({
         }
         if ("id" in data && this.pending.has(data.id)) {
           const id = data.id;
-          const { resolve: resolve8, reject, timer } = this.pending.get(id);
+          const { resolve: resolve10, reject, timer } = this.pending.get(id);
           clearTimeout(timer);
           this.pending.delete(id);
           if (data.error) {
             const err = data.error;
             reject(new Error(`CDP error ${err.code}: ${err.message}`));
           } else {
-            resolve8(data.result);
+            resolve10(data.result);
           }
         } else if ("method" in data) {
           const handlers = this.eventHandlers.get(data.method);
@@ -3997,20 +3997,20 @@ async function findFreePort(maxAttempts = 10) {
     const isFree = await checkPortFree(port);
     if (isFree) return port;
   }
-  return new Promise((resolve8, reject) => {
+  return new Promise((resolve10, reject) => {
     const srv = (0, import_node_net.createServer)();
     srv.listen(0, () => {
       const port = srv.address().port;
-      srv.close(() => resolve8(port));
+      srv.close(() => resolve10(port));
     });
     srv.on("error", reject);
   });
 }
 function checkPortFree(port) {
-  return new Promise((resolve8) => {
+  return new Promise((resolve10) => {
     const srv = (0, import_node_net.createServer)();
-    srv.once("error", () => resolve8(false));
-    srv.listen(port, () => srv.close(() => resolve8(true)));
+    srv.once("error", () => resolve10(false));
+    srv.listen(port, () => srv.close(() => resolve10(true)));
   });
 }
 async function resolveWsEndpoint(cdpUrl) {
@@ -4050,7 +4050,7 @@ function userDataDirFromCommand(command) {
   return match?.[1] ?? match?.[2] ?? match?.[3] ?? null;
 }
 function isIbrProfile(profileDir) {
-  return profileDir.startsWith(`${(0, import_node_os.tmpdir)()}/ibr-chrome-`) || profileDir === (0, import_node_path3.join)((0, import_node_os.homedir)(), ".ibr", "chromium-profile") || profileDir === ".ibr/browser-profile" || profileDir.endsWith("/.ibr/browser-profile");
+  return profileDir.startsWith(`${(0, import_node_os.tmpdir)()}/ibr-chrome-`) || profileDir === (0, import_node_path4.join)((0, import_node_os.homedir)(), ".ibr", "chromium-profile") || profileDir === ".ibr/browser-profile" || profileDir.endsWith("/.ibr/browser-profile");
 }
 function parseIbrChromeProcesses(psOutput) {
   const processes = [];
@@ -4093,7 +4093,7 @@ function reapOrphanedIbrChromeProcesses(options = {}) {
   return result;
 }
 function chromeCodeSignCloneRoot(tempDir = (0, import_node_os.tmpdir)()) {
-  return (0, import_node_path3.join)((0, import_node_path3.dirname)(tempDir.replace(/\/+$/, "")), "X", "com.google.Chrome.code_sign_clone");
+  return (0, import_node_path4.join)((0, import_node_path4.dirname)(tempDir.replace(/\/+$/, "")), "X", "com.google.Chrome.code_sign_clone");
 }
 function keychainArgs(env = process.env, platform = process.platform) {
   if (platform !== "darwin" || env.IBR_REAL_KEYCHAIN === "1") return [];
@@ -4159,13 +4159,13 @@ function sweepStaleChromeCodeSignClones(options = {}) {
         maxBuffer: 16 * 1024 * 1024
       });
     } catch {
-      return { removed: [], kept: entries.map((name) => (0, import_node_path3.join)(root, name)) };
+      return { removed: [], kept: entries.map((name) => (0, import_node_path4.join)(root, name)) };
     }
     const starts = runningChromeStartTimes(psOutput);
     if (starts.length > 0) ownedAfter = Math.min(...starts) - 6e4;
   }
   for (const name of entries) {
-    const path3 = (0, import_node_path3.join)(root, name);
+    const path3 = (0, import_node_path4.join)(root, name);
     try {
       const st = (0, import_node_fs2.statSync)(path3);
       const born = st.birthtimeMs || st.mtimeMs;
@@ -4368,7 +4368,7 @@ function reapOrphanedProfiles() {
   }
   const now = Date.now();
   for (const name of entries) {
-    const full = (0, import_node_path3.join)(dir, name);
+    const full = (0, import_node_path4.join)(dir, name);
     if (inUse.has(full)) continue;
     try {
       if (now - (0, import_node_fs2.statSync)(full).mtimeMs < PROFILE_REAP_GRACE_MS) continue;
@@ -4377,16 +4377,16 @@ function reapOrphanedProfiles() {
     }
   }
 }
-var import_node_child_process2, import_node_fs2, import_promises2, import_node_net, import_node_os, import_node_path3, CHROME_PATHS, PROFILE_REAP_GRACE_MS, CHROME_EXIT_GRACE_MS, CODE_SIGN_CLONE_GRACE_MS, heldProfileLocks, RECLAIM_MUTEX_STALE_MS, BrowserManager;
+var import_node_child_process2, import_node_fs2, import_promises3, import_node_net, import_node_os, import_node_path4, CHROME_PATHS, PROFILE_REAP_GRACE_MS, CHROME_EXIT_GRACE_MS, CODE_SIGN_CLONE_GRACE_MS, heldProfileLocks, RECLAIM_MUTEX_STALE_MS, BrowserManager;
 var init_browser = __esm({
   "src/engine/cdp/browser.ts"() {
     "use strict";
     import_node_child_process2 = require("child_process");
     import_node_fs2 = require("fs");
-    import_promises2 = require("fs/promises");
+    import_promises3 = require("fs/promises");
     import_node_net = require("net");
     import_node_os = require("os");
-    import_node_path3 = require("path");
+    import_node_path4 = require("path");
     init_net_timeout();
     CHROME_PATHS = [
       // macOS
@@ -4452,18 +4452,18 @@ var init_browser = __esm({
         progress("reaping orphaned browsers");
         reapOrphanedIbrChromeProcesses();
         sweepStaleChromeCodeSignClones();
-        let userDataDir = options.userDataDir ?? (0, import_node_path3.join)((0, import_node_os.homedir)(), ".ibr", "chromium-profile");
-        await (0, import_promises2.mkdir)((0, import_node_path3.dirname)(userDataDir), { recursive: true });
+        let userDataDir = options.userDataDir ?? (0, import_node_path4.join)((0, import_node_os.homedir)(), ".ibr", "chromium-profile");
+        await (0, import_promises3.mkdir)((0, import_node_path4.dirname)(userDataDir), { recursive: true });
         progress("acquiring profile lock");
         const lock = acquireProfileLock(userDataDir);
         if (lock.acquired) {
           this._profileLockPath = lock.lockPath;
-          const lockPath = (0, import_node_path3.join)(userDataDir, "SingletonLock");
+          const lockPath = (0, import_node_path4.join)(userDataDir, "SingletonLock");
           const lockStat = (0, import_node_fs2.lstatSync)(lockPath, { throwIfNoEntry: false });
           if (lockStat) {
             if (reclaimStaleSingletonLock(lockPath, userDataDir)) {
             } else {
-              userDataDir = (0, import_node_fs2.mkdtempSync)((0, import_node_path3.join)((0, import_node_os.tmpdir)(), "ibr-chrome-"));
+              userDataDir = (0, import_node_fs2.mkdtempSync)((0, import_node_path4.join)((0, import_node_os.tmpdir)(), "ibr-chrome-"));
               this._ephemeralProfileDir = userDataDir;
               releaseProfileLock(this._profileLockPath);
               this._profileLockPath = null;
@@ -4471,7 +4471,7 @@ var init_browser = __esm({
           }
         } else {
           progress(`profile lock held by ${lock.holder ?? "another IBR process"} \u2014 using an ephemeral profile`);
-          userDataDir = (0, import_node_fs2.mkdtempSync)((0, import_node_path3.join)((0, import_node_os.tmpdir)(), "ibr-chrome-"));
+          userDataDir = (0, import_node_fs2.mkdtempSync)((0, import_node_path4.join)((0, import_node_os.tmpdir)(), "ibr-chrome-"));
           this._ephemeralProfileDir = userDataDir;
         }
         progress("reaping orphaned profiles");
@@ -4491,7 +4491,7 @@ Checked: ${CHROME_PATHS.join(", ")}`
           if (sharedProfileAttempt && looksLikeSingletonCollision(this._exit, this._stderrTail)) {
             progress("shared profile still collided after lock acquisition \u2014 retrying on an ephemeral profile");
             await this.close();
-            const fallbackDir = (0, import_node_fs2.mkdtempSync)((0, import_node_path3.join)((0, import_node_os.tmpdir)(), "ibr-chrome-"));
+            const fallbackDir = (0, import_node_fs2.mkdtempSync)((0, import_node_path4.join)((0, import_node_os.tmpdir)(), "ibr-chrome-"));
             this._ephemeralProfileDir = fallbackDir;
             try {
               return await this.spawnChromeAndWaitForDebugger(chromePath, fallbackDir, headless, options.normalize, progress);
@@ -4505,7 +4505,7 @@ Checked: ${CHROME_PATHS.join(", ")}`
         }
       }
       async spawnChromeAndWaitForDebugger(chromePath, userDataDir, headless, normalize3, progress) {
-        await (0, import_promises2.mkdir)(userDataDir, { recursive: true });
+        await (0, import_promises3.mkdir)(userDataDir, { recursive: true });
         const args = [
           `--remote-debugging-port=${this._port}`,
           `--user-data-dir=${userDataDir}`,
@@ -4605,18 +4605,18 @@ ${tail}` : "";
           this.process = null;
           if (!this._exit) {
             let killed = false;
-            await new Promise((resolve8) => {
+            await new Promise((resolve10) => {
               const killTimer = setTimeout(() => {
                 try {
                   proc.kill("SIGKILL");
                 } catch {
                 }
                 killed = true;
-                resolve8();
+                resolve10();
               }, CHROME_EXIT_GRACE_MS);
               proc.once("close", () => {
                 clearTimeout(killTimer);
-                resolve8();
+                resolve10();
               });
               proc.kill("SIGTERM");
             });
@@ -4659,7 +4659,7 @@ ${tail}` : "";
 
 // src/engine/cdp/shared-browser.ts
 function sharedChromeDir(env = process.env) {
-  return env.IBR_SHARED_CHROME_DIR || (0, import_node_path4.join)((0, import_node_os2.homedir)(), ".ibr", "shared-chrome");
+  return env.IBR_SHARED_CHROME_DIR || (0, import_node_path5.join)((0, import_node_os2.homedir)(), ".ibr", "shared-chrome");
 }
 function envInt(name, fallback) {
   const value = Number.parseInt(process.env[name] ?? "", 10);
@@ -4675,7 +4675,7 @@ function pidAlive(pid) {
   }
 }
 async function withLock(dir, fn) {
-  const lockDir = (0, import_node_path4.join)(dir, "lock");
+  const lockDir = (0, import_node_path5.join)(dir, "lock");
   const deadline = Date.now() + LOCK_WAIT_MS;
   for (; ; ) {
     try {
@@ -4701,7 +4701,7 @@ async function withLock(dir, fn) {
   }
 }
 function liveLeases(dir) {
-  const leasesDir = (0, import_node_path4.join)(dir, "leases");
+  const leasesDir = (0, import_node_path5.join)(dir, "leases");
   let names;
   try {
     names = (0, import_node_fs3.readdirSync)(leasesDir);
@@ -4712,13 +4712,13 @@ function liveLeases(dir) {
   for (const name of names) {
     const pid = Number.parseInt(name.split("-")[0] ?? "", 10);
     if (pidAlive(pid)) live.push(name);
-    else (0, import_node_fs3.rmSync)((0, import_node_path4.join)(leasesDir, name), { force: true });
+    else (0, import_node_fs3.rmSync)((0, import_node_path5.join)(leasesDir, name), { force: true });
   }
   return live;
 }
 function readSharedChromeState(dir) {
   try {
-    const state = JSON.parse((0, import_node_fs3.readFileSync)((0, import_node_path4.join)(dir, "state.json"), "utf8"));
+    const state = JSON.parse((0, import_node_fs3.readFileSync)((0, import_node_path5.join)(dir, "state.json"), "utf8"));
     return typeof state.pid === "number" && typeof state.wsEndpoint === "string" ? state : null;
   } catch {
     return null;
@@ -4739,11 +4739,11 @@ async function debuggerEndpoint(port, timeoutMs) {
   }
 }
 function freePort() {
-  return new Promise((resolve8, reject) => {
+  return new Promise((resolve10, reject) => {
     const srv = (0, import_node_net2.createServer)();
     srv.listen(0, "127.0.0.1", () => {
       const port = srv.address().port;
-      srv.close(() => resolve8(port));
+      srv.close(() => resolve10(port));
     });
     srv.on("error", reject);
   });
@@ -4755,7 +4755,7 @@ async function startSharedChrome(dir, options) {
   if (!chromePath) throw new Error("Chrome not found for the shared browser");
   const port = await freePort();
   pruneOldProfiles(dir);
-  const profileDir = (0, import_node_path4.join)(dir, `profile-${Date.now().toString(36)}`);
+  const profileDir = (0, import_node_path5.join)(dir, `profile-${Date.now().toString(36)}`);
   (0, import_node_fs3.mkdirSync)(profileDir, { recursive: true });
   progress(`starting shared Chrome on port ${port}`);
   const child = (0, import_node_child_process3.spawn)(chromePath, [
@@ -4787,7 +4787,7 @@ async function startSharedChrome(dir, options) {
   }
   const state = { pid, port, wsEndpoint, profileDir, startedAt: Date.now() };
   state.watchdogPid = spawnWatchdog(dir, state, options);
-  (0, import_node_fs3.writeFileSync)((0, import_node_path4.join)(dir, "state.json"), JSON.stringify(state, null, 2));
+  (0, import_node_fs3.writeFileSync)((0, import_node_path5.join)(dir, "state.json"), JSON.stringify(state, null, 2));
   progress(`shared Chrome pid ${pid} ready`);
   return state;
 }
@@ -4810,7 +4810,7 @@ function pruneOldProfiles(dir) {
   }
   for (const name of names) {
     if (!name.startsWith("profile")) continue;
-    const path3 = (0, import_node_path4.join)(dir, name);
+    const path3 = (0, import_node_path5.join)(dir, name);
     if (path3 === current) continue;
     try {
       if (Date.now() - (0, import_node_fs3.statSync)(path3).mtimeMs > 10 * 60 * 1e3) (0, import_node_fs3.rmSync)(path3, { recursive: true, force: true });
@@ -4822,7 +4822,7 @@ async function acquireSharedChrome(options = {}) {
   const dir = options.dir ?? sharedChromeDir();
   const progress = options.onProgress ?? (() => {
   });
-  (0, import_node_fs3.mkdirSync)((0, import_node_path4.join)(dir, "leases"), { recursive: true });
+  (0, import_node_fs3.mkdirSync)((0, import_node_path5.join)(dir, "leases"), { recursive: true });
   const maxLeases = options.maxLeases ?? envInt("IBR_SHARED_CHROME_MAX_PAGES", SHARED_CHROME_DEFAULT_MAX_LEASES);
   const waitUntil = Date.now() + (options.leaseWaitMs ?? 12e4);
   let warned = false;
@@ -4831,15 +4831,15 @@ async function acquireSharedChrome(options = {}) {
       if (liveLeases(dir).length >= maxLeases && Date.now() < waitUntil) return null;
       let state = readSharedChromeState(dir);
       if (state && !(pidAlive(state.pid) && await debuggerEndpoint(state.port, 2e3) === state.wsEndpoint)) {
-        (0, import_node_fs3.rmSync)((0, import_node_path4.join)(dir, "state.json"), { force: true });
+        (0, import_node_fs3.rmSync)((0, import_node_path5.join)(dir, "state.json"), { force: true });
         state = null;
       }
       if (!state) state = await startSharedChrome(dir, options);
       else if (!state.watchdogPid || !pidAlive(state.watchdogPid)) {
         state.watchdogPid = spawnWatchdog(dir, state, options);
-        (0, import_node_fs3.writeFileSync)((0, import_node_path4.join)(dir, "state.json"), JSON.stringify(state, null, 2));
+        (0, import_node_fs3.writeFileSync)((0, import_node_path5.join)(dir, "state.json"), JSON.stringify(state, null, 2));
       }
-      const leasePath = (0, import_node_path4.join)(dir, "leases", `${process.pid}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`);
+      const leasePath = (0, import_node_path5.join)(dir, "leases", `${process.pid}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`);
       (0, import_node_fs3.writeFileSync)(leasePath, "");
       return { state, leasePath };
     });
@@ -4871,7 +4871,7 @@ function shouldUseSharedChrome(options, env = process.env) {
   if (options.chromePath || env.IBR_CHROME_PATH) return false;
   return true;
 }
-var import_node_child_process3, import_node_fs3, import_node_net2, import_node_os2, import_node_path4, SHARED_CHROME_DEFAULT_MAX_LEASES, SHARED_CHROME_DEFAULT_IDLE_MS, LOCK_STALE_MS, LOCK_WAIT_MS, DEBUGGER_WAIT_MS, sleep, WATCHDOG_SOURCE;
+var import_node_child_process3, import_node_fs3, import_node_net2, import_node_os2, import_node_path5, SHARED_CHROME_DEFAULT_MAX_LEASES, SHARED_CHROME_DEFAULT_IDLE_MS, LOCK_STALE_MS, LOCK_WAIT_MS, DEBUGGER_WAIT_MS, sleep, WATCHDOG_SOURCE;
 var init_shared_browser = __esm({
   "src/engine/cdp/shared-browser.ts"() {
     "use strict";
@@ -4879,14 +4879,14 @@ var init_shared_browser = __esm({
     import_node_fs3 = require("fs");
     import_node_net2 = require("net");
     import_node_os2 = require("os");
-    import_node_path4 = require("path");
+    import_node_path5 = require("path");
     init_browser();
     SHARED_CHROME_DEFAULT_MAX_LEASES = 6;
     SHARED_CHROME_DEFAULT_IDLE_MS = 10 * 60 * 1e3;
     LOCK_STALE_MS = 6e4;
     LOCK_WAIT_MS = 3e4;
     DEBUGGER_WAIT_MS = 2e4;
-    sleep = (ms) => new Promise((resolve8) => setTimeout(resolve8, ms));
+    sleep = (ms) => new Promise((resolve10) => setTimeout(resolve10, ms));
     WATCHDOG_SOURCE = `
 const fs = require('node:fs'), path = require('node:path');
 const [dir, chromePidArg, idleArg, profileDir] = process.argv.slice(1);
@@ -6229,12 +6229,12 @@ var init_network = __esm({
        */
       async waitForResponse(predicate, options = {}) {
         const timeout = options.timeout ?? 3e4;
-        return new Promise((resolve8, reject) => {
+        return new Promise((resolve10, reject) => {
           const waiter = {
             predicate,
             resolve: (value) => {
               clearTimeout(timer);
-              resolve8(value);
+              resolve10(value);
             }
           };
           const timer = setTimeout(() => {
@@ -6653,7 +6653,7 @@ var init_actionability = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/pixelmatch/index.js
+// node_modules/pixelmatch/index.js
 var pixelmatch_exports = {};
 __export(pixelmatch_exports, {
   default: () => pixelmatch
@@ -6840,14 +6840,14 @@ function drawGrayPixel(img, i, alpha, output) {
   drawPixel(output, i, val, val, val);
 }
 var init_pixelmatch = __esm({
-  "../../git-folder/interface-built-right/node_modules/pixelmatch/index.js"() {
+  "node_modules/pixelmatch/index.js"() {
     "use strict";
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/pngjs/lib/chunkstream.js
+// node_modules/pngjs/lib/chunkstream.js
 var require_chunkstream = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/pngjs/lib/chunkstream.js"(exports2, module2) {
+  "node_modules/pngjs/lib/chunkstream.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var Stream = require("stream");
@@ -6983,9 +6983,9 @@ var require_chunkstream = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/pngjs/lib/interlace.js
+// node_modules/pngjs/lib/interlace.js
 var require_interlace = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/pngjs/lib/interlace.js"(exports2) {
+  "node_modules/pngjs/lib/interlace.js"(exports2) {
     "use strict";
     var imagePasses = [
       {
@@ -7066,9 +7066,9 @@ var require_interlace = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/pngjs/lib/paeth-predictor.js
+// node_modules/pngjs/lib/paeth-predictor.js
 var require_paeth_predictor = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/pngjs/lib/paeth-predictor.js"(exports2, module2) {
+  "node_modules/pngjs/lib/paeth-predictor.js"(exports2, module2) {
     "use strict";
     module2.exports = function paethPredictor(left, above, upLeft) {
       let paeth = left + above - upLeft;
@@ -7086,9 +7086,9 @@ var require_paeth_predictor = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse.js
+// node_modules/pngjs/lib/filter-parse.js
 var require_filter_parse = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse.js"(exports2, module2) {
+  "node_modules/pngjs/lib/filter-parse.js"(exports2, module2) {
     "use strict";
     var interlaceUtils = require_interlace();
     var paethPredictor = require_paeth_predictor();
@@ -7227,9 +7227,9 @@ var require_filter_parse = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse-async.js
+// node_modules/pngjs/lib/filter-parse-async.js
 var require_filter_parse_async = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse-async.js"(exports2, module2) {
+  "node_modules/pngjs/lib/filter-parse-async.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var ChunkStream = require_chunkstream();
@@ -7253,9 +7253,9 @@ var require_filter_parse_async = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/pngjs/lib/constants.js
+// node_modules/pngjs/lib/constants.js
 var require_constants2 = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/pngjs/lib/constants.js"(exports2, module2) {
+  "node_modules/pngjs/lib/constants.js"(exports2, module2) {
     "use strict";
     module2.exports = {
       PNG_SIGNATURE: [137, 80, 78, 71, 13, 10, 26, 10],
@@ -7288,9 +7288,9 @@ var require_constants2 = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/pngjs/lib/crc.js
+// node_modules/pngjs/lib/crc.js
 var require_crc = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/pngjs/lib/crc.js"(exports2, module2) {
+  "node_modules/pngjs/lib/crc.js"(exports2, module2) {
     "use strict";
     var crcTable = [];
     (function() {
@@ -7328,9 +7328,9 @@ var require_crc = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/pngjs/lib/parser.js
+// node_modules/pngjs/lib/parser.js
 var require_parser = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/pngjs/lib/parser.js"(exports2, module2) {
+  "node_modules/pngjs/lib/parser.js"(exports2, module2) {
     "use strict";
     var constants3 = require_constants2();
     var CrcCalculator = require_crc();
@@ -7549,9 +7549,9 @@ var require_parser = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/pngjs/lib/bitmapper.js
+// node_modules/pngjs/lib/bitmapper.js
 var require_bitmapper = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/pngjs/lib/bitmapper.js"(exports2) {
+  "node_modules/pngjs/lib/bitmapper.js"(exports2) {
     "use strict";
     var interlaceUtils = require_interlace();
     var pixelBppMapper = [
@@ -7797,9 +7797,9 @@ var require_bitmapper = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/pngjs/lib/format-normaliser.js
+// node_modules/pngjs/lib/format-normaliser.js
 var require_format_normaliser = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/pngjs/lib/format-normaliser.js"(exports2, module2) {
+  "node_modules/pngjs/lib/format-normaliser.js"(exports2, module2) {
     "use strict";
     function dePalette(indata, outdata, width, height, palette) {
       let pxPos = 0;
@@ -7878,9 +7878,9 @@ var require_format_normaliser = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/pngjs/lib/parser-async.js
+// node_modules/pngjs/lib/parser-async.js
 var require_parser_async = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/pngjs/lib/parser-async.js"(exports2, module2) {
+  "node_modules/pngjs/lib/parser-async.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var zlib = require("zlib");
@@ -8008,9 +8008,9 @@ var require_parser_async = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/pngjs/lib/bitpacker.js
+// node_modules/pngjs/lib/bitpacker.js
 var require_bitpacker = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/pngjs/lib/bitpacker.js"(exports2, module2) {
+  "node_modules/pngjs/lib/bitpacker.js"(exports2, module2) {
     "use strict";
     var constants3 = require_constants2();
     module2.exports = function(dataIn, width, height, options) {
@@ -8158,9 +8158,9 @@ var require_bitpacker = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/pngjs/lib/filter-pack.js
+// node_modules/pngjs/lib/filter-pack.js
 var require_filter_pack = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/pngjs/lib/filter-pack.js"(exports2, module2) {
+  "node_modules/pngjs/lib/filter-pack.js"(exports2, module2) {
     "use strict";
     var paethPredictor = require_paeth_predictor();
     function filterNone(pxData, pxPos, byteWidth, rawData, rawPos) {
@@ -8300,9 +8300,9 @@ var require_filter_pack = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/pngjs/lib/packer.js
+// node_modules/pngjs/lib/packer.js
 var require_packer = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/pngjs/lib/packer.js"(exports2, module2) {
+  "node_modules/pngjs/lib/packer.js"(exports2, module2) {
     "use strict";
     var constants3 = require_constants2();
     var CrcStream = require_crc();
@@ -8400,9 +8400,9 @@ var require_packer = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/pngjs/lib/packer-async.js
+// node_modules/pngjs/lib/packer-async.js
 var require_packer_async = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/pngjs/lib/packer-async.js"(exports2, module2) {
+  "node_modules/pngjs/lib/packer-async.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var Stream = require("stream");
@@ -8442,9 +8442,9 @@ var require_packer_async = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/pngjs/lib/sync-inflate.js
+// node_modules/pngjs/lib/sync-inflate.js
 var require_sync_inflate = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/pngjs/lib/sync-inflate.js"(exports2, module2) {
+  "node_modules/pngjs/lib/sync-inflate.js"(exports2, module2) {
     "use strict";
     var assert2 = require("assert").ok;
     var zlib = require("zlib");
@@ -8579,9 +8579,9 @@ var require_sync_inflate = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/pngjs/lib/sync-reader.js
+// node_modules/pngjs/lib/sync-reader.js
 var require_sync_reader = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/pngjs/lib/sync-reader.js"(exports2, module2) {
+  "node_modules/pngjs/lib/sync-reader.js"(exports2, module2) {
     "use strict";
     var SyncReader = module2.exports = function(buffer) {
       this._buffer = buffer;
@@ -8617,9 +8617,9 @@ var require_sync_reader = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse-sync.js
+// node_modules/pngjs/lib/filter-parse-sync.js
 var require_filter_parse_sync = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse-sync.js"(exports2) {
+  "node_modules/pngjs/lib/filter-parse-sync.js"(exports2) {
     "use strict";
     var SyncReader = require_sync_reader();
     var Filter = require_filter_parse();
@@ -8641,9 +8641,9 @@ var require_filter_parse_sync = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/pngjs/lib/parser-sync.js
+// node_modules/pngjs/lib/parser-sync.js
 var require_parser_sync = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/pngjs/lib/parser-sync.js"(exports2, module2) {
+  "node_modules/pngjs/lib/parser-sync.js"(exports2, module2) {
     "use strict";
     var hasSyncZlib = true;
     var zlib = require("zlib");
@@ -8736,9 +8736,9 @@ var require_parser_sync = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/pngjs/lib/packer-sync.js
+// node_modules/pngjs/lib/packer-sync.js
 var require_packer_sync = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/pngjs/lib/packer-sync.js"(exports2, module2) {
+  "node_modules/pngjs/lib/packer-sync.js"(exports2, module2) {
     "use strict";
     var hasSyncZlib = true;
     var zlib = require("zlib");
@@ -8781,9 +8781,9 @@ var require_packer_sync = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/pngjs/lib/png-sync.js
+// node_modules/pngjs/lib/png-sync.js
 var require_png_sync = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/pngjs/lib/png-sync.js"(exports2) {
+  "node_modules/pngjs/lib/png-sync.js"(exports2) {
     "use strict";
     var parse3 = require_parser_sync();
     var pack = require_packer_sync();
@@ -8796,16 +8796,16 @@ var require_png_sync = __commonJS({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/pngjs/lib/png.js
+// node_modules/pngjs/lib/png.js
 var require_png = __commonJS({
-  "../../git-folder/interface-built-right/node_modules/pngjs/lib/png.js"(exports2) {
+  "node_modules/pngjs/lib/png.js"(exports2) {
     "use strict";
     var util = require("util");
     var Stream = require("stream");
     var Parser = require_parser_async();
     var Packer = require_packer_async();
     var PNGSync = require_png_sync();
-    var PNG6 = exports2.PNG = function(options) {
+    var PNG7 = exports2.PNG = function(options) {
       Stream.call(this);
       options = options || {};
       this.width = options.width | 0;
@@ -8834,9 +8834,9 @@ var require_png = __commonJS({
       this._parser.on("close", this._handleClose.bind(this));
       this._packer.on("error", this.emit.bind(this, "error"));
     };
-    util.inherits(PNG6, Stream);
-    PNG6.sync = PNGSync;
-    PNG6.prototype.pack = function() {
+    util.inherits(PNG7, Stream);
+    PNG7.sync = PNGSync;
+    PNG7.prototype.pack = function() {
       if (!this.data || !this.data.length) {
         this.emit("error", "No data provided");
         return this;
@@ -8848,7 +8848,7 @@ var require_png = __commonJS({
       );
       return this;
     };
-    PNG6.prototype.parse = function(data, callback) {
+    PNG7.prototype.parse = function(data, callback) {
       if (callback) {
         let onParsed, onError;
         onParsed = function(parsedData) {
@@ -8866,27 +8866,27 @@ var require_png = __commonJS({
       this.end(data);
       return this;
     };
-    PNG6.prototype.write = function(data) {
+    PNG7.prototype.write = function(data) {
       this._parser.write(data);
       return true;
     };
-    PNG6.prototype.end = function(data) {
+    PNG7.prototype.end = function(data) {
       this._parser.end(data);
     };
-    PNG6.prototype._metadata = function(metadata) {
+    PNG7.prototype._metadata = function(metadata) {
       this.width = metadata.width;
       this.height = metadata.height;
       this.emit("metadata", metadata);
     };
-    PNG6.prototype._gamma = function(gamma) {
+    PNG7.prototype._gamma = function(gamma) {
       this.gamma = gamma;
     };
-    PNG6.prototype._handleClose = function() {
+    PNG7.prototype._handleClose = function() {
       if (!this._parser.writable && !this._packer.readable) {
         this.emit("close");
       }
     };
-    PNG6.bitblt = function(src, dst, srcX, srcY, width, height, deltaX, deltaY) {
+    PNG7.bitblt = function(src, dst, srcX, srcY, width, height, deltaX, deltaY) {
       srcX |= 0;
       srcY |= 0;
       width |= 0;
@@ -8908,11 +8908,11 @@ var require_png = __commonJS({
         );
       }
     };
-    PNG6.prototype.bitblt = function(dst, srcX, srcY, width, height, deltaX, deltaY) {
-      PNG6.bitblt(this, dst, srcX, srcY, width, height, deltaX, deltaY);
+    PNG7.prototype.bitblt = function(dst, srcX, srcY, width, height, deltaX, deltaY) {
+      PNG7.bitblt(this, dst, srcX, srcY, width, height, deltaX, deltaY);
       return this;
     };
-    PNG6.adjustGamma = function(src) {
+    PNG7.adjustGamma = function(src) {
       if (src.gamma) {
         for (let y = 0; y < src.height; y++) {
           for (let x = 0; x < src.width; x++) {
@@ -8927,8 +8927,8 @@ var require_png = __commonJS({
         src.gamma = 0;
       }
     };
-    PNG6.prototype.adjustGamma = function() {
-      PNG6.adjustGamma(this);
+    PNG7.prototype.adjustGamma = function() {
+      PNG7.adjustGamma(this);
     };
   }
 });
@@ -9335,9 +9335,9 @@ var resolve_exports = {};
 __export(resolve_exports, {
   jaroWinkler: () => jaroWinkler,
   parseSpatialHints: () => parseSpatialHints,
-  resolve: () => resolve2
+  resolve: () => resolve3
 });
-function resolve2(options) {
+function resolve3(options) {
   if (options.mode === "algorithmic") {
     return resolveAlgorithmic(options);
   }
@@ -10080,8 +10080,8 @@ var init_driver = __esm({
             totalInteractive: interactive.length
           };
         }
-        const { resolve: resolve8 } = await Promise.resolve().then(() => (init_resolve(), resolve_exports));
-        const result = resolve8({
+        const { resolve: resolve10 } = await Promise.resolve().then(() => (init_resolve(), resolve_exports));
+        const result = resolve10({
           intent: options.role ? `${name} ${options.role}` : name,
           elements: allElements,
           mode: "algorithmic"
@@ -10531,8 +10531,8 @@ var init_driver = __esm({
         if (this.pendingDialog) return void 0;
         let onDialog = () => {
         };
-        const dialogSignal = new Promise((resolve8) => {
-          onDialog = resolve8;
+        const dialogSignal = new Promise((resolve10) => {
+          onDialog = resolve10;
           this.dialogWaiters.add(onDialog);
         });
         try {
@@ -10578,10 +10578,10 @@ var init_driver = __esm({
        */
       async waitForDialog(timeout = 5e3) {
         if (this.pendingDialog) return this.pendingDialog;
-        return new Promise((resolve8, reject) => {
+        return new Promise((resolve10, reject) => {
           const onDialog = () => {
             clearTimeout(timer);
-            resolve8(this.pendingDialog);
+            resolve10(this.pendingDialog);
           };
           const timer = setTimeout(() => {
             this.dialogWaiters.delete(onDialog);
@@ -11134,12 +11134,12 @@ function buildFunctionDeclaration(fnStr) {
   }
   return `(function(...__ibrArgs) { ${ESBUILD_NAME_HELPER} return (${fnStr})(...__ibrArgs); })`;
 }
-var import_promises3, import_path2, SELECTOR_ACTIONABILITY_PROBE_FN, CompatElementHandle, CompatLocator, ESBUILD_NAME_HELPER, CompatPage;
+var import_promises4, import_path2, SELECTOR_ACTIONABILITY_PROBE_FN, CompatElementHandle, CompatLocator, ESBUILD_NAME_HELPER, CompatPage;
 var init_compat = __esm({
   "src/engine/compat.ts"() {
     "use strict";
     init_actionability();
-    import_promises3 = require("fs/promises");
+    import_promises4 = require("fs/promises");
     import_path2 = require("path");
     SELECTOR_ACTIONABILITY_PROBE_FN = `(sel) => {
   const el = document.querySelector(sel);
@@ -11192,8 +11192,8 @@ var init_compat = __esm({
           clip: { x, y, width: model.width, height: model.height }
         });
         if (options?.path) {
-          await (0, import_promises3.mkdir)((0, import_path2.dirname)(options.path), { recursive: true });
-          await (0, import_promises3.writeFile)(options.path, buf);
+          await (0, import_promises4.mkdir)((0, import_path2.dirname)(options.path), { recursive: true });
+          await (0, import_promises4.writeFile)(options.path, buf);
         }
         return buf;
       }
@@ -11401,8 +11401,8 @@ var init_compat = __esm({
           fullPage: options?.fullPage
         });
         if (options?.path) {
-          await (0, import_promises3.mkdir)((0, import_path2.dirname)(options.path), { recursive: true });
-          await (0, import_promises3.writeFile)(options.path, buf);
+          await (0, import_promises4.mkdir)((0, import_path2.dirname)(options.path), { recursive: true });
+          await (0, import_promises4.writeFile)(options.path, buf);
         }
         return buf;
       }
@@ -11555,7 +11555,7 @@ var init_compat = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/core/core.js
+// node_modules/zod/v4/core/core.js
 // @__NO_SIDE_EFFECTS__
 function $constructor(name, initializer3, params) {
   function init(inst, def) {
@@ -11615,7 +11615,7 @@ function config(newConfig) {
 }
 var _a, NEVER, $brand, $ZodAsyncError, $ZodEncodeError, globalConfig;
 var init_core = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/core/core.js"() {
+  "node_modules/zod/v4/core/core.js"() {
     "use strict";
     NEVER = /* @__PURE__ */ Object.freeze({
       status: "aborted"
@@ -11637,7 +11637,7 @@ var init_core = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/core/util.js
+// node_modules/zod/v4/core/util.js
 var util_exports = {};
 __export(util_exports, {
   BIGINT_FORMAT_RANGES: () => BIGINT_FORMAT_RANGES,
@@ -12248,7 +12248,7 @@ function uint8ArrayToHex(bytes) {
 }
 var EVALUATING, captureStackTrace, allowsEval, getParsedType, propertyKeyTypes, primitiveTypes, NUMBER_FORMAT_RANGES, BIGINT_FORMAT_RANGES, Class;
 var init_util = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/core/util.js"() {
+  "node_modules/zod/v4/core/util.js"() {
     "use strict";
     init_core();
     EVALUATING = /* @__PURE__ */ Symbol("evaluating");
@@ -12340,7 +12340,7 @@ var init_util = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/core/errors.js
+// node_modules/zod/v4/core/errors.js
 function flattenError(error51, mapper = (issue2) => issue2.message) {
   const fieldErrors = {};
   const formErrors = [];
@@ -12462,7 +12462,7 @@ function prettifyError(error51) {
 }
 var initializer, $ZodError, $ZodRealError;
 var init_errors = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/core/errors.js"() {
+  "node_modules/zod/v4/core/errors.js"() {
     "use strict";
     init_core();
     init_util();
@@ -12487,10 +12487,10 @@ var init_errors = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/core/parse.js
+// node_modules/zod/v4/core/parse.js
 var _parse, parse, _parseAsync, parseAsync, _safeParse, safeParse, _safeParseAsync, safeParseAsync, _encode, encode, _decode, decode, _encodeAsync, encodeAsync, _decodeAsync, decodeAsync, _safeEncode, safeEncode, _safeDecode, safeDecode, _safeEncodeAsync, safeEncodeAsync, _safeDecodeAsync, safeDecodeAsync;
 var init_parse = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/core/parse.js"() {
+  "node_modules/zod/v4/core/parse.js"() {
     "use strict";
     init_core();
     init_errors();
@@ -12584,7 +12584,7 @@ var init_parse = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/core/regexes.js
+// node_modules/zod/v4/core/regexes.js
 var regexes_exports = {};
 __export(regexes_exports, {
   base64: () => base64,
@@ -12676,7 +12676,7 @@ function fixedBase64url(length) {
 }
 var cuid, cuid2, ulid, xid, ksuid, nanoid, duration, extendedDuration, guid, uuid, uuid4, uuid6, uuid7, email, html5Email, rfc5322Email, unicodeEmail, idnEmail, browserEmail, _emoji, ipv4, ipv6, mac, cidrv4, cidrv6, base64, base64url, hostname2, domain, httpProtocol, e164, dateSource, date, string, bigint, integer, number, boolean, _null, _undefined, lowercase, uppercase, hex, md5_hex, md5_base64, md5_base64url, sha1_hex, sha1_base64, sha1_base64url, sha256_hex, sha256_base64, sha256_base64url, sha384_hex, sha384_base64, sha384_base64url, sha512_hex, sha512_base64, sha512_base64url;
 var init_regexes = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/core/regexes.js"() {
+  "node_modules/zod/v4/core/regexes.js"() {
     "use strict";
     init_util();
     cuid = /^[cC][0-9a-z]{6,}$/;
@@ -12750,7 +12750,7 @@ var init_regexes = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/core/checks.js
+// node_modules/zod/v4/core/checks.js
 function handleCheckPropertyResult(result, payload, property) {
   if (result.issues.length) {
     payload.issues.push(...prefixIssues(property, result.issues));
@@ -12758,7 +12758,7 @@ function handleCheckPropertyResult(result, payload, property) {
 }
 var $ZodCheck, numericOriginMap, $ZodCheckLessThan, $ZodCheckGreaterThan, $ZodCheckMultipleOf, $ZodCheckNumberFormat, $ZodCheckBigIntFormat, $ZodCheckMaxSize, $ZodCheckMinSize, $ZodCheckSizeEquals, $ZodCheckMaxLength, $ZodCheckMinLength, $ZodCheckLengthEquals, $ZodCheckStringFormat, $ZodCheckRegex, $ZodCheckLowerCase, $ZodCheckUpperCase, $ZodCheckIncludes, $ZodCheckStartsWith, $ZodCheckEndsWith, $ZodCheckProperty, $ZodCheckMimeType, $ZodCheckOverwrite;
 var init_checks = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/core/checks.js"() {
+  "node_modules/zod/v4/core/checks.js"() {
     "use strict";
     init_core();
     init_regexes();
@@ -13307,10 +13307,10 @@ var init_checks = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/core/doc.js
+// node_modules/zod/v4/core/doc.js
 var Doc;
 var init_doc = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/core/doc.js"() {
+  "node_modules/zod/v4/core/doc.js"() {
     "use strict";
     Doc = class {
       constructor(args = []) {
@@ -13349,10 +13349,10 @@ var init_doc = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/core/versions.js
+// node_modules/zod/v4/core/versions.js
 var version;
 var init_versions = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/core/versions.js"() {
+  "node_modules/zod/v4/core/versions.js"() {
     "use strict";
     version = {
       major: 4,
@@ -13362,7 +13362,7 @@ var init_versions = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/core/schemas.js
+// node_modules/zod/v4/core/schemas.js
 function isValidBase64(data) {
   if (data === "")
     return true;
@@ -13768,7 +13768,7 @@ function handleRefineResult(result, payload, input, inst) {
 }
 var $ZodType, $ZodString, $ZodStringFormat, $ZodGUID, $ZodUUID, $ZodEmail, $ZodURL, $ZodEmoji, $ZodNanoID, $ZodCUID, $ZodCUID2, $ZodULID, $ZodXID, $ZodKSUID, $ZodISODateTime, $ZodISODate, $ZodISOTime, $ZodISODuration, $ZodIPv4, $ZodIPv6, $ZodMAC, $ZodCIDRv4, $ZodCIDRv6, $ZodBase64, $ZodBase64URL, $ZodE164, $ZodJWT, $ZodCustomStringFormat, $ZodNumber, $ZodNumberFormat, $ZodBoolean, $ZodBigInt, $ZodBigIntFormat, $ZodSymbol, $ZodUndefined, $ZodNull, $ZodAny, $ZodUnknown, $ZodNever, $ZodVoid, $ZodDate, $ZodArray, $ZodObject, $ZodObjectJIT, $ZodUnion, $ZodXor, $ZodDiscriminatedUnion, $ZodIntersection, $ZodTuple, $ZodRecord, $ZodMap, $ZodSet, $ZodEnum, $ZodLiteral, $ZodFile, $ZodTransform, $ZodOptional, $ZodExactOptional, $ZodNullable, $ZodDefault, $ZodPrefault, $ZodNonOptional, $ZodSuccess, $ZodCatch, $ZodNaN, $ZodPipe, $ZodCodec, $ZodPreprocess, $ZodReadonly, $ZodTemplateLiteral, $ZodFunction, $ZodPromise, $ZodLazy, $ZodCustom;
 var init_schemas = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/core/schemas.js"() {
+  "node_modules/zod/v4/core/schemas.js"() {
     "use strict";
     init_checks();
     init_core();
@@ -15469,7 +15469,7 @@ var init_schemas = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ar.js
+// node_modules/zod/v4/locales/ar.js
 function ar_default() {
   return {
     localeError: error()
@@ -15477,7 +15477,7 @@ function ar_default() {
 }
 var error;
 var init_ar = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ar.js"() {
+  "node_modules/zod/v4/locales/ar.js"() {
     "use strict";
     init_util();
     error = () => {
@@ -15583,7 +15583,7 @@ var init_ar = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/az.js
+// node_modules/zod/v4/locales/az.js
 function az_default() {
   return {
     localeError: error2()
@@ -15591,7 +15591,7 @@ function az_default() {
 }
 var error2;
 var init_az = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/az.js"() {
+  "node_modules/zod/v4/locales/az.js"() {
     "use strict";
     init_util();
     error2 = () => {
@@ -15696,7 +15696,7 @@ var init_az = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/be.js
+// node_modules/zod/v4/locales/be.js
 function getBelarusianPlural(count, one, few, many) {
   const absCount = Math.abs(count);
   const lastDigit = absCount % 10;
@@ -15719,7 +15719,7 @@ function be_default() {
 }
 var error3;
 var init_be = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/be.js"() {
+  "node_modules/zod/v4/locales/be.js"() {
     "use strict";
     init_util();
     error3 = () => {
@@ -15860,7 +15860,7 @@ var init_be = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/bg.js
+// node_modules/zod/v4/locales/bg.js
 function bg_default() {
   return {
     localeError: error4()
@@ -15868,7 +15868,7 @@ function bg_default() {
 }
 var error4;
 var init_bg = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/bg.js"() {
+  "node_modules/zod/v4/locales/bg.js"() {
     "use strict";
     init_util();
     error4 = () => {
@@ -15988,7 +15988,7 @@ var init_bg = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ca.js
+// node_modules/zod/v4/locales/ca.js
 function ca_default() {
   return {
     localeError: error5()
@@ -15996,7 +15996,7 @@ function ca_default() {
 }
 var error5;
 var init_ca = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ca.js"() {
+  "node_modules/zod/v4/locales/ca.js"() {
     "use strict";
     init_util();
     error5 = () => {
@@ -16104,7 +16104,7 @@ var init_ca = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/cs.js
+// node_modules/zod/v4/locales/cs.js
 function cs_default() {
   return {
     localeError: error6()
@@ -16112,7 +16112,7 @@ function cs_default() {
 }
 var error6;
 var init_cs = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/cs.js"() {
+  "node_modules/zod/v4/locales/cs.js"() {
     "use strict";
     init_util();
     error6 = () => {
@@ -16223,7 +16223,7 @@ var init_cs = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/da.js
+// node_modules/zod/v4/locales/da.js
 function da_default() {
   return {
     localeError: error7()
@@ -16231,7 +16231,7 @@ function da_default() {
 }
 var error7;
 var init_da = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/da.js"() {
+  "node_modules/zod/v4/locales/da.js"() {
     "use strict";
     init_util();
     error7 = () => {
@@ -16346,7 +16346,7 @@ var init_da = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/de.js
+// node_modules/zod/v4/locales/de.js
 function de_default() {
   return {
     localeError: error8()
@@ -16354,7 +16354,7 @@ function de_default() {
 }
 var error8;
 var init_de = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/de.js"() {
+  "node_modules/zod/v4/locales/de.js"() {
     "use strict";
     init_util();
     error8 = () => {
@@ -16462,7 +16462,7 @@ var init_de = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/el.js
+// node_modules/zod/v4/locales/el.js
 function el_default() {
   return {
     localeError: error9()
@@ -16470,7 +16470,7 @@ function el_default() {
 }
 var error9;
 var init_el = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/el.js"() {
+  "node_modules/zod/v4/locales/el.js"() {
     "use strict";
     init_util();
     error9 = () => {
@@ -16579,7 +16579,7 @@ var init_el = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/en.js
+// node_modules/zod/v4/locales/en.js
 function en_default() {
   return {
     localeError: error10()
@@ -16587,7 +16587,7 @@ function en_default() {
 }
 var error10;
 var init_en = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/en.js"() {
+  "node_modules/zod/v4/locales/en.js"() {
     "use strict";
     init_util();
     error10 = () => {
@@ -16699,7 +16699,7 @@ var init_en = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/eo.js
+// node_modules/zod/v4/locales/eo.js
 function eo_default() {
   return {
     localeError: error11()
@@ -16707,7 +16707,7 @@ function eo_default() {
 }
 var error11;
 var init_eo = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/eo.js"() {
+  "node_modules/zod/v4/locales/eo.js"() {
     "use strict";
     init_util();
     error11 = () => {
@@ -16816,7 +16816,7 @@ var init_eo = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/es.js
+// node_modules/zod/v4/locales/es.js
 function es_default() {
   return {
     localeError: error12()
@@ -16824,7 +16824,7 @@ function es_default() {
 }
 var error12;
 var init_es = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/es.js"() {
+  "node_modules/zod/v4/locales/es.js"() {
     "use strict";
     init_util();
     error12 = () => {
@@ -16956,7 +16956,7 @@ var init_es = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/fa.js
+// node_modules/zod/v4/locales/fa.js
 function fa_default() {
   return {
     localeError: error13()
@@ -16964,7 +16964,7 @@ function fa_default() {
 }
 var error13;
 var init_fa = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/fa.js"() {
+  "node_modules/zod/v4/locales/fa.js"() {
     "use strict";
     init_util();
     error13 = () => {
@@ -17078,7 +17078,7 @@ var init_fa = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/fi.js
+// node_modules/zod/v4/locales/fi.js
 function fi_default() {
   return {
     localeError: error14()
@@ -17086,7 +17086,7 @@ function fi_default() {
 }
 var error14;
 var init_fi = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/fi.js"() {
+  "node_modules/zod/v4/locales/fi.js"() {
     "use strict";
     init_util();
     error14 = () => {
@@ -17198,7 +17198,7 @@ var init_fi = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/fr.js
+// node_modules/zod/v4/locales/fr.js
 function fr_default() {
   return {
     localeError: error15()
@@ -17206,7 +17206,7 @@ function fr_default() {
 }
 var error15;
 var init_fr = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/fr.js"() {
+  "node_modules/zod/v4/locales/fr.js"() {
     "use strict";
     init_util();
     error15 = () => {
@@ -17331,7 +17331,7 @@ var init_fr = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/fr-CA.js
+// node_modules/zod/v4/locales/fr-CA.js
 function fr_CA_default() {
   return {
     localeError: error16()
@@ -17339,7 +17339,7 @@ function fr_CA_default() {
 }
 var error16;
 var init_fr_CA = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/fr-CA.js"() {
+  "node_modules/zod/v4/locales/fr-CA.js"() {
     "use strict";
     init_util();
     error16 = () => {
@@ -17446,7 +17446,7 @@ var init_fr_CA = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/he.js
+// node_modules/zod/v4/locales/he.js
 function he_default() {
   return {
     localeError: error17()
@@ -17454,7 +17454,7 @@ function he_default() {
 }
 var error17;
 var init_he = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/he.js"() {
+  "node_modules/zod/v4/locales/he.js"() {
     "use strict";
     init_util();
     error17 = () => {
@@ -17648,7 +17648,7 @@ var init_he = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/hr.js
+// node_modules/zod/v4/locales/hr.js
 function hr_default() {
   return {
     localeError: error18()
@@ -17656,7 +17656,7 @@ function hr_default() {
 }
 var error18;
 var init_hr = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/hr.js"() {
+  "node_modules/zod/v4/locales/hr.js"() {
     "use strict";
     init_util();
     error18 = () => {
@@ -17778,7 +17778,7 @@ var init_hr = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/hu.js
+// node_modules/zod/v4/locales/hu.js
 function hu_default() {
   return {
     localeError: error19()
@@ -17786,7 +17786,7 @@ function hu_default() {
 }
 var error19;
 var init_hu = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/hu.js"() {
+  "node_modules/zod/v4/locales/hu.js"() {
     "use strict";
     init_util();
     error19 = () => {
@@ -17894,7 +17894,7 @@ var init_hu = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/hy.js
+// node_modules/zod/v4/locales/hy.js
 function getArmenianPlural(count, one, many) {
   return Math.abs(count) === 1 ? one : many;
 }
@@ -17912,7 +17912,7 @@ function hy_default() {
 }
 var error20;
 var init_hy = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/hy.js"() {
+  "node_modules/zod/v4/locales/hy.js"() {
     "use strict";
     init_util();
     error20 = () => {
@@ -18049,7 +18049,7 @@ var init_hy = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/id.js
+// node_modules/zod/v4/locales/id.js
 function id_default() {
   return {
     localeError: error21()
@@ -18057,7 +18057,7 @@ function id_default() {
 }
 var error21;
 var init_id = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/id.js"() {
+  "node_modules/zod/v4/locales/id.js"() {
     "use strict";
     init_util();
     error21 = () => {
@@ -18163,7 +18163,7 @@ var init_id = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/is.js
+// node_modules/zod/v4/locales/is.js
 function is_default() {
   return {
     localeError: error22()
@@ -18171,7 +18171,7 @@ function is_default() {
 }
 var error22;
 var init_is = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/is.js"() {
+  "node_modules/zod/v4/locales/is.js"() {
     "use strict";
     init_util();
     error22 = () => {
@@ -18280,7 +18280,7 @@ var init_is = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/it.js
+// node_modules/zod/v4/locales/it.js
 function it_default() {
   return {
     localeError: error23()
@@ -18288,7 +18288,7 @@ function it_default() {
 }
 var error23;
 var init_it = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/it.js"() {
+  "node_modules/zod/v4/locales/it.js"() {
     "use strict";
     init_util();
     error23 = () => {
@@ -18396,7 +18396,7 @@ var init_it = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ja.js
+// node_modules/zod/v4/locales/ja.js
 function ja_default() {
   return {
     localeError: error24()
@@ -18404,7 +18404,7 @@ function ja_default() {
 }
 var error24;
 var init_ja = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ja.js"() {
+  "node_modules/zod/v4/locales/ja.js"() {
     "use strict";
     init_util();
     error24 = () => {
@@ -18511,7 +18511,7 @@ var init_ja = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ka.js
+// node_modules/zod/v4/locales/ka.js
 function ka_default() {
   return {
     localeError: error25()
@@ -18519,7 +18519,7 @@ function ka_default() {
 }
 var error25;
 var init_ka = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ka.js"() {
+  "node_modules/zod/v4/locales/ka.js"() {
     "use strict";
     init_util();
     error25 = () => {
@@ -18631,7 +18631,7 @@ var init_ka = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/km.js
+// node_modules/zod/v4/locales/km.js
 function km_default() {
   return {
     localeError: error26()
@@ -18639,7 +18639,7 @@ function km_default() {
 }
 var error26;
 var init_km = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/km.js"() {
+  "node_modules/zod/v4/locales/km.js"() {
     "use strict";
     init_util();
     error26 = () => {
@@ -18749,18 +18749,18 @@ var init_km = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/kh.js
+// node_modules/zod/v4/locales/kh.js
 function kh_default() {
   return km_default();
 }
 var init_kh = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/kh.js"() {
+  "node_modules/zod/v4/locales/kh.js"() {
     "use strict";
     init_km();
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ko.js
+// node_modules/zod/v4/locales/ko.js
 function ko_default() {
   return {
     localeError: error27()
@@ -18768,7 +18768,7 @@ function ko_default() {
 }
 var error27;
 var init_ko = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ko.js"() {
+  "node_modules/zod/v4/locales/ko.js"() {
     "use strict";
     init_util();
     error27 = () => {
@@ -18879,7 +18879,7 @@ var init_ko = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/lt.js
+// node_modules/zod/v4/locales/lt.js
 function getUnitTypeFromNumber(number4) {
   const abs = Math.abs(number4);
   const last = abs % 10;
@@ -18897,7 +18897,7 @@ function lt_default() {
 }
 var capitalizeFirstCharacter, error28;
 var init_lt = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/lt.js"() {
+  "node_modules/zod/v4/locales/lt.js"() {
     "use strict";
     init_util();
     capitalizeFirstCharacter = (text) => {
@@ -19090,7 +19090,7 @@ var init_lt = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/mk.js
+// node_modules/zod/v4/locales/mk.js
 function mk_default() {
   return {
     localeError: error29()
@@ -19098,7 +19098,7 @@ function mk_default() {
 }
 var error29;
 var init_mk = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/mk.js"() {
+  "node_modules/zod/v4/locales/mk.js"() {
     "use strict";
     init_util();
     error29 = () => {
@@ -19207,7 +19207,7 @@ var init_mk = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ms.js
+// node_modules/zod/v4/locales/ms.js
 function ms_default() {
   return {
     localeError: error30()
@@ -19215,7 +19215,7 @@ function ms_default() {
 }
 var error30;
 var init_ms = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ms.js"() {
+  "node_modules/zod/v4/locales/ms.js"() {
     "use strict";
     init_util();
     error30 = () => {
@@ -19322,7 +19322,7 @@ var init_ms = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/nl.js
+// node_modules/zod/v4/locales/nl.js
 function nl_default() {
   return {
     localeError: error31()
@@ -19330,7 +19330,7 @@ function nl_default() {
 }
 var error31;
 var init_nl = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/nl.js"() {
+  "node_modules/zod/v4/locales/nl.js"() {
     "use strict";
     init_util();
     error31 = () => {
@@ -19440,7 +19440,7 @@ var init_nl = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/no.js
+// node_modules/zod/v4/locales/no.js
 function no_default() {
   return {
     localeError: error32()
@@ -19448,7 +19448,7 @@ function no_default() {
 }
 var error32;
 var init_no = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/no.js"() {
+  "node_modules/zod/v4/locales/no.js"() {
     "use strict";
     init_util();
     error32 = () => {
@@ -19556,7 +19556,7 @@ var init_no = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ota.js
+// node_modules/zod/v4/locales/ota.js
 function ota_default() {
   return {
     localeError: error33()
@@ -19564,7 +19564,7 @@ function ota_default() {
 }
 var error33;
 var init_ota = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ota.js"() {
+  "node_modules/zod/v4/locales/ota.js"() {
     "use strict";
     init_util();
     error33 = () => {
@@ -19673,7 +19673,7 @@ var init_ota = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ps.js
+// node_modules/zod/v4/locales/ps.js
 function ps_default() {
   return {
     localeError: error34()
@@ -19681,7 +19681,7 @@ function ps_default() {
 }
 var error34;
 var init_ps = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ps.js"() {
+  "node_modules/zod/v4/locales/ps.js"() {
     "use strict";
     init_util();
     error34 = () => {
@@ -19795,7 +19795,7 @@ var init_ps = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/pl.js
+// node_modules/zod/v4/locales/pl.js
 function pl_default() {
   return {
     localeError: error35()
@@ -19803,7 +19803,7 @@ function pl_default() {
 }
 var error35;
 var init_pl = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/pl.js"() {
+  "node_modules/zod/v4/locales/pl.js"() {
     "use strict";
     init_util();
     error35 = () => {
@@ -19912,7 +19912,7 @@ var init_pl = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/pt.js
+// node_modules/zod/v4/locales/pt.js
 function pt_default() {
   return {
     localeError: error36()
@@ -19920,7 +19920,7 @@ function pt_default() {
 }
 var error36;
 var init_pt = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/pt.js"() {
+  "node_modules/zod/v4/locales/pt.js"() {
     "use strict";
     init_util();
     error36 = () => {
@@ -20028,7 +20028,7 @@ var init_pt = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ro.js
+// node_modules/zod/v4/locales/ro.js
 function ro_default() {
   return {
     localeError: error37()
@@ -20036,7 +20036,7 @@ function ro_default() {
 }
 var error37;
 var init_ro = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ro.js"() {
+  "node_modules/zod/v4/locales/ro.js"() {
     "use strict";
     init_util();
     error37 = () => {
@@ -20155,7 +20155,7 @@ var init_ro = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ru.js
+// node_modules/zod/v4/locales/ru.js
 function getRussianPlural(count, one, few, many) {
   const absCount = Math.abs(count);
   const lastDigit = absCount % 10;
@@ -20178,7 +20178,7 @@ function ru_default() {
 }
 var error38;
 var init_ru = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ru.js"() {
+  "node_modules/zod/v4/locales/ru.js"() {
     "use strict";
     init_util();
     error38 = () => {
@@ -20319,7 +20319,7 @@ var init_ru = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/sl.js
+// node_modules/zod/v4/locales/sl.js
 function sl_default() {
   return {
     localeError: error39()
@@ -20327,7 +20327,7 @@ function sl_default() {
 }
 var error39;
 var init_sl = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/sl.js"() {
+  "node_modules/zod/v4/locales/sl.js"() {
     "use strict";
     init_util();
     error39 = () => {
@@ -20436,7 +20436,7 @@ var init_sl = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/sv.js
+// node_modules/zod/v4/locales/sv.js
 function sv_default() {
   return {
     localeError: error40()
@@ -20444,7 +20444,7 @@ function sv_default() {
 }
 var error40;
 var init_sv = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/sv.js"() {
+  "node_modules/zod/v4/locales/sv.js"() {
     "use strict";
     init_util();
     error40 = () => {
@@ -20554,7 +20554,7 @@ var init_sv = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ta.js
+// node_modules/zod/v4/locales/ta.js
 function ta_default() {
   return {
     localeError: error41()
@@ -20562,7 +20562,7 @@ function ta_default() {
 }
 var error41;
 var init_ta = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ta.js"() {
+  "node_modules/zod/v4/locales/ta.js"() {
     "use strict";
     init_util();
     error41 = () => {
@@ -20672,7 +20672,7 @@ var init_ta = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/th.js
+// node_modules/zod/v4/locales/th.js
 function th_default() {
   return {
     localeError: error42()
@@ -20680,7 +20680,7 @@ function th_default() {
 }
 var error42;
 var init_th = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/th.js"() {
+  "node_modules/zod/v4/locales/th.js"() {
     "use strict";
     init_util();
     error42 = () => {
@@ -20790,7 +20790,7 @@ var init_th = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/tr.js
+// node_modules/zod/v4/locales/tr.js
 function tr_default() {
   return {
     localeError: error43()
@@ -20798,7 +20798,7 @@ function tr_default() {
 }
 var error43;
 var init_tr = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/tr.js"() {
+  "node_modules/zod/v4/locales/tr.js"() {
     "use strict";
     init_util();
     error43 = () => {
@@ -20903,7 +20903,7 @@ var init_tr = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/uk.js
+// node_modules/zod/v4/locales/uk.js
 function uk_default() {
   return {
     localeError: error44()
@@ -20911,7 +20911,7 @@ function uk_default() {
 }
 var error44;
 var init_uk = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/uk.js"() {
+  "node_modules/zod/v4/locales/uk.js"() {
     "use strict";
     init_util();
     error44 = () => {
@@ -21019,18 +21019,18 @@ var init_uk = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ua.js
+// node_modules/zod/v4/locales/ua.js
 function ua_default() {
   return uk_default();
 }
 var init_ua = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ua.js"() {
+  "node_modules/zod/v4/locales/ua.js"() {
     "use strict";
     init_uk();
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/ur.js
+// node_modules/zod/v4/locales/ur.js
 function ur_default() {
   return {
     localeError: error45()
@@ -21038,7 +21038,7 @@ function ur_default() {
 }
 var error45;
 var init_ur = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/ur.js"() {
+  "node_modules/zod/v4/locales/ur.js"() {
     "use strict";
     init_util();
     error45 = () => {
@@ -21148,7 +21148,7 @@ var init_ur = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/uz.js
+// node_modules/zod/v4/locales/uz.js
 function uz_default() {
   return {
     localeError: error46()
@@ -21156,7 +21156,7 @@ function uz_default() {
 }
 var error46;
 var init_uz = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/uz.js"() {
+  "node_modules/zod/v4/locales/uz.js"() {
     "use strict";
     init_util();
     error46 = () => {
@@ -21266,7 +21266,7 @@ var init_uz = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/vi.js
+// node_modules/zod/v4/locales/vi.js
 function vi_default() {
   return {
     localeError: error47()
@@ -21274,7 +21274,7 @@ function vi_default() {
 }
 var error47;
 var init_vi = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/vi.js"() {
+  "node_modules/zod/v4/locales/vi.js"() {
     "use strict";
     init_util();
     error47 = () => {
@@ -21382,7 +21382,7 @@ var init_vi = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/zh-CN.js
+// node_modules/zod/v4/locales/zh-CN.js
 function zh_CN_default() {
   return {
     localeError: error48()
@@ -21390,7 +21390,7 @@ function zh_CN_default() {
 }
 var error48;
 var init_zh_CN = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/zh-CN.js"() {
+  "node_modules/zod/v4/locales/zh-CN.js"() {
     "use strict";
     init_util();
     error48 = () => {
@@ -21499,7 +21499,7 @@ var init_zh_CN = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/zh-TW.js
+// node_modules/zod/v4/locales/zh-TW.js
 function zh_TW_default() {
   return {
     localeError: error49()
@@ -21507,7 +21507,7 @@ function zh_TW_default() {
 }
 var error49;
 var init_zh_TW = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/zh-TW.js"() {
+  "node_modules/zod/v4/locales/zh-TW.js"() {
     "use strict";
     init_util();
     error49 = () => {
@@ -21614,7 +21614,7 @@ var init_zh_TW = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/yo.js
+// node_modules/zod/v4/locales/yo.js
 function yo_default() {
   return {
     localeError: error50()
@@ -21622,7 +21622,7 @@ function yo_default() {
 }
 var error50;
 var init_yo = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/yo.js"() {
+  "node_modules/zod/v4/locales/yo.js"() {
     "use strict";
     init_util();
     error50 = () => {
@@ -21729,7 +21729,7 @@ var init_yo = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/locales/index.js
+// node_modules/zod/v4/locales/index.js
 var locales_exports = {};
 __export(locales_exports, {
   ar: () => ar_default,
@@ -21786,7 +21786,7 @@ __export(locales_exports, {
   zhTW: () => zh_TW_default
 });
 var init_locales = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/locales/index.js"() {
+  "node_modules/zod/v4/locales/index.js"() {
     "use strict";
     init_ar();
     init_az();
@@ -21843,13 +21843,13 @@ var init_locales = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/core/registries.js
+// node_modules/zod/v4/core/registries.js
 function registry() {
   return new $ZodRegistry();
 }
 var _a2, $output, $input, $ZodRegistry, globalRegistry;
 var init_registries = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/core/registries.js"() {
+  "node_modules/zod/v4/core/registries.js"() {
     "use strict";
     $output = /* @__PURE__ */ Symbol("ZodOutput");
     $input = /* @__PURE__ */ Symbol("ZodInput");
@@ -21898,7 +21898,7 @@ var init_registries = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/core/api.js
+// node_modules/zod/v4/core/api.js
 // @__NO_SIDE_EFFECTS__
 function _string(Class2, params) {
   return new Class2({
@@ -22931,7 +22931,7 @@ function _stringFormat(Class2, format, fnOrRegex, _params = {}) {
 }
 var TimePrecision;
 var init_api = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/core/api.js"() {
+  "node_modules/zod/v4/core/api.js"() {
     "use strict";
     init_checks();
     init_registries();
@@ -22947,7 +22947,7 @@ var init_api = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/core/to-json-schema.js
+// node_modules/zod/v4/core/to-json-schema.js
 function initializeContext(params) {
   let target = params?.target ?? "draft-2020-12";
   if (target === "draft-4")
@@ -23294,7 +23294,7 @@ function isTransforming(_schema, _ctx) {
 }
 var createToJSONSchemaMethod, createStandardJSONSchemaMethod;
 var init_to_json_schema = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/core/to-json-schema.js"() {
+  "node_modules/zod/v4/core/to-json-schema.js"() {
     "use strict";
     init_registries();
     createToJSONSchemaMethod = (schema, processors = {}) => (params) => {
@@ -23313,7 +23313,7 @@ var init_to_json_schema = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/core/json-schema-processors.js
+// node_modules/zod/v4/core/json-schema-processors.js
 function toJSONSchema(input, params) {
   if ("_idmap" in input) {
     const registry2 = input;
@@ -23350,7 +23350,7 @@ function toJSONSchema(input, params) {
 }
 var formatMap, stringProcessor, numberProcessor, booleanProcessor, bigintProcessor, symbolProcessor, nullProcessor, undefinedProcessor, voidProcessor, neverProcessor, anyProcessor, unknownProcessor, dateProcessor, enumProcessor, literalProcessor, nanProcessor, templateLiteralProcessor, fileProcessor, successProcessor, customProcessor, functionProcessor, transformProcessor, mapProcessor, setProcessor, arrayProcessor, objectProcessor, unionProcessor, intersectionProcessor, tupleProcessor, recordProcessor, nullableProcessor, nonoptionalProcessor, defaultProcessor, prefaultProcessor, catchProcessor, pipeProcessor, readonlyProcessor, promiseProcessor, optionalProcessor, lazyProcessor, allProcessors;
 var init_json_schema_processors = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/core/json-schema-processors.js"() {
+  "node_modules/zod/v4/core/json-schema-processors.js"() {
     "use strict";
     init_to_json_schema();
     init_util();
@@ -23865,10 +23865,10 @@ var init_json_schema_processors = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/core/json-schema-generator.js
+// node_modules/zod/v4/core/json-schema-generator.js
 var JSONSchemaGenerator;
 var init_json_schema_generator = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/core/json-schema-generator.js"() {
+  "node_modules/zod/v4/core/json-schema-generator.js"() {
     "use strict";
     init_json_schema_processors();
     init_to_json_schema();
@@ -23948,15 +23948,15 @@ var init_json_schema_generator = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/core/json-schema.js
+// node_modules/zod/v4/core/json-schema.js
 var json_schema_exports = {};
 var init_json_schema = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/core/json-schema.js"() {
+  "node_modules/zod/v4/core/json-schema.js"() {
     "use strict";
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/core/index.js
+// node_modules/zod/v4/core/index.js
 var core_exports2 = {};
 __export(core_exports2, {
   $ZodAny: () => $ZodAny,
@@ -24235,7 +24235,7 @@ __export(core_exports2, {
   version: () => version
 });
 var init_core2 = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/core/index.js"() {
+  "node_modules/zod/v4/core/index.js"() {
     "use strict";
     init_core();
     init_parse();
@@ -24256,7 +24256,7 @@ var init_core2 = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/classic/checks.js
+// node_modules/zod/v4/classic/checks.js
 var checks_exports2 = {};
 __export(checks_exports2, {
   endsWith: () => _endsWith,
@@ -24290,13 +24290,13 @@ __export(checks_exports2, {
   uppercase: () => _uppercase
 });
 var init_checks2 = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/classic/checks.js"() {
+  "node_modules/zod/v4/classic/checks.js"() {
     "use strict";
     init_core2();
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/classic/iso.js
+// node_modules/zod/v4/classic/iso.js
 var iso_exports = {};
 __export(iso_exports, {
   ZodISODate: () => ZodISODate,
@@ -24322,7 +24322,7 @@ function duration2(params) {
 }
 var ZodISODateTime, ZodISODate, ZodISOTime, ZodISODuration;
 var init_iso = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/classic/iso.js"() {
+  "node_modules/zod/v4/classic/iso.js"() {
     "use strict";
     init_core2();
     init_schemas2();
@@ -24345,10 +24345,10 @@ var init_iso = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/classic/errors.js
+// node_modules/zod/v4/classic/errors.js
 var initializer2, ZodError, ZodRealError;
 var init_errors2 = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/classic/errors.js"() {
+  "node_modules/zod/v4/classic/errors.js"() {
     "use strict";
     init_core2();
     init_core2();
@@ -24394,10 +24394,10 @@ var init_errors2 = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/classic/parse.js
+// node_modules/zod/v4/classic/parse.js
 var parse2, parseAsync2, safeParse2, safeParseAsync2, encode2, decode2, encodeAsync2, decodeAsync2, safeEncode2, safeDecode2, safeEncodeAsync2, safeDecodeAsync2;
 var init_parse2 = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/classic/parse.js"() {
+  "node_modules/zod/v4/classic/parse.js"() {
     "use strict";
     init_core2();
     init_errors2();
@@ -24416,7 +24416,7 @@ var init_parse2 = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/classic/schemas.js
+// node_modules/zod/v4/classic/schemas.js
 var schemas_exports2 = {};
 __export(schemas_exports2, {
   ZodAny: () => ZodAny,
@@ -25100,7 +25100,7 @@ function preprocess(fn, schema) {
 }
 var _installedGroups, ZodType, _ZodString, ZodString, ZodStringFormat, ZodEmail, ZodGUID, ZodUUID, ZodURL, ZodEmoji, ZodNanoID, ZodCUID, ZodCUID2, ZodULID, ZodXID, ZodKSUID, ZodIPv4, ZodMAC, ZodIPv6, ZodCIDRv4, ZodCIDRv6, ZodBase64, ZodBase64URL, ZodE164, ZodJWT, ZodCustomStringFormat, ZodNumber, ZodNumberFormat, ZodBoolean, ZodBigInt, ZodBigIntFormat, ZodSymbol, ZodUndefined, ZodNull, ZodAny, ZodUnknown, ZodNever, ZodVoid, ZodDate, ZodArray, ZodObject, ZodUnion, ZodXor, ZodDiscriminatedUnion, ZodIntersection, ZodTuple, ZodRecord, ZodMap, ZodSet, ZodEnum, ZodLiteral, ZodFile, ZodTransform, ZodOptional, ZodExactOptional, ZodNullable, ZodDefault, ZodPrefault, ZodNonOptional, ZodSuccess, ZodCatch, ZodNaN, ZodPipe, ZodCodec, ZodPreprocess, ZodReadonly, ZodTemplateLiteral, ZodLazy, ZodPromise, ZodFunction, ZodCustom, describe2, meta2, stringbool;
 var init_schemas2 = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/classic/schemas.js"() {
+  "node_modules/zod/v4/classic/schemas.js"() {
     "use strict";
     init_core2();
     init_core2();
@@ -25888,7 +25888,7 @@ var init_schemas2 = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/classic/compat.js
+// node_modules/zod/v4/classic/compat.js
 function setErrorMap(map2) {
   config({
     customError: map2
@@ -25899,7 +25899,7 @@ function getErrorMap() {
 }
 var ZodIssueCode, ZodFirstPartyTypeKind;
 var init_compat2 = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/classic/compat.js"() {
+  "node_modules/zod/v4/classic/compat.js"() {
     "use strict";
     init_core2();
     ZodIssueCode = {
@@ -25920,7 +25920,7 @@ var init_compat2 = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/classic/from-json-schema.js
+// node_modules/zod/v4/classic/from-json-schema.js
 function detectVersion(schema, defaultTarget) {
   const $schema = schema.$schema;
   if ($schema === "https://json-schema.org/draft/2020-12/schema") {
@@ -26325,7 +26325,7 @@ function fromJSONSchema(schema, params) {
 }
 var z, RECOGNIZED_KEYS;
 var init_from_json_schema = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/classic/from-json-schema.js"() {
+  "node_modules/zod/v4/classic/from-json-schema.js"() {
     "use strict";
     init_registries();
     init_checks2();
@@ -26410,7 +26410,7 @@ var init_from_json_schema = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/classic/coerce.js
+// node_modules/zod/v4/classic/coerce.js
 var coerce_exports = {};
 __export(coerce_exports, {
   bigint: () => bigint3,
@@ -26435,14 +26435,14 @@ function date4(params) {
   return _coercedDate(ZodDate, params);
 }
 var init_coerce = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/classic/coerce.js"() {
+  "node_modules/zod/v4/classic/coerce.js"() {
     "use strict";
     init_core2();
     init_schemas2();
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/v4/classic/external.js
+// node_modules/zod/v4/classic/external.js
 var external_exports = {};
 __export(external_exports, {
   $brand: () => $brand,
@@ -26685,7 +26685,7 @@ __export(external_exports, {
   xor: () => xor
 });
 var init_external = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/v4/classic/external.js"() {
+  "node_modules/zod/v4/classic/external.js"() {
     "use strict";
     init_core2();
     init_schemas2();
@@ -26706,9 +26706,9 @@ var init_external = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/zod/index.js
+// node_modules/zod/index.js
 var init_zod = __esm({
-  "../../git-folder/interface-built-right/node_modules/zod/index.js"() {
+  "node_modules/zod/index.js"() {
     "use strict";
     init_external();
     init_external();
@@ -27427,7 +27427,7 @@ function validateGitignore(projectDir) {
 }
 async function hasAuthState(outputDir) {
   try {
-    await (0, import_promises4.access)(getAuthStatePath(outputDir));
+    await (0, import_promises5.access)(getAuthStatePath(outputDir));
     return true;
   } catch {
     return false;
@@ -27440,7 +27440,7 @@ async function loadAuthState(outputDir) {
   }
   try {
     const authPath = getAuthStatePath(outputDir);
-    const content = await (0, import_promises4.readFile)(authPath, "utf-8");
+    const content = await (0, import_promises5.readFile)(authPath, "utf-8");
     const stored = JSON.parse(content);
     if (!stored.metadata) {
       console.warn("\u26A0\uFE0F  Legacy auth format detected. Please re-authenticate with `ibr login`.");
@@ -27482,9 +27482,9 @@ async function performLogin(options) {
     );
   }
   validateGitignore(process.cwd());
-  await (0, import_promises4.mkdir)(outputDir, { recursive: true, mode: 448 });
+  await (0, import_promises5.mkdir)(outputDir, { recursive: true, mode: 448 });
   try {
-    await (0, import_promises4.chmod)(outputDir, 448);
+    await (0, import_promises5.chmod)(outputDir, 448);
   } catch {
   }
   const authStatePath = getAuthStatePath(outputDir);
@@ -27547,24 +27547,24 @@ async function saveAuthState(driver3, authStatePath, _outputDir) {
       projectPath: (0, import_path3.resolve)(process.cwd())
     }
   };
-  await (0, import_promises4.writeFile)(
+  await (0, import_promises5.writeFile)(
     authStatePath,
     JSON.stringify(storedState, null, 2),
     { mode: 384 }
     // rw-------
   );
   try {
-    await (0, import_promises4.chmod)(authStatePath, 384);
+    await (0, import_promises5.chmod)(authStatePath, 384);
   } catch {
   }
 }
 async function clearAuthState(outputDir) {
   const authPath = getAuthStatePath(outputDir);
   try {
-    const stats = await (0, import_promises4.stat)(authPath);
+    const stats = await (0, import_promises5.stat)(authPath);
     const randomData = (0, import_crypto.randomBytes)(stats.size);
-    await (0, import_promises4.writeFile)(authPath, randomData, { mode: 384 });
-    await (0, import_promises4.unlink)(authPath);
+    await (0, import_promises5.writeFile)(authPath, randomData, { mode: 384 });
+    await (0, import_promises5.unlink)(authPath);
     console.log("\u2705 Auth state securely cleared");
   } catch {
     console.log("\u2139\uFE0F  No auth state to clear");
@@ -27573,7 +27573,7 @@ async function clearAuthState(outputDir) {
 async function getAuthStateInfo(outputDir) {
   try {
     const authPath = getAuthStatePath(outputDir);
-    const content = await (0, import_promises4.readFile)(authPath, "utf-8");
+    const content = await (0, import_promises5.readFile)(authPath, "utf-8");
     const stored = JSON.parse(content);
     if (!stored.metadata) {
       return { exists: true };
@@ -27589,13 +27589,13 @@ async function getAuthStateInfo(outputDir) {
     return null;
   }
 }
-var import_promises4, import_path3, import_fs3, import_os2, import_crypto;
+var import_promises5, import_path3, import_fs3, import_os2, import_crypto;
 var init_auth = __esm({
   "src/auth.ts"() {
     "use strict";
     init_driver();
     init_compat();
-    import_promises4 = require("fs/promises");
+    import_promises5 = require("fs/promises");
     import_path3 = require("path");
     import_fs3 = require("fs");
     import_os2 = require("os");
@@ -28097,7 +28097,7 @@ async function captureScreenshot(options) {
     wsEndpoint,
     chromePath
   } = options;
-  await (0, import_promises5.mkdir)((0, import_path4.dirname)(outputPath), { recursive: true });
+  await (0, import_promises6.mkdir)((0, import_path4.dirname)(outputPath), { recursive: true });
   if (outputDir && !isDeployedEnvironment()) {
     const authState = await loadAuthState(outputDir);
     if (authState) {
@@ -28173,7 +28173,7 @@ async function captureWithLandmarks(options) {
     wsEndpoint,
     chromePath
   } = options;
-  await (0, import_promises5.mkdir)((0, import_path4.dirname)(outputPath), { recursive: true });
+  await (0, import_promises6.mkdir)((0, import_path4.dirname)(outputPath), { recursive: true });
   if (outputDir && !isDeployedEnvironment()) {
     const authState = await loadAuthState(outputDir);
     if (authState) {
@@ -28269,7 +28269,7 @@ async function captureWithDiagnostics(options) {
   const suggestions = [];
   let httpStatus;
   try {
-    await (0, import_promises5.mkdir)((0, import_path4.dirname)(outputPath), { recursive: true });
+    await (0, import_promises6.mkdir)((0, import_path4.dirname)(outputPath), { recursive: true });
     if (outputDir && !isDeployedEnvironment()) {
       await loadAuthState(outputDir);
     }
@@ -28406,13 +28406,13 @@ async function captureWithDiagnostics(options) {
     };
   }
 }
-var import_promises5, import_path4, driver;
+var import_promises6, import_path4, driver;
 var init_capture = __esm({
   "src/capture.ts"() {
     "use strict";
     init_driver();
     init_compat();
-    import_promises5 = require("fs/promises");
+    import_promises6 = require("fs/promises");
     import_path4 = require("path");
     init_schemas3();
     init_devices();
@@ -28603,8 +28603,8 @@ async function compareImages(options) {
   } = options;
   const pixelColorThreshold = options.pixelColorThreshold ?? options.threshold ?? 0.1;
   const [baselineBuffer, currentBuffer] = await Promise.all([
-    (0, import_promises6.readFile)(baselinePath),
-    (0, import_promises6.readFile)(currentPath)
+    (0, import_promises7.readFile)(baselinePath),
+    (0, import_promises7.readFile)(currentPath)
   ]);
   const baseline = import_pngjs2.PNG.sync.read(baselineBuffer);
   const current = import_pngjs2.PNG.sync.read(currentBuffer);
@@ -28639,8 +28639,8 @@ async function compareImages(options) {
   for (let i = 0; i < totalPixels; i++) {
     if (isDiffMarker(diff.data, i * 4)) diffMask[i] = 1;
   }
-  await (0, import_promises6.mkdir)((0, import_path5.dirname)(diffPath), { recursive: true });
-  await (0, import_promises6.writeFile)(diffPath, import_pngjs2.PNG.sync.write(diff));
+  await (0, import_promises7.mkdir)((0, import_path5.dirname)(diffPath), { recursive: true });
+  await (0, import_promises7.writeFile)(diffPath, import_pngjs2.PNG.sync.write(diff));
   const diffPercent = diffPixels / totalPixels * 100;
   return {
     match: diffPixels === 0,
@@ -28743,13 +28743,13 @@ function getVerdictDescription(verdict) {
       return "Unknown verdict";
   }
 }
-var import_pngjs2, import_promises6, import_path5, DEFAULT_REGIONS, NATIVE_REGIONS;
+var import_pngjs2, import_promises7, import_path5, DEFAULT_REGIONS, NATIVE_REGIONS;
 var init_compare = __esm({
   "src/compare.ts"() {
     "use strict";
     init_pixelmatch();
     import_pngjs2 = __toESM(require_png());
-    import_promises6 = require("fs/promises");
+    import_promises7 = require("fs/promises");
     import_path5 = require("path");
     init_verdict_policy();
     DEFAULT_REGIONS = [
@@ -28766,25 +28766,25 @@ var init_compare = __esm({
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/nanoid/url-alphabet/index.js
+// node_modules/nanoid/url-alphabet/index.js
 var urlAlphabet;
 var init_url_alphabet = __esm({
-  "../../git-folder/interface-built-right/node_modules/nanoid/url-alphabet/index.js"() {
+  "node_modules/nanoid/url-alphabet/index.js"() {
     "use strict";
     urlAlphabet = "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict";
   }
 });
 
-// ../../git-folder/interface-built-right/node_modules/nanoid/index.js
+// node_modules/nanoid/index.js
 function fillPool(bytes) {
   if (bytes < 0) throw new RangeError("Wrong ID size");
   try {
     if (!pool || pool.length < bytes) {
       pool = Buffer.allocUnsafe(bytes * POOL_SIZE_MULTIPLIER);
-      import_node_crypto.webcrypto.getRandomValues(pool);
+      import_node_crypto2.webcrypto.getRandomValues(pool);
       poolOffset = 0;
     } else if (poolOffset + bytes > pool.length) {
-      import_node_crypto.webcrypto.getRandomValues(pool);
+      import_node_crypto2.webcrypto.getRandomValues(pool);
       poolOffset = 0;
     }
   } catch (e) {
@@ -28801,11 +28801,11 @@ function nanoid3(size = 21) {
   }
   return id;
 }
-var import_node_crypto, POOL_SIZE_MULTIPLIER, pool, poolOffset;
+var import_node_crypto2, POOL_SIZE_MULTIPLIER, pool, poolOffset;
 var init_nanoid = __esm({
-  "../../git-folder/interface-built-right/node_modules/nanoid/index.js"() {
+  "node_modules/nanoid/index.js"() {
     "use strict";
-    import_node_crypto = require("crypto");
+    import_node_crypto2 = require("crypto");
     init_url_alphabet();
     POOL_SIZE_MULTIPLIER = 128;
   }
@@ -28821,7 +28821,7 @@ __export(git_context_exports, {
 });
 async function parseGitConfig(configPath) {
   try {
-    const content = await (0, import_promises7.readFile)(configPath, "utf-8");
+    const content = await (0, import_promises8.readFile)(configPath, "utf-8");
     const lines = content.split("\n");
     let currentRemote = null;
     let remoteUrl = null;
@@ -28885,7 +28885,7 @@ async function getGitContext(dir) {
 async function getAppName(dir) {
   try {
     const packageJsonPath = (0, import_path6.join)(dir, "package.json");
-    const content = await (0, import_promises7.readFile)(packageJsonPath, "utf-8");
+    const content = await (0, import_promises8.readFile)(packageJsonPath, "utf-8");
     const packageJson = JSON.parse(content);
     if (packageJson.name) {
       const name = packageJson.name;
@@ -28912,11 +28912,11 @@ function getSessionBasePath(outputDir, context) {
   }
   return (0, import_path6.join)(outputDir, "sessions");
 }
-var import_promises7, import_path6, import_child_process;
+var import_promises8, import_path6, import_child_process;
 var init_git_context = __esm({
   "src/git-context.ts"() {
     "use strict";
-    import_promises7 = require("fs/promises");
+    import_promises8 = require("fs/promises");
     import_path6 = require("path");
     import_child_process = require("child_process");
   }
@@ -28994,14 +28994,14 @@ async function createSession(outputDir, url2, name, viewport, platform) {
     createdAt: now,
     updatedAt: now
   };
-  await (0, import_promises8.mkdir)(paths.root, { recursive: true });
-  await (0, import_promises8.writeFile)(paths.sessionJson, JSON.stringify(session, null, 2));
+  await (0, import_promises9.mkdir)(paths.root, { recursive: true });
+  await (0, import_promises9.writeFile)(paths.sessionJson, JSON.stringify(session, null, 2));
   return session;
 }
 async function getSession(outputDir, sessionId) {
   const paths = getSessionPaths(outputDir, sessionId);
   try {
-    const content = await (0, import_promises8.readFile)(paths.sessionJson, "utf-8");
+    const content = await (0, import_promises9.readFile)(paths.sessionJson, "utf-8");
     const data = JSON.parse(content);
     return SessionSchema.parse(data);
   } catch {
@@ -29019,7 +29019,7 @@ async function updateSession(outputDir, sessionId, updates) {
     updatedAt: (/* @__PURE__ */ new Date()).toISOString()
   };
   const paths = getSessionPaths(outputDir, sessionId);
-  await (0, import_promises8.writeFile)(paths.sessionJson, JSON.stringify(updated, null, 2));
+  await (0, import_promises9.writeFile)(paths.sessionJson, JSON.stringify(updated, null, 2));
   return updated;
 }
 async function markSessionCompared(outputDir, sessionId, comparison, analysis) {
@@ -29032,7 +29032,7 @@ async function markSessionCompared(outputDir, sessionId, comparison, analysis) {
 async function listSessions(outputDir) {
   const sessionsDir = (0, import_path7.join)(outputDir, "sessions");
   try {
-    const entries = await (0, import_promises8.readdir)(sessionsDir, { withFileTypes: true });
+    const entries = await (0, import_promises9.readdir)(sessionsDir, { withFileTypes: true });
     const sessions2 = [];
     for (const entry of entries) {
       if (entry.isDirectory() && entry.name.startsWith(SESSION_PREFIX)) {
@@ -29056,7 +29056,7 @@ async function getMostRecentSession(outputDir) {
 async function deleteSession(outputDir, sessionId) {
   const paths = getSessionPaths(outputDir, sessionId);
   try {
-    await (0, import_promises8.rm)(paths.root, { recursive: true, force: true });
+    await (0, import_promises9.rm)(paths.root, { recursive: true, force: true });
     return true;
   } catch {
     return false;
@@ -29187,12 +29187,12 @@ async function getSessionStats(outputDir) {
     byVerdict
   };
 }
-var import_promises8, import_path7, SESSION_PREFIX, cachedContext, contextCacheDir;
+var import_promises9, import_path7, SESSION_PREFIX, cachedContext, contextCacheDir;
 var init_session = __esm({
   "src/session.ts"() {
     "use strict";
     init_nanoid();
-    import_promises8 = require("fs/promises");
+    import_promises9 = require("fs/promises");
     import_path7 = require("path");
     init_schemas3();
     init_git_context();
@@ -30529,7 +30529,7 @@ async function aiSearchFlow(page, options) {
   let artifactDir;
   if (captureSteps && options.sessionDir) {
     artifactDir = (0, import_path8.join)(options.sessionDir, `search-${Date.now()}`);
-    await (0, import_promises9.mkdir)(artifactDir, { recursive: true });
+    await (0, import_promises10.mkdir)(artifactDir, { recursive: true });
   }
   try {
     if (captureSteps && artifactDir) {
@@ -30612,7 +30612,7 @@ async function aiSearchFlow(page, options) {
         timing,
         extractedResults
       };
-      await (0, import_promises9.writeFile)(
+      await (0, import_promises10.writeFile)(
         (0, import_path8.join)(artifactDir, "results.json"),
         JSON.stringify(resultsData, null, 2)
       );
@@ -30652,11 +30652,11 @@ async function aiSearchFlow(page, options) {
     };
   }
 }
-var import_promises9, import_path8;
+var import_promises10, import_path8;
 var init_search = __esm({
   "src/flows/search.ts"() {
     "use strict";
-    import_promises9 = require("fs/promises");
+    import_promises10 = require("fs/promises");
     import_path8 = require("path");
     init_types2();
   }
@@ -31014,8 +31014,8 @@ var init_flows = __esm({
 async function loadRetentionConfig(outputDir) {
   const configPath = (0, import_path9.join)(outputDir, "..", ".ibrrc.json");
   try {
-    await (0, import_promises10.access)(configPath);
-    const content = await (0, import_promises10.readFile)(configPath, "utf-8");
+    await (0, import_promises11.access)(configPath);
+    const content = await (0, import_promises11.readFile)(configPath, "utf-8");
     const config2 = JSON.parse(content);
     return {
       ...DEFAULT_RETENTION,
@@ -31143,11 +31143,11 @@ function formatRetentionStatus(status) {
   }
   return lines.join("\n");
 }
-var import_promises10, import_path9, DEFAULT_RETENTION;
+var import_promises11, import_path9, DEFAULT_RETENTION;
 var init_cleanup = __esm({
   "src/cleanup.ts"() {
     "use strict";
-    import_promises10 = require("fs/promises");
+    import_promises11 = require("fs/promises");
     import_path9 = require("path");
     init_session();
     DEFAULT_RETENTION = {
@@ -31192,11 +31192,11 @@ function isWithinRoot(root, candidate) {
 async function artifactDigest(path3, policy) {
   const suppliedPath = (0, import_path10.resolve)(path3);
   if (!isWithinRoot(policy.lexicalRoot, suppliedPath)) throw new ArtifactPolicyError();
-  const beforeOpen = await (0, import_promises11.lstat)(suppliedPath);
+  const beforeOpen = await (0, import_promises12.lstat)(suppliedPath);
   if (beforeOpen.isSymbolicLink() || !beforeOpen.isFile()) throw new ArtifactPolicyError();
-  const canonicalPath = await (0, import_promises11.realpath)(suppliedPath);
+  const canonicalPath = await (0, import_promises12.realpath)(suppliedPath);
   if (!isWithinRoot(policy.canonicalRoot, canonicalPath)) throw new ArtifactPolicyError();
-  const handle = await (0, import_promises11.open)(canonicalPath, import_fs4.constants.O_RDONLY | import_fs4.constants.O_NOFOLLOW);
+  const handle = await (0, import_promises12.open)(canonicalPath, import_fs4.constants.O_RDONLY | import_fs4.constants.O_NOFOLLOW);
   const hash2 = (0, import_crypto2.createHash)("sha256");
   let bytes = 0;
   try {
@@ -31301,8 +31301,8 @@ async function createExternalActionReceipt(rawInput, options = {}) {
     if (!parsedOptions.artifactRoot) throw new Error("artifactRoot is required when an artifact path is supplied");
     try {
       const lexicalRoot = (0, import_path10.resolve)(parsedOptions.artifactRoot);
-      const canonicalRoot = await (0, import_promises11.realpath)(lexicalRoot);
-      if (!(await (0, import_promises11.lstat)(canonicalRoot)).isDirectory()) throw new ArtifactPolicyError();
+      const canonicalRoot = await (0, import_promises12.realpath)(lexicalRoot);
+      if (!(await (0, import_promises12.lstat)(canonicalRoot)).isDirectory()) throw new ArtifactPolicyError();
       artifactPolicy = { lexicalRoot, canonicalRoot };
     } catch {
       throw new Error("artifactRoot must identify a readable directory");
@@ -31379,7 +31379,7 @@ async function writeExternalActionReceipt(receipt, options = {}) {
   const validated = ExternalActionReceiptSchema.parse(receipt);
   const parsedOptions = writeOptionsSchema.parse(options);
   const outputDir = parsedOptions.outputDir ?? (0, import_path10.join)(process.cwd(), ".ibr", "evidence");
-  await (0, import_promises11.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises12.mkdir)(outputDir, { recursive: true });
   const destination = (0, import_path10.join)(outputDir, `${validated.receiptId}.json`);
   const temporary = (0, import_path10.join)(outputDir, `.${validated.receiptId}.${(0, import_crypto2.randomUUID)()}.tmp`);
   await publishExternalActionReceipt(
@@ -31389,7 +31389,7 @@ async function writeExternalActionReceipt(receipt, options = {}) {
 `,
     {
       writeTemporary: async (path3, payload) => {
-        const handle = await (0, import_promises11.open)(path3, "wx", 384);
+        const handle = await (0, import_promises12.open)(path3, "wx", 384);
         try {
           await handle.writeFile(payload, "utf8");
           await handle.sync();
@@ -31397,8 +31397,8 @@ async function writeExternalActionReceipt(receipt, options = {}) {
           await handle.close();
         }
       },
-      linkTemporary: import_promises11.link,
-      removeTemporary: import_promises11.unlink
+      linkTemporary: import_promises12.link,
+      removeTemporary: import_promises12.unlink
     }
   );
   return destination;
@@ -31408,13 +31408,13 @@ async function recordExternalActionEvidence(input, createOptions = {}, writeOpti
   const path3 = await writeExternalActionReceipt(receipt, writeOptions);
   return { receipt, path: path3 };
 }
-var import_crypto2, import_fs4, import_promises11, import_path10, MAX_TEXT, SHA256, FIELD_DIGEST, SAFE_CODE, SAFE_TOKEN, RECEIPT_ID, TRANSFORMED_FIELD, MAX_EXTERNAL_ACTION_ARTIFACT_BYTES, boundedText, timestamp, boundsSchema, artifactSchema, observationSchema, targetSchema, ExternalActionEvidenceInputSchema, artifactReceiptSchema, observationReceiptSchema, surfaceReceiptSchema, ExternalActionReceiptSchema, createOptionsSchema, writeOptionsSchema, ArtifactPolicyError, ArtifactSizeLimitError;
+var import_crypto2, import_fs4, import_promises12, import_path10, MAX_TEXT, SHA256, FIELD_DIGEST, SAFE_CODE, SAFE_TOKEN, RECEIPT_ID, TRANSFORMED_FIELD, MAX_EXTERNAL_ACTION_ARTIFACT_BYTES, boundedText, timestamp, boundsSchema, artifactSchema, observationSchema, targetSchema, ExternalActionEvidenceInputSchema, artifactReceiptSchema, observationReceiptSchema, surfaceReceiptSchema, ExternalActionReceiptSchema, createOptionsSchema, writeOptionsSchema, ArtifactPolicyError, ArtifactSizeLimitError;
 var init_external_action_evidence = __esm({
   "src/external-action-evidence.ts"() {
     "use strict";
     import_crypto2 = require("crypto");
     import_fs4 = require("fs");
-    import_promises11 = require("fs/promises");
+    import_promises12 = require("fs/promises");
     import_path10 = require("path");
     init_zod();
     MAX_TEXT = 4096;
@@ -32762,8 +32762,8 @@ async function discoverApiRoutes(projectDir) {
 }
 async function fileExists(filePath) {
   try {
-    const stat6 = await fs2.stat(filePath);
-    return stat6.isFile();
+    const stat7 = await fs2.stat(filePath);
+    return stat7.isFile();
   } catch {
     return false;
   }
@@ -32934,8 +32934,8 @@ function extractHttpMethods(content) {
 }
 async function directoryExists(dir) {
   try {
-    const stat6 = await fs2.stat(dir);
-    return stat6.isDirectory();
+    const stat7 = await fs2.stat(dir);
+    return stat7.isDirectory();
   } catch {
     return false;
   }
@@ -32956,7 +32956,7 @@ function getOperationsPath(outputDir) {
 async function readState(outputDir) {
   const path3 = getOperationsPath(outputDir);
   try {
-    const content = await (0, import_promises12.readFile)(path3, "utf-8");
+    const content = await (0, import_promises13.readFile)(path3, "utf-8");
     return JSON.parse(content);
   } catch {
     return { pending: [], lastUpdated: (/* @__PURE__ */ new Date()).toISOString() };
@@ -32964,9 +32964,9 @@ async function readState(outputDir) {
 }
 async function writeState(outputDir, state) {
   const path3 = getOperationsPath(outputDir);
-  await (0, import_promises12.mkdir)((0, import_path11.dirname)(path3), { recursive: true });
+  await (0, import_promises13.mkdir)((0, import_path11.dirname)(path3), { recursive: true });
   state.lastUpdated = (/* @__PURE__ */ new Date()).toISOString();
-  await (0, import_promises12.writeFile)(path3, JSON.stringify(state, null, 2));
+  await (0, import_promises13.writeFile)(path3, JSON.stringify(state, null, 2));
 }
 async function registerOperation(outputDir, options) {
   const state = await readState(outputDir);
@@ -33020,7 +33020,7 @@ async function waitForCompletion(outputDir, options = {}) {
     if (options.onProgress) {
       options.onProgress(pending.length);
     }
-    await new Promise((resolve8) => setTimeout(resolve8, pollInterval));
+    await new Promise((resolve10) => setTimeout(resolve10, pollInterval));
   }
   return false;
 }
@@ -33048,12 +33048,12 @@ function withOperationTracking(outputDir, options) {
     }
   };
 }
-var import_promises12, import_path11, OPERATION_PREFIX;
+var import_promises13, import_path11, OPERATION_PREFIX;
 var init_operation_tracker = __esm({
   "src/operation-tracker.ts"() {
     "use strict";
     init_nanoid();
-    import_promises12 = require("fs/promises");
+    import_promises13 = require("fs/promises");
     import_path11 = require("path");
     OPERATION_PREFIX = "op_";
   }
@@ -33075,7 +33075,7 @@ function rateMetric(value, thresholds) {
 }
 async function measureWebVitals(page) {
   const metrics = await page.evaluate(() => {
-    return new Promise((resolve8) => {
+    return new Promise((resolve10) => {
       const result = {
         LCP: null,
         FID: null,
@@ -33125,7 +33125,7 @@ async function measureWebVitals(page) {
         if (navEntry) {
           result.TTI = navEntry.domInteractive;
         }
-        resolve8(result);
+        resolve10(result);
       }, 3e3);
     });
   });
@@ -33617,11 +33617,11 @@ async function measureApiTiming(page, options = {}) {
   page.on("request", requestHandler);
   page.on("response", responseHandler);
   page.on("requestfailed", requestFailedHandler);
-  await new Promise((resolve8) => {
+  await new Promise((resolve10) => {
     const startWait = Date.now();
     const check2 = () => {
       if (requests.size === 0 || Date.now() - startWait > timeout) {
-        resolve8();
+        resolve10();
         return;
       }
       setTimeout(check2, 100);
@@ -33860,8 +33860,8 @@ async function testResponsive(url2, options = {}) {
         minFontSize
       });
       if (captureScreenshots) {
-        const { mkdir: mkdir31 } = await import("fs/promises");
-        await mkdir31(outputDir, { recursive: true });
+        const { mkdir: mkdir33 } = await import("fs/promises");
+        await mkdir33(outputDir, { recursive: true });
         const screenshotPath = `${outputDir}/${viewportName}.png`;
         await page.screenshot({ path: screenshotPath, fullPage: true });
         result.screenshot = screenshotPath;
@@ -34083,9 +34083,9 @@ __export(memory_exports, {
 });
 async function initMemory(outputDir) {
   const memoryDir = (0, import_path12.join)(outputDir, MEMORY_DIR);
-  await (0, import_promises13.mkdir)((0, import_path12.join)(memoryDir, PREFERENCES_DIR), { recursive: true });
-  await (0, import_promises13.mkdir)((0, import_path12.join)(memoryDir, LEARNED_DIR), { recursive: true });
-  await (0, import_promises13.mkdir)((0, import_path12.join)(memoryDir, ARCHIVE_DIR), { recursive: true });
+  await (0, import_promises14.mkdir)((0, import_path12.join)(memoryDir, PREFERENCES_DIR), { recursive: true });
+  await (0, import_promises14.mkdir)((0, import_path12.join)(memoryDir, LEARNED_DIR), { recursive: true });
+  await (0, import_promises14.mkdir)((0, import_path12.join)(memoryDir, ARCHIVE_DIR), { recursive: true });
 }
 function getMemoryPath(outputDir, ...segments) {
   return (0, import_path12.join)(outputDir, MEMORY_DIR, ...segments);
@@ -34096,7 +34096,7 @@ async function loadSummary(outputDir) {
     return createEmptySummary();
   }
   try {
-    const content = await (0, import_promises13.readFile)(summaryPath, "utf-8");
+    const content = await (0, import_promises14.readFile)(summaryPath, "utf-8");
     return JSON.parse(content);
   } catch {
     return createEmptySummary();
@@ -34105,7 +34105,7 @@ async function loadSummary(outputDir) {
 async function saveSummary(outputDir, summary) {
   await initMemory(outputDir);
   const summaryPath = getMemoryPath(outputDir, SUMMARY_FILE);
-  await (0, import_promises13.writeFile)(summaryPath, JSON.stringify(summary, null, 2));
+  await (0, import_promises14.writeFile)(summaryPath, JSON.stringify(summary, null, 2));
 }
 function createEmptySummary() {
   return {
@@ -34141,7 +34141,7 @@ async function addPreference(outputDir, input) {
     sessionIds: input.sessionIds
   };
   const prefPath = getMemoryPath(outputDir, PREFERENCES_DIR, `${pref.id}.json`);
-  await (0, import_promises13.writeFile)(prefPath, JSON.stringify(pref, null, 2));
+  await (0, import_promises14.writeFile)(prefPath, JSON.stringify(pref, null, 2));
   await rebuildSummary(outputDir);
   return pref;
 }
@@ -34149,7 +34149,7 @@ async function getPreference(outputDir, prefId) {
   const prefPath = getMemoryPath(outputDir, PREFERENCES_DIR, `${prefId}.json`);
   if (!(0, import_fs5.existsSync)(prefPath)) return null;
   try {
-    const content = await (0, import_promises13.readFile)(prefPath, "utf-8");
+    const content = await (0, import_promises14.readFile)(prefPath, "utf-8");
     return JSON.parse(content);
   } catch {
     return null;
@@ -34158,19 +34158,19 @@ async function getPreference(outputDir, prefId) {
 async function removePreference(outputDir, prefId) {
   const prefPath = getMemoryPath(outputDir, PREFERENCES_DIR, `${prefId}.json`);
   if (!(0, import_fs5.existsSync)(prefPath)) return false;
-  await (0, import_promises13.unlink)(prefPath);
+  await (0, import_promises14.unlink)(prefPath);
   await rebuildSummary(outputDir);
   return true;
 }
 async function listPreferences(outputDir, filter) {
   const prefsDir = getMemoryPath(outputDir, PREFERENCES_DIR);
   if (!(0, import_fs5.existsSync)(prefsDir)) return [];
-  const files = await (0, import_promises13.readdir)(prefsDir);
+  const files = await (0, import_promises14.readdir)(prefsDir);
   const prefs = [];
   for (const file2 of files) {
     if (!file2.endsWith(".json")) continue;
     try {
-      const content = await (0, import_promises13.readFile)((0, import_path12.join)(prefsDir, file2), "utf-8");
+      const content = await (0, import_promises14.readFile)((0, import_path12.join)(prefsDir, file2), "utf-8");
       const pref = JSON.parse(content);
       if (filter?.category && pref.category !== filter.category) continue;
       if (filter?.route && pref.route !== filter.route) continue;
@@ -34193,18 +34193,18 @@ async function learnFromSession(outputDir, session, observations) {
     createdAt: (/* @__PURE__ */ new Date()).toISOString()
   };
   const learnPath = getMemoryPath(outputDir, LEARNED_DIR, `${learned.id}.json`);
-  await (0, import_promises13.writeFile)(learnPath, JSON.stringify(learned, null, 2));
+  await (0, import_promises14.writeFile)(learnPath, JSON.stringify(learned, null, 2));
   return learned;
 }
 async function listLearned(outputDir) {
   const learnedDir = getMemoryPath(outputDir, LEARNED_DIR);
   if (!(0, import_fs5.existsSync)(learnedDir)) return [];
-  const files = await (0, import_promises13.readdir)(learnedDir);
+  const files = await (0, import_promises14.readdir)(learnedDir);
   const items = [];
   for (const file2 of files) {
     if (!file2.endsWith(".json")) continue;
     try {
-      const content = await (0, import_promises13.readFile)((0, import_path12.join)(learnedDir, file2), "utf-8");
+      const content = await (0, import_promises14.readFile)((0, import_path12.join)(learnedDir, file2), "utf-8");
       items.push(JSON.parse(content));
     } catch {
     }
@@ -34214,7 +34214,7 @@ async function listLearned(outputDir) {
 async function promoteToPreference(outputDir, learnedId) {
   const learnedPath = getMemoryPath(outputDir, LEARNED_DIR, `${learnedId}.json`);
   if (!(0, import_fs5.existsSync)(learnedPath)) return null;
-  const content = await (0, import_promises13.readFile)(learnedPath, "utf-8");
+  const content = await (0, import_promises14.readFile)(learnedPath, "utf-8");
   const learned = JSON.parse(content);
   if (learned.observations.length === 0) return null;
   const obs = learned.observations[0];
@@ -34271,7 +34271,7 @@ async function archiveSummary(outputDir) {
   const timestamp2 = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
   const archivePath = getMemoryPath(outputDir, ARCHIVE_DIR, `summary_${timestamp2}.json`);
   try {
-    await (0, import_promises13.copyFile)(summaryPath, archivePath);
+    await (0, import_promises14.copyFile)(summaryPath, archivePath);
   } catch {
   }
 }
@@ -34388,7 +34388,7 @@ function formatPreference(pref) {
   return lines.join("\n");
 }
 async function initGlobalMemory() {
-  await (0, import_promises13.mkdir)(GLOBAL_PREFS_DIR, { recursive: true });
+  await (0, import_promises14.mkdir)(GLOBAL_PREFS_DIR, { recursive: true });
 }
 async function promoteToGlobal(outputDir) {
   await initGlobalMemory();
@@ -34421,7 +34421,7 @@ async function promoteToGlobal(outputDir) {
       updatedAt: (/* @__PURE__ */ new Date()).toISOString()
     };
     const globalPath = (0, import_path12.join)(GLOBAL_PREFS_DIR, `${globalPref.id}.json`);
-    await (0, import_promises13.writeFile)(globalPath, JSON.stringify(globalPref, null, 2));
+    await (0, import_promises14.writeFile)(globalPath, JSON.stringify(globalPref, null, 2));
     globalIndex.add(key);
     promoted.push(`${pref.category}: ${pref.description}`);
   }
@@ -34430,12 +34430,12 @@ async function promoteToGlobal(outputDir) {
 }
 async function listGlobalPreferences() {
   if (!(0, import_fs5.existsSync)(GLOBAL_PREFS_DIR)) return [];
-  const files = await (0, import_promises13.readdir)(GLOBAL_PREFS_DIR);
+  const files = await (0, import_promises14.readdir)(GLOBAL_PREFS_DIR);
   const prefs = [];
   for (const file2 of files) {
     if (!file2.endsWith(".json")) continue;
     try {
-      const content = await (0, import_promises13.readFile)((0, import_path12.join)(GLOBAL_PREFS_DIR, file2), "utf-8");
+      const content = await (0, import_promises14.readFile)((0, import_path12.join)(GLOBAL_PREFS_DIR, file2), "utf-8");
       prefs.push(JSON.parse(content));
     } catch {
     }
@@ -34493,12 +34493,12 @@ async function rebuildGlobalSummary() {
       confidence: p.confidence
     }))
   };
-  await (0, import_promises13.writeFile)(GLOBAL_SUMMARY, JSON.stringify(summary, null, 2));
+  await (0, import_promises14.writeFile)(GLOBAL_SUMMARY, JSON.stringify(summary, null, 2));
 }
 async function removeGlobalPreference(prefId) {
   const prefPath = (0, import_path12.join)(GLOBAL_PREFS_DIR, `${prefId}.json`);
   if (!(0, import_fs5.existsSync)(prefPath)) return false;
-  await (0, import_promises13.unlink)(prefPath);
+  await (0, import_promises14.unlink)(prefPath);
   await rebuildGlobalSummary();
   return true;
 }
@@ -34523,11 +34523,11 @@ function formatGlobalMemory(prefs) {
   }
   return lines.join("\n");
 }
-var import_promises13, import_fs5, import_path12, import_os3, MEMORY_DIR, SUMMARY_FILE, PREFERENCES_DIR, LEARNED_DIR, ARCHIVE_DIR, PREF_PREFIX, LEARN_PREFIX, MAX_ACTIVE_PREFERENCES, GLOBAL_DIR, GLOBAL_PREFS_DIR, GLOBAL_SUMMARY, GLOBAL_PROMOTION_THRESHOLD;
+var import_promises14, import_fs5, import_path12, import_os3, MEMORY_DIR, SUMMARY_FILE, PREFERENCES_DIR, LEARNED_DIR, ARCHIVE_DIR, PREF_PREFIX, LEARN_PREFIX, MAX_ACTIVE_PREFERENCES, GLOBAL_DIR, GLOBAL_PREFS_DIR, GLOBAL_SUMMARY, GLOBAL_PROMOTION_THRESHOLD;
 var init_memory = __esm({
   "src/memory.ts"() {
     "use strict";
-    import_promises13 = require("fs/promises");
+    import_promises14 = require("fs/promises");
     import_fs5 = require("fs");
     import_path12 = require("path");
     import_os3 = require("os");
@@ -34675,7 +34675,7 @@ function getRouteLogPath(outputDir, route) {
   return (0, import_path13.join)(getDecisionsDir(outputDir), filename);
 }
 async function ensureContextDirs(outputDir) {
-  await (0, import_promises14.mkdir)(getDecisionsDir(outputDir), { recursive: true });
+  await (0, import_promises15.mkdir)(getDecisionsDir(outputDir), { recursive: true });
 }
 async function recordDecision(outputDir, options) {
   await ensureContextDirs(outputDir);
@@ -34694,7 +34694,7 @@ async function recordDecision(outputDir, options) {
   };
   DecisionEntrySchema.parse(entry);
   const logPath = getRouteLogPath(outputDir, options.route);
-  await (0, import_promises14.appendFile)(logPath, JSON.stringify(entry) + "\n");
+  await (0, import_promises15.appendFile)(logPath, JSON.stringify(entry) + "\n");
   return entry;
 }
 async function getDecisionsByRoute(outputDir, route) {
@@ -34702,7 +34702,7 @@ async function getDecisionsByRoute(outputDir, route) {
   if (!(0, import_fs6.existsSync)(logPath)) {
     return [];
   }
-  const content = await (0, import_promises14.readFile)(logPath, "utf-8");
+  const content = await (0, import_promises15.readFile)(logPath, "utf-8");
   const lines = content.trim().split("\n").filter(Boolean);
   return lines.map((line) => DecisionEntrySchema.parse(JSON.parse(line)));
 }
@@ -34716,11 +34716,11 @@ async function queryDecisions(outputDir, options = {}) {
     if (!(0, import_fs6.existsSync)(decisionsDir)) {
       return [];
     }
-    const files = await (0, import_promises14.readdir)(decisionsDir);
+    const files = await (0, import_promises15.readdir)(decisionsDir);
     for (const file2 of files) {
       if (!file2.endsWith(".jsonl")) continue;
       const filePath = (0, import_path13.join)(decisionsDir, file2);
-      const content = await (0, import_promises14.readFile)(filePath, "utf-8");
+      const content = await (0, import_promises15.readFile)(filePath, "utf-8");
       const lines = content.trim().split("\n").filter(Boolean);
       for (const line of lines) {
         decisions.push(DecisionEntrySchema.parse(JSON.parse(line)));
@@ -34747,11 +34747,11 @@ async function getDecision(outputDir, decisionId) {
   if (!(0, import_fs6.existsSync)(decisionsDir)) {
     return null;
   }
-  const files = await (0, import_promises14.readdir)(decisionsDir);
+  const files = await (0, import_promises15.readdir)(decisionsDir);
   for (const file2 of files) {
     if (!file2.endsWith(".jsonl")) continue;
     const filePath = (0, import_path13.join)(decisionsDir, file2);
-    const content = await (0, import_promises14.readFile)(filePath, "utf-8");
+    const content = await (0, import_promises15.readFile)(filePath, "utf-8");
     const lines = content.trim().split("\n").filter(Boolean);
     for (const line of lines) {
       const entry = DecisionEntrySchema.parse(JSON.parse(line));
@@ -34767,7 +34767,7 @@ async function getTrackedRoutes(outputDir) {
   if (!(0, import_fs6.existsSync)(decisionsDir)) {
     return [];
   }
-  const files = await (0, import_promises14.readdir)(decisionsDir);
+  const files = await (0, import_promises15.readdir)(decisionsDir);
   return files.filter((f) => f.endsWith(".jsonl")).map((f) => f.replace(".jsonl", "").replace(/_/g, "/").replace(/^\/?/, "/"));
 }
 async function getDecisionStats(outputDir) {
@@ -34785,21 +34785,21 @@ async function getDecisionsSize(outputDir) {
   if (!(0, import_fs6.existsSync)(decisionsDir)) {
     return 0;
   }
-  const files = await (0, import_promises14.readdir)(decisionsDir);
+  const files = await (0, import_promises15.readdir)(decisionsDir);
   let total = 0;
   for (const file2 of files) {
     if (!file2.endsWith(".jsonl")) continue;
-    const s = await (0, import_promises14.stat)((0, import_path13.join)(decisionsDir, file2));
+    const s = await (0, import_promises15.stat)((0, import_path13.join)(decisionsDir, file2));
     total += s.size;
   }
   return total;
 }
-var import_promises14, import_path13, import_fs6, CONTEXT_DIR, DECISIONS_DIR;
+var import_promises15, import_path13, import_fs6, CONTEXT_DIR, DECISIONS_DIR;
 var init_decision_tracker = __esm({
   "src/decision-tracker.ts"() {
     "use strict";
     init_nanoid();
-    import_promises14 = require("fs/promises");
+    import_promises15 = require("fs/promises");
     import_path13 = require("path");
     import_fs6 = require("fs");
     init_types3();
@@ -34818,7 +34818,7 @@ function getArchiveDir(outputDir) {
 async function loadCompactContext(outputDir, sessionId) {
   const compactPath = getCompactPath(outputDir);
   if ((0, import_fs7.existsSync)(compactPath)) {
-    const content = await (0, import_promises15.readFile)(compactPath, "utf-8");
+    const content = await (0, import_promises16.readFile)(compactPath, "utf-8");
     return CompactContextSchema.parse(JSON.parse(content));
   }
   return {
@@ -34837,9 +34837,9 @@ async function loadCompactContext(outputDir, sessionId) {
 }
 async function saveCompactContext(outputDir, context) {
   const contextDir = (0, import_path14.join)(outputDir, CONTEXT_DIR2);
-  await (0, import_promises15.mkdir)(contextDir, { recursive: true });
+  await (0, import_promises16.mkdir)(contextDir, { recursive: true });
   const compactPath = getCompactPath(outputDir);
-  await (0, import_promises15.writeFile)(compactPath, JSON.stringify(context, null, 2));
+  await (0, import_promises16.writeFile)(compactPath, JSON.stringify(context, null, 2));
 }
 async function updateCompactContext(outputDir, sessionId) {
   const current = await loadCompactContext(outputDir, sessionId);
@@ -34880,10 +34880,10 @@ async function updateCompactContext(outputDir, sessionId) {
 async function compactContext(outputDir, request) {
   const current = await loadCompactContext(outputDir);
   const archiveDir = getArchiveDir(outputDir);
-  await (0, import_promises15.mkdir)(archiveDir, { recursive: true });
+  await (0, import_promises16.mkdir)(archiveDir, { recursive: true });
   const archiveFilename = `compact_${Date.now()}.json`;
   const archivePath = (0, import_path14.join)(archiveDir, archiveFilename);
-  await (0, import_promises15.writeFile)(archivePath, JSON.stringify(current, null, 2));
+  await (0, import_promises16.writeFile)(archivePath, JSON.stringify(current, null, 2));
   const decisionsCompacted = current.decisions_summary.reduce(
     (sum, s) => sum + s.decision_count,
     0
@@ -34938,14 +34938,14 @@ async function addKnownIssue(outputDir, issue2) {
 async function isCompactContextOversize(outputDir) {
   const compactPath = getCompactPath(outputDir);
   if (!(0, import_fs7.existsSync)(compactPath)) return false;
-  const content = await (0, import_promises15.readFile)(compactPath, "utf-8");
+  const content = await (0, import_promises16.readFile)(compactPath, "utf-8");
   return Buffer.byteLength(content, "utf-8") > 4096;
 }
-var import_promises15, import_path14, import_fs7, CONTEXT_DIR2, COMPACT_FILE, ARCHIVE_DIR2;
+var import_promises16, import_path14, import_fs7, CONTEXT_DIR2, COMPACT_FILE, ARCHIVE_DIR2;
 var init_compact = __esm({
   "src/context/compact.ts"() {
     "use strict";
-    import_promises15 = require("fs/promises");
+    import_promises16 = require("fs/promises");
     import_path14 = require("path");
     import_fs7 = require("fs");
     init_nanoid();
@@ -35164,11 +35164,11 @@ async function checkLock(outputDir) {
     return false;
   }
   try {
-    const content = await (0, import_promises16.readFile)(lockPath, "utf-8");
+    const content = await (0, import_promises17.readFile)(lockPath, "utf-8");
     const timestamp2 = parseInt(content, 10);
     const age = Date.now() - timestamp2;
     if (age > LOCK_TIMEOUT_MS) {
-      await (0, import_promises16.unlink)(lockPath);
+      await (0, import_promises17.unlink)(lockPath);
       return false;
     }
     return true;
@@ -35178,12 +35178,12 @@ async function checkLock(outputDir) {
 }
 async function createLock(outputDir) {
   const lockPath = (0, import_path15.join)(outputDir, LOCK_FILE);
-  await (0, import_promises16.writeFile)(lockPath, Date.now().toString());
+  await (0, import_promises17.writeFile)(lockPath, Date.now().toString());
 }
 async function releaseLock(outputDir) {
   const lockPath = (0, import_path15.join)(outputDir, LOCK_FILE);
   try {
-    await (0, import_promises16.unlink)(lockPath);
+    await (0, import_promises17.unlink)(lockPath);
   } catch {
   }
 }
@@ -36192,7 +36192,7 @@ async function extractFromURL(options) {
     throw new Error("Another extraction is in progress. Please wait.");
   }
   const sessionDir = (0, import_path15.join)(outputDir, "sessions", sessionId);
-  await (0, import_promises16.mkdir)(sessionDir, { recursive: true });
+  await (0, import_promises17.mkdir)(sessionDir, { recursive: true });
   await createLock(outputDir);
   let timeoutHandle = null;
   try {
@@ -36246,11 +36246,11 @@ async function extractFromURL(options) {
           cssVariables,
           screenshotPath
         };
-        await (0, import_promises16.writeFile)(
+        await (0, import_promises17.writeFile)(
           (0, import_path15.join)(sessionDir, "reference.json"),
           JSON.stringify(result2, null, 2)
         );
-        await (0, import_promises16.writeFile)((0, import_path15.join)(sessionDir, "reference.html"), html);
+        await (0, import_promises17.writeFile)((0, import_path15.join)(sessionDir, "reference.html"), html);
         return result2;
       } finally {
         await driverInstance.close();
@@ -36369,13 +36369,13 @@ async function extractTextCensus(page) {
     return census;
   });
 }
-var import_promises16, import_fs8, import_path15, LOCK_FILE, LOCK_TIMEOUT_MS, EXTRACTION_TIMEOUT_MS, DEFAULT_SELECTORS, CSS_PROPERTIES_TO_EXTRACT, driver2, INTERACTIVE_SELECTORS, ACTIVATION_EVENT_TYPES, ROOT_DELEGATION_UNRESOLVED, CONTENT_SELECTORS, INLINE_TEXT_SELECTORS, CONTENT_ELEMENT_TAGS, INLINE_TEXT_TAGS;
+var import_promises17, import_fs8, import_path15, LOCK_FILE, LOCK_TIMEOUT_MS, EXTRACTION_TIMEOUT_MS, DEFAULT_SELECTORS, CSS_PROPERTIES_TO_EXTRACT, driver2, INTERACTIVE_SELECTORS, ACTIVATION_EVENT_TYPES, ROOT_DELEGATION_UNRESOLVED, CONTENT_SELECTORS, INLINE_TEXT_SELECTORS, CONTENT_ELEMENT_TAGS, INLINE_TEXT_TAGS;
 var init_extract2 = __esm({
   "src/extract.ts"() {
     "use strict";
     init_driver();
     init_compat();
-    import_promises16 = require("fs/promises");
+    import_promises17 = require("fs/promises");
     import_fs8 = require("fs");
     import_path15 = require("path");
     init_schemas3();
@@ -36586,7 +36586,7 @@ async function excludeDomRelatedCollisions(page, result) {
   let related;
   try {
     related = await page.evaluate((input) => {
-      const resolve8 = (sel) => {
+      const resolve10 = (sel) => {
         try {
           const found = document.querySelectorAll(sel);
           return found.length === 1 ? found[0] : null;
@@ -36595,8 +36595,8 @@ async function excludeDomRelatedCollisions(page, result) {
         }
       };
       return input.map(([s1, s2]) => {
-        const n1 = resolve8(s1);
-        const n2 = resolve8(s2);
+        const n1 = resolve10(s1);
+        const n2 = resolve10(s2);
         if (!n1 || !n2) return false;
         return n1 === n2 || n1.contains(n2) || n2.contains(n1);
       });
@@ -37332,7 +37332,7 @@ async function loadDesignSystemConfig(projectDir) {
       return void 0;
     }
   }
-  const content = await (0, import_promises17.readFile)(configPath, "utf-8");
+  const content = await (0, import_promises18.readFile)(configPath, "utf-8");
   const raw = JSON.parse(content);
   return DesignSystemConfigSchema.parse(raw);
 }
@@ -37343,12 +37343,12 @@ function getDefaultSeverity(principleId, config2) {
   if (config2.principles.calmPrecision.stylistic.includes(principleId)) return "warn";
   return "warn";
 }
-var import_promises17, import_fs9, import_path16, CustomCheckSchema, CustomPrincipleSchema, DEFAULT_CALM_PRECISION_CONFIG, CalmPrecisionConfigSchema, TypographyTokensSchema, DesignSystemConfigSchema;
+var import_promises18, import_fs9, import_path16, CustomCheckSchema, CustomPrincipleSchema, DEFAULT_CALM_PRECISION_CONFIG, CalmPrecisionConfigSchema, TypographyTokensSchema, DesignSystemConfigSchema;
 var init_config = __esm({
   "src/design-system/config.ts"() {
     "use strict";
     init_zod();
-    import_promises17 = require("fs/promises");
+    import_promises18 = require("fs/promises");
     import_fs9 = require("fs");
     import_path16 = require("path");
     CustomCheckSchema = external_exports.object({
@@ -37751,19 +37751,19 @@ var init_tokens2 = __esm({
 function isListItemElement(element) {
   const tag = (element.tagName || "").toLowerCase();
   const role = (element.a11y?.role || "").toLowerCase();
-  if (CONTROL_TAGS.has(tag) || CONTROL_ROLES.has(role)) return false;
+  if (CONTROL_TAGS.has(tag) || CONTROL_ROLES2.has(role)) return false;
   if (tag === "li" || role === "listitem") return true;
   const tokens = (element.className || "").split(/\s+/).filter(Boolean);
   return tokens.some((t) => ITEM_CLASS_TOKEN.test(t));
 }
-var ITEM_CLASS_TOKEN, CONTROL_TAGS, CONTROL_ROLES, BOXED_MIN_SIDES, gestaltRules;
+var ITEM_CLASS_TOKEN, CONTROL_TAGS, CONTROL_ROLES2, BOXED_MIN_SIDES, gestaltRules;
 var init_gestalt = __esm({
   "src/design-system/principles/gestalt.ts"() {
     "use strict";
     init_style_read();
     ITEM_CLASS_TOKEN = /^(item|list-item|[a-z0-9_-]+(-|__)item)$/i;
     CONTROL_TAGS = /* @__PURE__ */ new Set(["button", "input", "select", "textarea", "summary", "option"]);
-    CONTROL_ROLES = /* @__PURE__ */ new Set(["button", "checkbox", "radio", "switch", "tab", "menuitem", "slider", "textbox", "combobox"]);
+    CONTROL_ROLES2 = /* @__PURE__ */ new Set(["button", "checkbox", "radio", "switch", "tab", "menuitem", "slider", "textbox", "combobox"]);
     BOXED_MIN_SIDES = 3;
     gestaltRules = [
       {
@@ -41249,7 +41249,7 @@ async function loadRulesConfig(projectDir) {
     return { extends: [], rules: {} };
   }
   try {
-    const content = await (0, import_promises18.readFile)(configPath, "utf-8");
+    const content = await (0, import_promises19.readFile)(configPath, "utf-8");
     return JSON.parse(content);
   } catch (error51) {
     console.warn(`Failed to parse rules.json: ${error51}`);
@@ -41402,11 +41402,11 @@ async function loadMemoryPreset(outputDir) {
   } catch {
   }
 }
-var import_promises18, import_fs11, import_path17, presets, DEFAULT_RULE_PRESETS, RULES_OPT_OUT;
+var import_promises19, import_fs11, import_path17, presets, DEFAULT_RULE_PRESETS, RULES_OPT_OUT;
 var init_engine = __esm({
   "src/rules/engine.ts"() {
     "use strict";
-    import_promises18 = require("fs/promises");
+    import_promises19 = require("fs/promises");
     import_fs11 = require("fs");
     import_path17 = require("path");
     init_calm_precision2();
@@ -43250,7 +43250,7 @@ async function bootDevice(udid) {
     return;
   }
   await execFileAsync("xcrun", ["simctl", "boot", udid]);
-  await new Promise((resolve8) => setTimeout(resolve8, 2e3));
+  await new Promise((resolve10) => setTimeout(resolve10, 2e3));
 }
 function formatDevice(device) {
   const runtimeVersion = device.runtime.replace(/^.*SimRuntime\./, "").replace(/-/g, ".");
@@ -43316,7 +43316,7 @@ async function captureNativeScreenshot(options) {
   const { device, outputPath, mask } = options;
   const start = Date.now();
   try {
-    await (0, import_promises19.mkdir)((0, import_path18.dirname)(outputPath), { recursive: true });
+    await (0, import_promises20.mkdir)((0, import_path18.dirname)(outputPath), { recursive: true });
     const args = ["simctl", "io", device.udid, "screenshot", "--type=png"];
     const effectiveMask = mask ?? (device.platform === "watchos" ? "black" : void 0);
     if (effectiveMask) {
@@ -43342,13 +43342,13 @@ async function captureNativeScreenshot(options) {
     };
   }
 }
-var import_child_process3, import_util4, import_promises19, import_path18, execFileAsync2;
+var import_child_process3, import_util4, import_promises20, import_path18, execFileAsync2;
 var init_capture3 = __esm({
   "src/native/capture.ts"() {
     "use strict";
     import_child_process3 = require("child_process");
     import_util4 = require("util");
-    import_promises19 = require("fs/promises");
+    import_promises20 = require("fs/promises");
     import_path18 = require("path");
     init_viewports();
     execFileAsync2 = (0, import_util4.promisify)(import_child_process3.execFile);
@@ -43489,7 +43489,7 @@ async function ensureExtractor() {
       `Bundled Swift extractor source not found at ${SWIFT_SOURCE_DIR}. Rebuild or reinstall IBR so src/native/swift/ibr-ax-extract is included.`
     );
   }
-  await (0, import_promises20.mkdir)(EXTRACTOR_DIR, { recursive: true });
+  await (0, import_promises21.mkdir)(EXTRACTOR_DIR, { recursive: true });
   try {
     if (!(0, import_fs12.existsSync)(SWIFT_BUILD_PATH) || !isFileFresh(SWIFT_BUILD_PATH)) {
       await buildSwiftExtractor();
@@ -43497,8 +43497,8 @@ async function ensureExtractor() {
     if (!(0, import_fs12.existsSync)(SWIFT_BUILD_PATH)) {
       throw new Error("Swift build succeeded but binary not found at expected path");
     }
-    await (0, import_promises20.copyFile)(SWIFT_BUILD_PATH, EXTRACTOR_PATH);
-    await (0, import_promises20.chmod)(EXTRACTOR_PATH, 493);
+    await (0, import_promises21.copyFile)(SWIFT_BUILD_PATH, EXTRACTOR_PATH);
+    await (0, import_promises21.chmod)(EXTRACTOR_PATH, 493);
     return EXTRACTOR_PATH;
   } catch (err) {
     throw new Error(
@@ -43605,14 +43605,14 @@ function mapToEnhancedElements(nativeElements) {
   flatten2(nativeElements);
   return enhanced;
 }
-var import_child_process4, import_util5, import_fs12, import_promises20, import_path20, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_SOURCES_DIR, SWIFT_PACKAGE_PATH, SWIFT_BUILD_PATH;
+var import_child_process4, import_util5, import_fs12, import_promises21, import_path20, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_SOURCES_DIR, SWIFT_PACKAGE_PATH, SWIFT_BUILD_PATH;
 var init_extract3 = __esm({
   "src/native/extract.ts"() {
     "use strict";
     import_child_process4 = require("child_process");
     import_util5 = require("util");
     import_fs12 = require("fs");
-    import_promises20 = require("fs/promises");
+    import_promises21 = require("fs/promises");
     import_path20 = require("path");
     init_role_map();
     init_runtime_path();
@@ -43748,7 +43748,9 @@ async function extractMacOSElements(options) {
 }
 async function runMacOSExtraction(extractorPath, args) {
   const { stdout, stderr } = await execFileAsync4(extractorPath, args, {
-    timeout: 3e4
+    timeout: 3e4,
+    // AX trees can include long document values; keep a bounded 16 MiB budget.
+    maxBuffer: 16 * 1024 * 1024
   });
   if (stderr && stderr.includes("Error:")) {
     throw new Error(stderr.trim());
@@ -43796,7 +43798,7 @@ async function activateMacOSProcess(pid) {
   }
 }
 function sleep2(ms) {
-  return new Promise((resolve8) => setTimeout(resolve8, ms));
+  return new Promise((resolve10) => setTimeout(resolve10, ms));
 }
 function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
   const enhanced = [];
@@ -43863,18 +43865,18 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
   return enhanced;
 }
 async function captureMacOSScreenshot(windowId, outputPath) {
-  await (0, import_promises21.mkdir)((0, import_path21.dirname)(outputPath), { recursive: true });
+  await (0, import_promises22.mkdir)((0, import_path21.dirname)(outputPath), { recursive: true });
   await execFileAsync4("screencapture", ["-l", String(windowId), "-x", outputPath], {
     timeout: 1e4
   });
 }
-var import_child_process5, import_util6, import_promises21, import_path21, execFileAsync4, execAsync;
+var import_child_process5, import_util6, import_promises22, import_path21, execFileAsync4, execAsync;
 var init_macos = __esm({
   "src/native/macos.ts"() {
     "use strict";
     import_child_process5 = require("child_process");
     import_util6 = require("util");
-    import_promises21 = require("fs/promises");
+    import_promises22 = require("fs/promises");
     import_path21 = require("path");
     init_extract3();
     init_role_map();
@@ -44636,14 +44638,14 @@ __export(crop_exports, {
   cropPng: () => cropPng
 });
 function loadPng(path3) {
-  return new Promise((resolve8, reject) => {
+  return new Promise((resolve10, reject) => {
     const png = new import_pngjs3.PNG();
-    (0, import_fs13.createReadStream)(path3).pipe(png).on("parsed", () => resolve8(png)).on("error", reject);
+    (0, import_fs13.createReadStream)(path3).pipe(png).on("parsed", () => resolve10(png)).on("error", reject);
   });
 }
 function writePng(png, path3) {
-  return new Promise((resolve8, reject) => {
-    png.pack().pipe((0, import_fs13.createWriteStream)(path3)).on("finish", resolve8).on("error", reject);
+  return new Promise((resolve10, reject) => {
+    png.pack().pipe((0, import_fs13.createWriteStream)(path3)).on("finish", resolve10).on("error", reject);
   });
 }
 function clamp(v, lo, hi) {
@@ -44662,16 +44664,16 @@ async function cropPng(srcPath, bounds, destPath, opts = {}) {
   if (cropW <= 0 || cropH <= 0) return null;
   const out = new import_pngjs3.PNG({ width: cropW, height: cropH });
   src.bitblt(out, x0, y0, cropW, cropH, 0, 0);
-  await (0, import_promises22.mkdir)((0, import_path23.dirname)(destPath), { recursive: true });
+  await (0, import_promises23.mkdir)((0, import_path23.dirname)(destPath), { recursive: true });
   await writePng(out, destPath);
   return destPath;
 }
-var import_fs13, import_promises22, import_path23, import_pngjs3;
+var import_fs13, import_promises23, import_path23, import_pngjs3;
 var init_crop = __esm({
   "src/utils/crop.ts"() {
     "use strict";
     import_fs13 = require("fs");
-    import_promises22 = require("fs/promises");
+    import_promises23 = require("fs/promises");
     import_path23 = require("path");
     import_pngjs3 = __toESM(require_png());
   }
@@ -44824,9 +44826,9 @@ async function* askStream(url2, question, options = {}) {
     viewportHeight = options.viewportMetrics?.height ?? 800;
   } else {
     if (typeof options.screenshot === "string" || options.screenshot === true) {
-      const { mkdir: mkdir31 } = await import("fs/promises");
+      const { mkdir: mkdir33 } = await import("fs/promises");
       const { dirname: dirname17 } = await import("path");
-      if (screenshotPath) await mkdir31(dirname17(screenshotPath), { recursive: true });
+      if (screenshotPath) await mkdir33(dirname17(screenshotPath), { recursive: true });
     }
     const result = await scan(url2, {
       viewport: options.viewport ?? "desktop",
@@ -45079,7 +45081,7 @@ var init_browser_pool = __esm({
       async acquire() {
         if (this.closed) throw new Error("BrowserPool is closed");
         if (this.inUse) {
-          await new Promise((resolve8) => this.waiters.push(resolve8));
+          await new Promise((resolve10) => this.waiters.push(resolve10));
           if (this.closed) throw new Error("BrowserPool is closed");
         } else {
           this.inUse = true;
@@ -45299,9 +45301,9 @@ async function ensureSimDriver() {
     if (!(0, import_fs14.existsSync)(builtPath)) {
       throw new Error("Swift build succeeded but binary was not created");
     }
-    await (0, import_promises23.mkdir)(CACHE_DIR, { recursive: true });
-    await (0, import_promises23.copyFile)(builtPath, CACHE_PATH);
-    await (0, import_promises23.chmod)(CACHE_PATH, 493);
+    await (0, import_promises24.mkdir)(CACHE_DIR, { recursive: true });
+    await (0, import_promises24.copyFile)(builtPath, CACHE_PATH);
+    await (0, import_promises24.chmod)(CACHE_PATH, 493);
     cachedPath = CACHE_PATH;
     return CACHE_PATH;
   } catch (err) {
@@ -45347,13 +45349,13 @@ function simDriverSwipe(udid, x1, y1, x2, y2, duration3, opts) {
   if (duration3) args.push("--duration", String(duration3));
   return runSimDriver(args, "swipe");
 }
-var import_child_process7, import_fs14, import_promises23, import_path24, import_util8, execFileAsync6, DRIVER_NAME, CACHE_DIR, CACHE_PATH, cachedPath, buildError;
+var import_child_process7, import_fs14, import_promises24, import_path24, import_util8, execFileAsync6, DRIVER_NAME, CACHE_DIR, CACHE_PATH, cachedPath, buildError;
 var init_sim_driver = __esm({
   "src/native/sim-driver.ts"() {
     "use strict";
     import_child_process7 = require("child_process");
     import_fs14 = require("fs");
-    import_promises23 = require("fs/promises");
+    import_promises24 = require("fs/promises");
     import_path24 = require("path");
     import_util8 = require("util");
     init_runtime_path();
@@ -46120,6 +46122,7 @@ function flattenMacOSElements(elements) {
         identifier: el.identifier,
         value: el.value,
         enabled: el.enabled,
+        selected: el.selected,
         actions: el.actions,
         frame: el.position && el.size ? {
           x: el.position.x,
@@ -46301,12 +46304,12 @@ var init_daemon = __esm({
         }
       }
       waitForReady() {
-        return new Promise((resolve8, reject) => {
+        return new Promise((resolve10, reject) => {
           const timer = setTimeout(() => {
             this.kill("daemon startup timed out");
             reject(new DaemonError("daemon startup timed out"));
           }, this.startTimeoutMs);
-          this.readyResolver = { resolve: resolve8, reject, timer };
+          this.readyResolver = { resolve: resolve10, reject, timer };
         });
       }
       readyResolver = null;
@@ -46368,13 +46371,13 @@ var init_daemon = __esm({
         const child = this.child;
         if (!child) return Promise.reject(new DaemonError("daemon not started"));
         const id = this.nextId++;
-        return new Promise((resolve8, reject) => {
+        return new Promise((resolve10, reject) => {
           const timer = setTimeout(() => {
             this.pending.delete(id);
             this.kill(`daemon request ${id} timed out`);
             reject(new DaemonError(`daemon request timed out (op=${req.op})`));
           }, this.requestTimeoutMs);
-          this.pending.set(id, { resolve: resolve8, reject, timer });
+          this.pending.set(id, { resolve: resolve10, reject, timer });
           try {
             child.stdin.write(JSON.stringify({ id, ...req }) + "\n");
           } catch (err) {
@@ -46474,7 +46477,7 @@ async function resolveKeystrokeTargetPid(target) {
   return findProcess("com.apple.iphonesimulator");
 }
 function sleep3(ms) {
-  return new Promise((resolve8) => setTimeout(resolve8, ms));
+  return new Promise((resolve10) => setTimeout(resolve10, ms));
 }
 function keystrokeSuccess(chord, method, before, after) {
   return {
@@ -46578,7 +46581,7 @@ var init_keyboard = __esm({
 
 // src/native/lifecycle.ts
 function sleep4(ms) {
-  return new Promise((resolve8) => setTimeout(resolve8, ms));
+  return new Promise((resolve10) => setTimeout(resolve10, ms));
 }
 async function pollUntil(check2, timeoutMs) {
   const started = Date.now();
@@ -46804,7 +46807,7 @@ async function resolveMenuTargetPid(target) {
   return findProcess("com.apple.iphonesimulator");
 }
 function sleep5(ms) {
-  return new Promise((resolve8) => setTimeout(resolve8, ms));
+  return new Promise((resolve10) => setTimeout(resolve10, ms));
 }
 function menuLabel(menuPath) {
   return menuPath.join(" > ");
@@ -46976,8 +46979,8 @@ var init_backend = __esm({
             };
           }
           await captureMacOSScreenshot(window2.windowId, outputPath);
-          const { readFile: readFile25 } = await import("fs/promises");
-          const buf2 = await readFile25(outputPath);
+          const { readFile: readFile26 } = await import("fs/promises");
+          const buf2 = await readFile26(outputPath);
           return { kind: "macos", base64: buf2.toString("base64"), window: window2, screenshotPath: outputPath };
         }
         const device = await findDevice(target.device.udid);
@@ -46991,8 +46994,8 @@ var init_backend = __esm({
             error: `Simulator screenshot capture failed: ${capture.error || "unknown error"}`
           };
         }
-        const { readFile: readFile24 } = await import("fs/promises");
-        const buf = await readFile24(capture.outputPath);
+        const { readFile: readFile25 } = await import("fs/promises");
+        const buf = await readFile25(capture.outputPath);
         return {
           kind: "simulator",
           base64: buf.toString("base64"),
@@ -47159,8 +47162,8 @@ var init_backend = __esm({
               };
             }
             await captureMacOSScreenshot(window2.windowId, outputPath);
-            const { readFile: readFile24 } = await import("fs/promises");
-            const buf = await readFile24(outputPath);
+            const { readFile: readFile25 } = await import("fs/promises");
+            const buf = await readFile25(outputPath);
             return { kind: "macos", base64: buf.toString("base64"), window: window2, screenshotPath: outputPath };
           },
           () => this.fallback.captureScreenshot(target, outputPath)
@@ -47443,11 +47446,12 @@ function imageResult(base643, metadata) {
 function nativeStateSignature(window2, candidates) {
   return JSON.stringify({
     window: window2,
-    candidates: candidates.slice(0, 200).map((candidate) => [
+    candidates: candidates.map((candidate) => [
       candidate.role,
       candidate.label,
       candidate.identifier,
       candidate.value,
+      candidate.selected,
       candidate.enabled,
       candidate.actions.join(","),
       candidate.frame
@@ -47541,15 +47545,27 @@ function normalizeNativeWaitTimeout(value, fallback) {
 function safeFilePart(value) {
   return value.replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "native-session";
 }
+async function boundedObservation(operation, timeoutMs) {
+  let timer;
+  try {
+    return await Promise.race([operation(), new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Post-action observation timed out")), timeoutMs);
+    })]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 function sleep6(ms) {
-  return new Promise((resolve8) => setTimeout(resolve8, ms));
+  return new Promise((resolve10) => setTimeout(resolve10, ms));
 }
 function formatNativeCandidate(candidate) {
   return {
     role: candidate.role,
     label: candidate.label || null,
     identifier: candidate.identifier || null,
+    value: candidate.value,
     enabled: candidate.enabled,
+    selected: candidate.selected,
     actions: candidate.actions,
     path: candidate.path,
     frame: candidate.frame
@@ -47782,6 +47798,13 @@ var init_session_controller = __esm({
           if (!resolution) {
             return nativeTargetNotFound(request.target ?? "", flattenMacOSElements(elements));
           }
+          if (request.expectedRef) {
+            const expected = request.expectedRef;
+            const matches = flattenMacOSElements(elements).filter((c) => c.role === expected.role && (expected.identifier ? c.identifier === expected.identifier : c.label === expected.label));
+            if (extraction.window.windowId !== expected.windowId || matches.length !== 1 || !resolution.element.enabled || JSON.stringify(matches[0].path) !== JSON.stringify(expected.path) || JSON.stringify(resolution.element.path) !== JSON.stringify(matches[0].path)) {
+              return errorResult("Ref target changed or became ambiguous during action resolution; read refs again.");
+            }
+          }
           if (!resolution.element.path) {
             return errorResult(`Element "${request.target}" was found but has no AX path. Rebuild the native extractor and try again.`);
           }
@@ -47791,11 +47814,20 @@ var init_session_controller = __esm({
             { kind: "macos", pid: entry.pid, app: entry.app },
             { elementPath: resolution.element.path, action: mapped.action, value: mapped.value }
           );
-          const postAction = actionResult.success ? await this.waitForMacOSPostAction(entry, request) : void 0;
+          let postAction;
+          if (actionResult.success) {
+            try {
+              postAction = await this.waitForMacOSPostAction(entry, request);
+            } catch (error51) {
+              postAction = { ...emptyPostActionState(Date.now(), request.waitFor), reason: "observation-failed", observationError: String(error51) };
+            }
+          }
           return nativeActionResponse(actionResult.success, {
             backend: "macos-ax",
             app: entry.app,
             pid: entry.pid,
+            actionDelivered: actionResult.success,
+            verificationPassed: postAction?.settled === true,
             requestedAction: request.action,
             axAction: mapped.action,
             target: request.target,
@@ -47835,16 +47867,32 @@ var init_session_controller = __esm({
           if (!resolution.element.path) {
             return errorResult(`Element "${request.target}" was found but has no AX path. Rebuild the native extractor and try again.`);
           }
+          if (request.expectedRef) {
+            const expected = request.expectedRef;
+            const matches = flattened.filter((c) => c.role === expected.role && (expected.identifier ? c.identifier === expected.identifier : c.label === expected.label));
+            if (matches.length !== 1 || !resolution.element.enabled || JSON.stringify(matches[0].path) !== JSON.stringify(expected.path) || JSON.stringify(resolution.element.path) !== JSON.stringify(matches[0].path)) {
+              return errorResult("Ref target changed or became ambiguous during simulator action resolution; read refs again.");
+            }
+          }
           const mapped = mapSessionActionToNative(request.action, request.value);
           if ("error" in mapped) return errorResult(mapped.error);
           const actionResult = await this.backend.performAction(
             { kind: "simulator", device: { udid: device.udid, name: device.name } },
             { elementPath: resolution.element.path, action: mapped.action, value: mapped.value }
           );
-          const postAction = actionResult.success ? await this.waitForSimulatorPostAction(entry, request) : void 0;
+          let postAction;
+          if (actionResult.success) {
+            try {
+              postAction = await this.waitForSimulatorPostAction(entry, request);
+            } catch (error51) {
+              postAction = { ...emptyPostActionState(Date.now(), request.waitFor), reason: "observation-failed", observationError: String(error51) };
+            }
+          }
           return nativeActionResponse(actionResult.success, {
             backend: "simulator-ax",
             device: entry.device,
+            actionDelivered: actionResult.success,
+            verificationPassed: postAction?.settled === true,
             requestedAction: request.action,
             axAction: mapped.action,
             target: request.target,
@@ -47901,8 +47949,16 @@ var init_session_controller = __esm({
           if (attempts === 0 && timeoutMs > 0) {
             await sleep6(Math.min(120, timeoutMs));
           }
-          const extraction = await this.backend.extract({ kind: "macos", pid: entry.pid, app: entry.app });
-          if (extraction.kind !== "macos") break;
+          const budget = timeoutMs === 0 ? 250 : timeoutMs - (Date.now() - started);
+          if (budget <= 0) break;
+          let extraction;
+          try {
+            extraction = await boundedObservation(() => this.backend.extract({ kind: "macos", pid: entry.pid, app: entry.app }), budget);
+          } catch (error51) {
+            return { ...latest, reason: "observation-failed", observationError: String(error51), elapsedMs: Date.now() - started };
+          }
+          if (timeoutMs > 0 && Date.now() - started > timeoutMs) break;
+          if (extraction.kind !== "macos") return { ...latest, reason: "observation-failed", observationError: "Native extraction unavailable", elapsedMs: Date.now() - started };
           const { elements, window: window2 } = extraction;
           const candidates = flattenMacOSElements(elements);
           const interactive = candidates.filter((candidate) => candidate.actions.length > 0);
@@ -47919,20 +47975,36 @@ var init_session_controller = __esm({
             window: window2,
             totalElements: candidates.length,
             interactiveElements: interactive.length,
-            elements: interactive.slice(0, 10).map(formatNativeCandidate)
+            elements: interactive.slice(0, 10).map(formatNativeCandidate),
+            observation: request.includeObservation ? {
+              type: "macos",
+              backend: "macos-ax",
+              app: entry.app,
+              pid: entry.pid,
+              window: window2,
+              totalElements: candidates.length,
+              interactiveElements: interactive.length,
+              returned: candidates.length,
+              observedAt: (/* @__PURE__ */ new Date()).toISOString(),
+              elements: candidates.map((candidate) => ({ ...formatNativeCandidate(candidate), value: candidate.value })),
+              hostCursorAffected: false
+            } : void 0
           };
           if (resolution) {
             return {
               ...latest,
               settled: true,
               reason: "waitFor-found",
-              elements: [formatNativeCandidate(resolution.element), ...latest.elements].slice(0, 10)
+              elements: [formatNativeCandidate(resolution.element), ...latest.elements.filter((e) => JSON.stringify(e.path) !== JSON.stringify(resolution.element.path))].slice(0, 10)
             };
           }
           if (!request.waitFor && previousSignature === signature) {
             return { ...latest, settled: true, reason: "tree-stable" };
           }
           previousSignature = signature;
+          const remainingMs = timeoutMs - (Date.now() - started);
+          if (remainingMs <= 0) break;
+          await sleep6(Math.min(32, remainingMs));
         } while (Date.now() - started < timeoutMs);
         return latest;
       }
@@ -47946,7 +48018,15 @@ var init_session_controller = __esm({
           if (attempts === 0 && timeoutMs > 0) {
             await sleep6(Math.min(120, timeoutMs));
           }
-          const extraction = await this.backend.extract({ kind: "simulator", device: entry.device });
+          const budget = timeoutMs === 0 ? 250 : timeoutMs - (Date.now() - started);
+          if (budget <= 0) break;
+          let extraction;
+          try {
+            extraction = await boundedObservation(() => this.backend.extract({ kind: "simulator", device: entry.device }), budget);
+          } catch (error51) {
+            return { ...latest, reason: "observation-failed", observationError: String(error51), elapsedMs: Date.now() - started };
+          }
+          if (timeoutMs > 0 && Date.now() - started > timeoutMs) break;
           if (extraction.kind === "not-found") {
             return {
               ...latest,
@@ -47970,14 +48050,25 @@ var init_session_controller = __esm({
             waitForFound: Boolean(resolution),
             totalElements: candidates.length,
             interactiveElements: interactive.length,
-            elements: interactive.slice(0, 10).map(formatNativeCandidate)
+            elements: interactive.slice(0, 10).map(formatNativeCandidate),
+            observation: request.includeObservation ? {
+              type: "simulator",
+              backend: "simulator-ax",
+              device: entry.device,
+              totalElements: candidates.length,
+              interactiveElements: interactive.length,
+              returned: candidates.length,
+              observedAt: (/* @__PURE__ */ new Date()).toISOString(),
+              elements: candidates.map(formatNativeCandidate),
+              hostCursorAffected: false
+            } : void 0
           };
           if (resolution) {
             return {
               ...latest,
               settled: true,
               reason: "waitFor-found",
-              elements: [formatNativeCandidate(resolution.element), ...latest.elements].slice(0, 10)
+              elements: [formatNativeCandidate(resolution.element), ...latest.elements.filter((e) => JSON.stringify(e.path) !== JSON.stringify(resolution.element.path))].slice(0, 10)
             };
           }
           if (!request.waitFor && previousSignature === signature) {
@@ -48365,7 +48456,7 @@ async function compare(options) {
     throw new Error("Either baselinePath or url must be provided");
   }
   const resolvedViewport = typeof viewport === "string" ? VIEWPORTS[viewport] || VIEWPORTS.desktop : viewport;
-  await (0, import_promises24.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises25.mkdir)(outputDir, { recursive: true });
   const timestamp2 = Date.now();
   const actualBaselinePath = baselinePath || (0, import_path27.join)(outputDir, `baseline-${timestamp2}.png`);
   const actualCurrentPath = currentPath || (0, import_path27.join)(outputDir, `current-${timestamp2}.png`);
@@ -48401,12 +48492,12 @@ async function compare(options) {
     });
   }
   try {
-    await (0, import_promises24.access)(actualBaselinePath);
+    await (0, import_promises25.access)(actualBaselinePath);
   } catch {
     throw new Error(`Baseline image not found: ${actualBaselinePath}`);
   }
   try {
-    await (0, import_promises24.access)(actualCurrentPath);
+    await (0, import_promises25.access)(actualCurrentPath);
   } catch {
     throw new Error(`Current image not found: ${actualCurrentPath}`);
   }
@@ -48486,7 +48577,7 @@ async function compareAll(options = {}) {
   await closeBrowser();
   return results;
 }
-var import_promises24, import_path27, import_os4, InterfaceBuiltRight, IBRSession;
+var import_promises25, import_path27, import_os4, InterfaceBuiltRight, IBRSession;
 var init_index = __esm({
   "src/index.ts"() {
     "use strict";
@@ -48501,7 +48592,7 @@ var init_index = __esm({
     init_flows();
     init_driver();
     init_compat();
-    import_promises24 = require("fs/promises");
+    import_promises25 = require("fs/promises");
     import_path27 = require("path");
     import_os4 = require("os");
     init_cleanup();
@@ -49239,14 +49330,14 @@ var init_session2 = __esm({
       async stop() {
         if (!this.process) return;
         this.process.kill("SIGTERM");
-        await new Promise((resolve8) => {
+        await new Promise((resolve10) => {
           const timeout = setTimeout(() => {
             this.process?.kill("SIGKILL");
-            resolve8();
+            resolve10();
           }, 2e3);
           this.process.once("exit", () => {
             clearTimeout(timeout);
-            resolve8();
+            resolve10();
           });
         });
         this.process = null;
@@ -49289,12 +49380,12 @@ var init_session2 = __esm({
       async findFreePort() {
         const { createServer: createServer4 } = await import("net");
         for (let p = PORT_RANGE_START; p <= PORT_RANGE_END; p++) {
-          const available = await new Promise((resolve8) => {
+          const available = await new Promise((resolve10) => {
             const server = createServer4();
-            server.once("error", () => resolve8(false));
+            server.once("error", () => resolve10(false));
             server.once("listening", () => {
               server.close();
-              resolve8(true);
+              resolve10(true);
             });
             server.listen(p, "127.0.0.1");
           });
@@ -49665,9 +49756,9 @@ var init_driver2 = __esm({
        */
       async _cropScreenshot(buf, clip) {
         try {
-          const { PNG: PNG6 } = await Promise.resolve().then(() => __toESM(require_png()));
-          const src = PNG6.sync.read(buf);
-          const dst = new PNG6({ width: clip.width, height: clip.height });
+          const { PNG: PNG7 } = await Promise.resolve().then(() => __toESM(require_png()));
+          const src = PNG7.sync.read(buf);
+          const dst = new PNG7({ width: clip.width, height: clip.height });
           for (let y = 0; y < clip.height; y++) {
             for (let x = 0; x < clip.width; x++) {
               const srcIdx = ((clip.y + y) * src.width + (clip.x + x)) * 4;
@@ -49678,7 +49769,7 @@ var init_driver2 = __esm({
               dst.data[dstIdx + 3] = src.data[srcIdx + 3];
             }
           }
-          return PNG6.sync.write(dst);
+          return PNG7.sync.write(dst);
         } catch {
           return buf;
         }
@@ -49891,7 +49982,7 @@ async function discoverUserContext(projectDir) {
   const memoryPath = (0, import_path32.join)(outputDir, "memory", "summary.json");
   if ((0, import_fs22.existsSync)(memoryPath)) {
     try {
-      const memContent = await (0, import_promises27.readFile)(memoryPath, "utf-8");
+      const memContent = await (0, import_promises29.readFile)(memoryPath, "utf-8");
       memory = JSON.parse(memContent);
     } catch {
     }
@@ -49916,7 +50007,7 @@ async function tryLoadFramework(filePath, type) {
   }
   source.found = true;
   try {
-    const content = await (0, import_promises27.readFile)(filePath, "utf-8");
+    const content = await (0, import_promises29.readFile)(filePath, "utf-8");
     const framework = parseDesignFramework(content, filePath);
     if (framework) {
       source.hasFramework = true;
@@ -49932,7 +50023,7 @@ async function loadIBRConfig(projectDir) {
     return {};
   }
   try {
-    const content = await (0, import_promises27.readFile)(configPath, "utf-8");
+    const content = await (0, import_promises29.readFile)(configPath, "utf-8");
     return JSON.parse(content);
   } catch {
     return {};
@@ -49962,12 +50053,12 @@ function formatContextSummary(context) {
   }
   return lines.join("\n");
 }
-var import_fs22, import_promises27, import_path32, import_os5;
+var import_fs22, import_promises29, import_path32, import_os5;
 var init_context_loader = __esm({
   "src/context-loader.ts"() {
     "use strict";
     import_fs22 = require("fs");
-    import_promises27 = require("fs/promises");
+    import_promises29 = require("fs/promises");
     import_path32 = require("path");
     import_os5 = require("os");
     init_framework_parser();
@@ -50627,12 +50718,12 @@ function readRequired(path3, label2) {
   return (0, import_node_fs5.readFileSync)(path3, "utf8");
 }
 function resolvePluginPaths(pluginPath) {
-  const abs = (0, import_node_path6.isAbsolute)(pluginPath) ? pluginPath : (0, import_node_path6.resolve)(process.cwd(), pluginPath);
+  const abs = (0, import_node_path9.isAbsolute)(pluginPath) ? pluginPath : (0, import_node_path9.resolve)(process.cwd(), pluginPath);
   if (abs.endsWith(".js")) {
     return { bundlePath: abs };
   }
-  const bundlePath = (0, import_node_path6.join)(abs, "main.js");
-  const stylesPath = (0, import_node_path6.join)(abs, "styles.css");
+  const bundlePath = (0, import_node_path9.join)(abs, "main.js");
+  const stylesPath = (0, import_node_path9.join)(abs, "styles.css");
   return { bundlePath, stylesPath: (0, import_node_fs5.existsSync)(stylesPath) ? stylesPath : void 0 };
 }
 function buildMountScript(input) {
@@ -50784,12 +50875,12 @@ ${escapeForInlineStyle(input.extraCss)}
 </html>
 `;
 }
-var import_node_fs5, import_node_path6, OBSIDIAN_BODY_CLASSES, APPROXIMATE_BASELINE_CSS, MINIMAL_RESET_CSS;
+var import_node_fs5, import_node_path9, OBSIDIAN_BODY_CLASSES, APPROXIMATE_BASELINE_CSS, MINIMAL_RESET_CSS;
 var init_harness = __esm({
   "src/obsidian/harness.ts"() {
     "use strict";
     import_node_fs5 = require("fs");
-    import_node_path6 = require("path");
+    import_node_path9 = require("path");
     init_stub();
     OBSIDIAN_BODY_CLASSES = "mod-macos is-focused";
     APPROXIMATE_BASELINE_CSS = `/* Obsidian-ish baseline \u2014 APPROXIMATION.
@@ -50907,15 +50998,15 @@ function obsidianAsarCandidates(platform = process.platform, env = process.env, 
   if (platform === "darwin") {
     return [
       "/Applications/Obsidian.app/Contents/Resources/obsidian.asar",
-      (0, import_node_path7.join)(home, "Applications/Obsidian.app/Contents/Resources/obsidian.asar")
+      (0, import_node_path10.join)(home, "Applications/Obsidian.app/Contents/Resources/obsidian.asar")
     ];
   }
   if (platform === "win32") {
-    const localAppData = env.LOCALAPPDATA ?? (0, import_node_path7.join)(home, "AppData/Local");
+    const localAppData = env.LOCALAPPDATA ?? (0, import_node_path10.join)(home, "AppData/Local");
     const programFiles = env.ProgramFiles ?? "C:\\Program Files";
     return [
-      (0, import_node_path7.join)(localAppData, "Obsidian/resources/obsidian.asar"),
-      (0, import_node_path7.join)(programFiles, "Obsidian/resources/obsidian.asar")
+      (0, import_node_path10.join)(localAppData, "Obsidian/resources/obsidian.asar"),
+      (0, import_node_path10.join)(programFiles, "Obsidian/resources/obsidian.asar")
     ];
   }
   return [
@@ -50923,10 +51014,10 @@ function obsidianAsarCandidates(platform = process.platform, env = process.env, 
     "/usr/lib/obsidian/resources/obsidian.asar",
     "/usr/share/obsidian/resources/obsidian.asar",
     "/var/lib/flatpak/app/md.obsidian.Obsidian/current/active/files/obsidian/resources/obsidian.asar",
-    (0, import_node_path7.join)(home, ".local/share/flatpak/app/md.obsidian.Obsidian/current/active/files/obsidian/resources/obsidian.asar"),
-    (0, import_node_path7.join)(home, "Applications/squashfs-root/resources/obsidian.asar"),
-    (0, import_node_path7.join)(home, ".local/share/obsidian/resources/obsidian.asar"),
-    (0, import_node_path7.join)(home, "squashfs-root/resources/obsidian.asar")
+    (0, import_node_path10.join)(home, ".local/share/flatpak/app/md.obsidian.Obsidian/current/active/files/obsidian/resources/obsidian.asar"),
+    (0, import_node_path10.join)(home, "Applications/squashfs-root/resources/obsidian.asar"),
+    (0, import_node_path10.join)(home, ".local/share/obsidian/resources/obsidian.asar"),
+    (0, import_node_path10.join)(home, "squashfs-root/resources/obsidian.asar")
   ];
 }
 function findObsidianAsar(platform = process.platform, env = process.env, home = (0, import_node_os3.homedir)()) {
@@ -50936,11 +51027,11 @@ function findObsidianAsar(platform = process.platform, env = process.env, home =
   return null;
 }
 function appCssCacheDir(platform = process.platform, env = process.env, home = (0, import_node_os3.homedir)()) {
-  if (platform === "darwin") return (0, import_node_path7.join)(home, "Library/Caches/ibr/obsidian");
+  if (platform === "darwin") return (0, import_node_path10.join)(home, "Library/Caches/ibr/obsidian");
   if (platform === "win32") {
-    return (0, import_node_path7.join)(env.LOCALAPPDATA ?? (0, import_node_path7.join)(home, "AppData/Local"), "ibr/Cache/obsidian");
+    return (0, import_node_path10.join)(env.LOCALAPPDATA ?? (0, import_node_path10.join)(home, "AppData/Local"), "ibr/Cache/obsidian");
   }
-  return (0, import_node_path7.join)(env.XDG_CACHE_HOME ?? (0, import_node_path7.join)(home, ".cache"), "ibr/obsidian");
+  return (0, import_node_path10.join)(env.XDG_CACHE_HOME ?? (0, import_node_path10.join)(home, ".cache"), "ibr/obsidian");
 }
 function appCssCacheKey(asarPath) {
   const st = (0, import_node_fs6.statSync)(asarPath);
@@ -50970,7 +51061,7 @@ function fromAsar(asarPath, options, platform, env) {
   let cachePath;
   if (useCache) {
     try {
-      cachePath = (0, import_node_path7.join)(cacheDir, appCssCacheKey(asarPath));
+      cachePath = (0, import_node_path10.join)(cacheDir, appCssCacheKey(asarPath));
       if ((0, import_node_fs6.existsSync)(cachePath)) {
         const css2 = (0, import_node_fs6.readFileSync)(cachePath, "utf8");
         if (css2.length > 0) {
@@ -50986,20 +51077,20 @@ function fromAsar(asarPath, options, platform, env) {
   const css = buf.toString("utf8");
   if (cachePath) {
     try {
-      (0, import_node_fs6.mkdirSync)((0, import_node_path7.dirname)(cachePath), { recursive: true });
+      (0, import_node_fs6.mkdirSync)((0, import_node_path10.dirname)(cachePath), { recursive: true });
       (0, import_node_fs6.writeFileSync)(cachePath, css, "utf8");
     } catch {
     }
   }
   return { css, source: asarPath, bytes: buf.length, cached: false };
 }
-var import_node_fs6, import_node_os3, import_node_path7, APP_CSS_ENTRY, APP_CSS_ENV_VAR, ASAR_PREAMBLE_BYTES;
+var import_node_fs6, import_node_os3, import_node_path10, APP_CSS_ENTRY, APP_CSS_ENV_VAR, ASAR_PREAMBLE_BYTES;
 var init_app_css = __esm({
   "src/obsidian/app-css.ts"() {
     "use strict";
     import_node_fs6 = require("fs");
     import_node_os3 = require("os");
-    import_node_path7 = require("path");
+    import_node_path10 = require("path");
     APP_CSS_ENTRY = "app.css";
     APP_CSS_ENV_VAR = "IBR_OBSIDIAN_APP_CSS";
     ASAR_PREAMBLE_BYTES = 16;
@@ -51102,7 +51193,7 @@ async function scanObsidian(options) {
     appCss: appCss.css
   };
   const html = generateHarness(harnessInput);
-  const harnessPath = options.harnessOut ?? (0, import_node_path8.join)((0, import_node_fs7.mkdtempSync)((0, import_node_path8.join)((0, import_node_os4.tmpdir)(), "ibr-obsidian-")), "harness.html");
+  const harnessPath = options.harnessOut ?? (0, import_node_path11.join)((0, import_node_fs7.mkdtempSync)((0, import_node_path11.join)((0, import_node_os4.tmpdir)(), "ibr-obsidian-")), "harness.html");
   (0, import_node_fs7.writeFileSync)(harnessPath, html, "utf8");
   const server = await serveHarness(html);
   try {
@@ -51223,12 +51314,12 @@ function formatObsidianScanResult(result) {
   }
   return lines.join("\n");
 }
-var import_node_fs7, import_node_path8, import_node_os4, MOBILE_WIDTH_CEILING, HARNESS_ERROR_PREFIXES, MOUNT_SELECTOR, DEFAULT_MOUNT_TIMEOUT_MS, LAYOUT_OVERFLOW_PROBE, APP_CSS_FIDELITY_PREFIX;
+var import_node_fs7, import_node_path11, import_node_os4, MOBILE_WIDTH_CEILING, HARNESS_ERROR_PREFIXES, MOUNT_SELECTOR, DEFAULT_MOUNT_TIMEOUT_MS, LAYOUT_OVERFLOW_PROBE, APP_CSS_FIDELITY_PREFIX;
 var init_scan3 = __esm({
   "src/obsidian/scan.ts"() {
     "use strict";
     import_node_fs7 = require("fs");
-    import_node_path8 = require("path");
+    import_node_path11 = require("path");
     import_node_os4 = require("os");
     init_scan();
     init_schemas3();
@@ -51312,13 +51403,13 @@ async function touchBrowserServerActivity(outputDir) {
   const { stateFile } = getPaths(outputDir);
   const now = /* @__PURE__ */ new Date();
   try {
-    await (0, import_promises28.utimes)(stateFile, now, now);
+    await (0, import_promises30.utimes)(stateFile, now, now);
   } catch {
   }
 }
 async function browserServerLastActivityAt(outputDir) {
   try {
-    return (await (0, import_promises28.stat)(getPaths(outputDir).stateFile)).mtimeMs;
+    return (await (0, import_promises30.stat)(getPaths(outputDir).stateFile)).mtimeMs;
   } catch {
     return null;
   }
@@ -51327,13 +51418,13 @@ async function findPendingHardWall(outputDir, requestedUrl, strategyKey) {
   const { sessionsDir } = getPaths(outputDir);
   if (!(0, import_fs23.existsSync)(sessionsDir)) return null;
   const attemptKey = sessionAttemptKey(requestedUrl, strategyKey);
-  const entries = await (0, import_promises28.readdir)(sessionsDir, { withFileTypes: true });
+  const entries = await (0, import_promises30.readdir)(sessionsDir, { withFileTypes: true });
   const candidates = entries.filter((e) => e.isDirectory() && e.name.startsWith("live_")).map((e) => (0, import_path33.join)(sessionsDir, e.name, "live-session.json"));
   for (let i = 0; i < candidates.length; i += HARD_WALL_SCAN_CONCURRENCY) {
     const batch = candidates.slice(i, i + HARD_WALL_SCAN_CONCURRENCY);
     const walls = await Promise.all(batch.map(async (statePath) => {
       try {
-        const state = JSON.parse(await (0, import_promises28.readFile)(statePath, "utf-8"));
+        const state = JSON.parse(await (0, import_promises30.readFile)(statePath, "utf-8"));
         return state.hardWall?.attemptKey === attemptKey ? state.hardWall : null;
       } catch {
         return null;
@@ -51351,7 +51442,7 @@ async function inspectBrowserServer(outputDir) {
   }
   let state;
   try {
-    state = JSON.parse(await (0, import_promises28.readFile)(stateFile, "utf-8"));
+    state = JSON.parse(await (0, import_promises30.readFile)(stateFile, "utf-8"));
   } catch {
     await cleanupServerState(outputDir);
     return {
@@ -51436,7 +51527,7 @@ async function isServerRunning(outputDir) {
 async function cleanupServerState(outputDir) {
   const { stateFile } = getPaths(outputDir);
   try {
-    await (0, import_promises28.unlink)(stateFile);
+    await (0, import_promises30.unlink)(stateFile);
   } catch {
   }
 }
@@ -51455,9 +51546,9 @@ async function startBrowserServer(outputDir, options = {}) {
   if (await isServerRunning(outputDir)) {
     throw new Error("Browser server already running. Use session:close all to stop it first.");
   }
-  await (0, import_promises28.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises30.mkdir)(outputDir, { recursive: true });
   if (isolated) {
-    await (0, import_promises28.mkdir)(profileDir, { recursive: true });
+    await (0, import_promises30.mkdir)(profileDir, { recursive: true });
   }
   const extraArgs = [];
   if (options.lowMemory) {
@@ -51516,7 +51607,7 @@ async function startBrowserServer(outputDir, options = {}) {
     isolatedProfile: isolated ? profileDir : "",
     lowMemory: options.lowMemory
   };
-  await (0, import_promises28.writeFile)(stateFile, JSON.stringify(state, null, 2));
+  await (0, import_promises30.writeFile)(stateFile, JSON.stringify(state, null, 2));
   return { driver: driver3, wsEndpoint, ownsBrowser };
 }
 async function connectToBrowserServer(outputDir, targetId) {
@@ -51558,7 +51649,7 @@ async function stopBrowserServer(outputDir) {
     return false;
   }
   try {
-    const content = await (0, import_promises28.readFile)(stateFile, "utf-8");
+    const content = await (0, import_promises30.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
     const wsUrl = state.cdpUrl ? await resolveWsEndpoint2(state.cdpUrl) : state.wsEndpoint;
     const driver3 = new EngineDriver();
@@ -51572,12 +51663,12 @@ async function stopBrowserServer(outputDir) {
     } else {
       await withTimeout(driver3.disconnect(), WS_CONNECT_TIMEOUT_MS, "browser detach");
     }
-    await (0, import_promises28.unlink)(stateFile);
+    await (0, import_promises30.unlink)(stateFile);
     return true;
   } catch (error51) {
     lastStopFailure = error51 instanceof Error ? error51.message : String(error51);
     try {
-      const content = await (0, import_promises28.readFile)(stateFile, "utf-8");
+      const content = await (0, import_promises30.readFile)(stateFile, "utf-8");
       const state = JSON.parse(content);
       if (state.chromePid) {
         process.kill(state.chromePid, "SIGKILL");
@@ -51607,13 +51698,13 @@ async function listActiveSessions(outputDir) {
   }
   return liveSessions;
 }
-var import_promises28, import_fs23, import_path33, UserActionRequiredError, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, HARD_WALL_SCAN_CONCURRENCY, lastConnectFailure, lastStopFailure, PersistentSession;
+var import_promises30, import_fs23, import_path33, UserActionRequiredError, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, HARD_WALL_SCAN_CONCURRENCY, lastConnectFailure, lastStopFailure, PersistentSession;
 var init_browser_server = __esm({
   "src/browser-server.ts"() {
     "use strict";
     init_driver();
     init_compat();
-    import_promises28 = require("fs/promises");
+    import_promises30 = require("fs/promises");
     import_fs23 = require("fs");
     import_path33 = require("path");
     init_nanoid();
@@ -51679,7 +51770,7 @@ var init_browser_server = __esm({
         const sessionId = `live_${nanoid3(10)}`;
         const sessionsDir = (0, import_path33.join)(outputDir, "sessions");
         const sessionDir = (0, import_path33.join)(sessionsDir, sessionId);
-        await (0, import_promises28.mkdir)(sessionDir, { recursive: true });
+        await (0, import_promises30.mkdir)(sessionDir, { recursive: true });
         await driver3.emulationDomain.applyDeviceProfile(viewportToConfig(viewport));
         await driver3.emulationDomain.setReducedMotion(true);
         const page = new CompatPage(driver3);
@@ -51717,7 +51808,7 @@ var init_browser_server = __esm({
             duration: navDuration
           }]
         };
-        await (0, import_promises28.writeFile)(
+        await (0, import_promises30.writeFile)(
           (0, import_path33.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
@@ -51736,7 +51827,7 @@ var init_browser_server = __esm({
         if (!(0, import_fs23.existsSync)(statePath)) {
           return null;
         }
-        const content = await (0, import_promises28.readFile)(statePath, "utf-8");
+        const content = await (0, import_promises30.readFile)(statePath, "utf-8");
         const state = JSON.parse(content);
         if (!state.targetId) {
           throw new Error(
@@ -51761,7 +51852,7 @@ var init_browser_server = __esm({
         } else {
           delete state.hardWall;
         }
-        await (0, import_promises28.writeFile)(statePath, JSON.stringify(state, null, 2));
+        await (0, import_promises30.writeFile)(statePath, JSON.stringify(state, null, 2));
         return new _PersistentSession(driver3, page, state, sessionDir, outputDir);
       }
       get id() {
@@ -51781,7 +51872,7 @@ var init_browser_server = __esm({
         await this.saveState();
       }
       async saveState() {
-        await (0, import_promises28.writeFile)(
+        await (0, import_promises30.writeFile)(
           (0, import_path33.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
@@ -52355,7 +52446,7 @@ var init_browser_server = __esm({
           const ephemeral = this.state.captures.filter((c) => !c.keep);
           if (ephemeral.length > 0) {
             const archiveDir = (0, import_path33.join)(this.sessionDir, "archive");
-            await (0, import_promises28.mkdir)(archiveDir, { recursive: true });
+            await (0, import_promises30.mkdir)(archiveDir, { recursive: true });
             const { rename: rename2 } = await import("fs/promises");
             for (const cap of ephemeral) {
               const src = (0, import_path33.join)(this.sessionDir, cap.screenshot);
@@ -52375,7 +52466,7 @@ var init_browser_server = __esm({
         const liveSessionPath = (0, import_path33.join)(this.sessionDir, "live-session.json");
         try {
           if ((0, import_fs23.existsSync)(liveSessionPath)) {
-            await (0, import_promises28.unlink)(liveSessionPath);
+            await (0, import_promises30.unlink)(liveSessionPath);
           }
         } catch {
         }
@@ -52412,13 +52503,13 @@ __export(live_session_exports, {
   LiveSession: () => LiveSession,
   liveSessionManager: () => liveSessionManager
 });
-var import_promises29, import_fs24, import_path34, LiveSession, LiveSessionManager, liveSessionManager;
+var import_promises31, import_fs24, import_path34, LiveSession, LiveSessionManager, liveSessionManager;
 var init_live_session = __esm({
   "src/live-session.ts"() {
     "use strict";
     init_driver();
     init_compat();
-    import_promises29 = require("fs/promises");
+    import_promises31 = require("fs/promises");
     import_fs24 = require("fs");
     import_path34 = require("path");
     init_nanoid();
@@ -52471,7 +52562,7 @@ var init_live_session = __esm({
         const showBrowser = headed || sandbox || debug;
         const sessionId = `live_${nanoid3(10)}`;
         const sessionDir = (0, import_path34.join)(outputDir, "sessions", sessionId);
-        await (0, import_promises29.mkdir)(sessionDir, { recursive: true });
+        await (0, import_promises31.mkdir)(sessionDir, { recursive: true });
         const driver3 = new EngineDriver();
         await driver3.launch({
           headless: !showBrowser,
@@ -52508,7 +52599,7 @@ var init_live_session = __esm({
           }],
           captures: []
         };
-        await (0, import_promises29.writeFile)(
+        await (0, import_promises31.writeFile)(
           (0, import_path34.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
@@ -52532,7 +52623,7 @@ var init_live_session = __esm({
         if (!(0, import_fs24.existsSync)(statePath)) {
           return null;
         }
-        const content = await (0, import_promises29.readFile)(statePath, "utf-8");
+        const content = await (0, import_promises31.readFile)(statePath, "utf-8");
         const rawState = JSON.parse(content);
         const state = {
           ...rawState,
@@ -53285,13 +53376,13 @@ var init_live_session = __esm({
         const ephemeral = this.state.captures.filter((c) => !c.keep);
         if (ephemeral.length === 0) return;
         const archiveDir = (0, import_path34.join)(this.sessionDir, "archive");
-        await (0, import_promises29.mkdir)(archiveDir, { recursive: true });
+        await (0, import_promises31.mkdir)(archiveDir, { recursive: true });
         for (const cap of ephemeral) {
           const src = (0, import_path34.join)(this.sessionDir, cap.screenshot);
           const dest = (0, import_path34.join)(archiveDir, cap.screenshot);
           try {
             if ((0, import_fs24.existsSync)(src)) {
-              await (0, import_promises29.rename)(src, dest);
+              await (0, import_promises31.rename)(src, dest);
               cap.screenshot = `archive/${cap.screenshot}`;
             }
           } catch {
@@ -53306,7 +53397,7 @@ var init_live_session = __esm({
         await this.saveState();
       }
       async saveState() {
-        await (0, import_promises29.writeFile)(
+        await (0, import_promises31.writeFile)(
           (0, import_path34.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
@@ -53375,11 +53466,11 @@ function formatAge(ms) {
   if (minutes > 0) return `${minutes}m ago`;
   return `${seconds}s ago`;
 }
-var import_promises30, import_fs25, import_path35, DEFAULT_CONFIG, ScreenshotManager;
+var import_promises32, import_fs25, import_path35, DEFAULT_CONFIG, ScreenshotManager;
 var init_screenshot_manager = __esm({
   "src/screenshot-manager.ts"() {
     "use strict";
-    import_promises30 = require("fs/promises");
+    import_promises32 = require("fs/promises");
     import_fs25 = require("fs");
     import_path35 = require("path");
     DEFAULT_CONFIG = {
@@ -53403,10 +53494,10 @@ var init_screenshot_manager = __esm({
         let outputPath;
         if (sessionId) {
           const sessionDir = (0, import_path35.join)(this.outputDir, "sessions", sessionId);
-          await (0, import_promises30.mkdir)(sessionDir, { recursive: true });
+          await (0, import_promises32.mkdir)(sessionDir, { recursive: true });
           outputPath = (0, import_path35.join)(sessionDir, `${name}.png`);
         } else {
-          await (0, import_promises30.mkdir)(this.outputDir, { recursive: true });
+          await (0, import_promises32.mkdir)(this.outputDir, { recursive: true });
           outputPath = (0, import_path35.join)(this.outputDir, `${name}.png`);
         }
         await page.addStyleTag({
@@ -53456,10 +53547,10 @@ var init_screenshot_manager = __esm({
           return [];
         }
         const screenshots = [];
-        const sessions2 = await (0, import_promises30.readdir)(sessionsDir);
+        const sessions2 = await (0, import_promises32.readdir)(sessionsDir);
         for (const sessionId of sessions2) {
           const sessionDir = (0, import_path35.join)(sessionsDir, sessionId);
-          const stats = await (0, import_promises30.stat)(sessionDir);
+          const stats = await (0, import_promises32.stat)(sessionDir);
           if (stats.isDirectory()) {
             await this.scanDirectory(sessionDir, sessionId, screenshots);
           }
@@ -53471,13 +53562,13 @@ var init_screenshot_manager = __esm({
        * Scan a directory for PNG files
        */
       async scanDirectory(dir, sessionId, results) {
-        const entries = await (0, import_promises30.readdir)(dir, { withFileTypes: true });
+        const entries = await (0, import_promises32.readdir)(dir, { withFileTypes: true });
         for (const entry of entries) {
           const fullPath = (0, import_path35.join)(dir, entry.name);
           if (entry.isDirectory()) {
             await this.scanDirectory(fullPath, sessionId, results);
           } else if (entry.name.endsWith(".png")) {
-            const stats = await (0, import_promises30.stat)(fullPath);
+            const stats = await (0, import_promises32.stat)(fullPath);
             const now = Date.now();
             const stepMatch = entry.name.match(/^\d+-(.+)\.png$/);
             const step = stepMatch ? stepMatch[1] : void 0;
@@ -53500,7 +53591,7 @@ var init_screenshot_manager = __esm({
         if (!(0, import_fs25.existsSync)(path3)) {
           return null;
         }
-        const stats = await (0, import_promises30.stat)(path3);
+        const stats = await (0, import_promises32.stat)(path3);
         const name = (0, import_path35.basename)(path3);
         const dir = (0, import_path35.dirname)(path3);
         const stepMatch = name.match(/^\d+-(.+)\.png$/);
@@ -53512,7 +53603,7 @@ var init_screenshot_manager = __esm({
         const resultsPath = (0, import_path35.join)(dir, "results.json");
         if ((0, import_fs25.existsSync)(resultsPath)) {
           try {
-            const resultsContent = await (0, import_promises30.readFile)(resultsPath, "utf-8");
+            const resultsContent = await (0, import_promises32.readFile)(resultsPath, "utf-8");
             const results = JSON.parse(resultsContent);
             query = results.query;
             userIntent = results.userIntent;
@@ -53571,7 +53662,7 @@ var init_screenshot_manager = __esm({
         for (const shot of toDelete) {
           try {
             if (!dryRun) {
-              await (0, import_promises30.unlink)(shot.path);
+              await (0, import_promises32.unlink)(shot.path);
             }
             report.deleted++;
             report.bytesFreed += shot.size;
@@ -53610,7 +53701,7 @@ var init_screenshot_manager = __esm({
        */
       async saveConfig() {
         const configPath = (0, import_path35.join)(this.outputDir, "screenshot-config.json");
-        await (0, import_promises30.writeFile)(configPath, JSON.stringify(this.config, null, 2));
+        await (0, import_promises32.writeFile)(configPath, JSON.stringify(this.config, null, 2));
       }
       /**
        * Load configuration from file
@@ -53619,7 +53710,7 @@ var init_screenshot_manager = __esm({
         const configPath = (0, import_path35.join)(this.outputDir, "screenshot-config.json");
         if ((0, import_fs25.existsSync)(configPath)) {
           try {
-            const content = await (0, import_promises30.readFile)(configPath, "utf-8");
+            const content = await (0, import_promises32.readFile)(configPath, "utf-8");
             const loaded = JSON.parse(content);
             this.config = { ...DEFAULT_CONFIG, ...loaded };
           } catch {
@@ -53658,13 +53749,13 @@ function findSwiftFiles(dir, rootDir) {
     for (const entry of entries) {
       if (SKIP_DIRS.has(entry)) continue;
       const fullPath = (0, import_path36.join)(currentDir, entry);
-      let stat6;
+      let stat7;
       try {
-        stat6 = (0, import_fs26.statSync)(fullPath);
+        stat7 = (0, import_fs26.statSync)(fullPath);
       } catch {
         continue;
       }
-      if (stat6.isDirectory()) {
+      if (stat7.isDirectory()) {
         walk(fullPath);
       } else if (entry.endsWith(".swift")) {
         results.push((0, import_path36.relative)(rootDir, fullPath));
@@ -54125,9 +54216,9 @@ async function executeStep(driver3, step, url2, outputDir) {
     }
     if (expectation.screenshot !== void 0) {
       try {
-        await (0, import_promises31.mkdir)(outputDir, { recursive: true });
+        await (0, import_promises33.mkdir)(outputDir, { recursive: true });
         const screenshotPath = (0, import_path37.join)(outputDir, `${expectation.screenshot}.png`);
-        await (0, import_promises31.writeFile)(screenshotPath, captureResult.after.screenshot);
+        await (0, import_promises33.writeFile)(screenshotPath, captureResult.after.screenshot);
         assertions.push({
           check: `screenshot: "${expectation.screenshot}"`,
           passed: true,
@@ -54273,11 +54364,11 @@ function formatInteractionResult(result) {
   }
   return lines.join("\n");
 }
-var import_promises31, import_path37;
+var import_promises33, import_path37;
 var init_interaction_test = __esm({
   "src/interaction-test.ts"() {
     "use strict";
-    import_promises31 = require("fs/promises");
+    import_promises33 = require("fs/promises");
     import_path37 = require("path");
     init_driver();
   }
@@ -54393,12 +54484,12 @@ __export(mockup_match_exports, {
   saveDiffImage: () => saveDiffImage
 });
 async function readPng(filePath) {
-  const buffer = await (0, import_promises32.readFile)(filePath);
-  const png = import_pngjs5.PNG.sync.read(buffer);
+  const buffer = await (0, import_promises34.readFile)(filePath);
+  const png = import_pngjs6.PNG.sync.read(buffer);
   return { data: png.data, width: png.width, height: png.height };
 }
 function decodePng(buffer) {
-  const png = import_pngjs5.PNG.sync.read(buffer);
+  const png = import_pngjs6.PNG.sync.read(buffer);
   return { data: png.data, width: png.width, height: png.height };
 }
 function resizeNearest(src, srcW, srcH, dstW, dstH) {
@@ -54517,7 +54608,7 @@ async function matchMockup(options) {
       { data: compareData1, width: compareWidth, height: compareHeight },
       { data: compareData2, width: compareWidth, height: compareHeight }
     );
-    const diffPng = new import_pngjs5.PNG({ width: compareWidth, height: compareHeight });
+    const diffPng = new import_pngjs6.PNG({ width: compareWidth, height: compareHeight });
     const diffPixelCount = pixelmatch(
       compareData1,
       compareData2,
@@ -54532,7 +54623,7 @@ async function matchMockup(options) {
       }
     );
     const totalPixels = compareWidth * compareHeight;
-    const diffImage = import_pngjs5.PNG.sync.write(diffPng);
+    const diffImage = import_pngjs6.PNG.sync.write(diffPng);
     return {
       ssim: ssimResult,
       pixelDiff: {
@@ -54601,14 +54692,14 @@ async function findDynamicRegions(driver3) {
   return regions;
 }
 async function saveDiffImage(diffImage, outputPath) {
-  await (0, import_promises32.writeFile)(outputPath, diffImage);
+  await (0, import_promises34.writeFile)(outputPath, diffImage);
 }
-var import_promises32, import_pngjs5;
+var import_promises34, import_pngjs6;
 var init_mockup_match = __esm({
   "src/mockup-match.ts"() {
     "use strict";
-    import_promises32 = require("fs/promises");
-    import_pngjs5 = __toESM(require_png());
+    import_promises34 = require("fs/promises");
+    import_pngjs6 = __toESM(require_png());
     init_pixelmatch();
     init_driver();
     init_ssim();
@@ -54870,7 +54961,7 @@ async function loadChanges(outputDir) {
   const filePath = (0, import_path38.join)(outputDir, CHANGES_FILE);
   if (!(0, import_fs27.existsSync)(filePath)) return [];
   try {
-    const raw = await (0, import_promises33.readFile)(filePath, "utf-8");
+    const raw = await (0, import_promises35.readFile)(filePath, "utf-8");
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     return parsed;
@@ -54879,17 +54970,17 @@ async function loadChanges(outputDir) {
   }
 }
 async function saveChange(outputDir, change) {
-  await (0, import_promises33.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises35.mkdir)(outputDir, { recursive: true });
   const existing = await loadChanges(outputDir);
   existing.push(change);
   const filePath = (0, import_path38.join)(outputDir, CHANGES_FILE);
-  await (0, import_promises33.writeFile)(filePath, JSON.stringify(existing, null, 2), "utf-8");
+  await (0, import_promises35.writeFile)(filePath, JSON.stringify(existing, null, 2), "utf-8");
 }
-var import_promises33, import_fs27, import_path38, CHANGES_FILE;
+var import_promises35, import_fs27, import_path38, CHANGES_FILE;
 var init_design_verifier = __esm({
   "src/design-verifier.ts"() {
     "use strict";
-    import_promises33 = require("fs/promises");
+    import_promises35 = require("fs/promises");
     import_fs27 = require("fs");
     import_path38 = require("path");
     CHANGES_FILE = "design-changes.json";
@@ -55119,9 +55210,9 @@ async function generateTest(options) {
   };
   const dir = (0, import_path39.dirname)(outputPath);
   if (dir && dir !== ".") {
-    await (0, import_promises34.mkdir)(dir, { recursive: true });
+    await (0, import_promises36.mkdir)(dir, { recursive: true });
   }
-  await (0, import_promises34.writeFile)(outputPath, JSON.stringify(suite, null, 2), "utf-8");
+  await (0, import_promises36.writeFile)(outputPath, JSON.stringify(suite, null, 2), "utf-8");
   console.log(`[test-generator] wrote ${outputPath}`);
   return suite;
 }
@@ -55176,11 +55267,11 @@ function buildScenarioTest(scenario, elements) {
     steps
   };
 }
-var import_promises34, import_path39, INPUT_SAMPLE_VALUES;
+var import_promises36, import_path39, INPUT_SAMPLE_VALUES;
 var init_test_generator = __esm({
   "src/test-generator.ts"() {
     "use strict";
-    import_promises34 = require("fs/promises");
+    import_promises36 = require("fs/promises");
     import_path39 = require("path");
     init_driver();
     INPUT_SAMPLE_VALUES = {
@@ -55216,9 +55307,9 @@ async function runTests(options = {}) {
     wsEndpoint,
     chromePath
   } = options;
-  const raw = await (0, import_promises35.readFile)((0, import_path40.resolve)(filePath), "utf-8");
+  const raw = await (0, import_promises37.readFile)((0, import_path40.resolve)(filePath), "utf-8");
   const suite = JSON.parse(raw);
-  await (0, import_promises35.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises37.mkdir)(outputDir, { recursive: true });
   const allResults = [];
   const runStart = Date.now();
   for (const [pageName, pageSuite] of Object.entries(suite)) {
@@ -55266,7 +55357,7 @@ async function runTests(options = {}) {
       };
       allResults.push(runResult);
       const resultPath = (0, import_path40.join)(outputDir, `${pageName}-results.json`);
-      await (0, import_promises35.writeFile)(resultPath, JSON.stringify(runResult, null, 2), "utf-8");
+      await (0, import_promises37.writeFile)(resultPath, JSON.stringify(runResult, null, 2), "utf-8");
       console.log(`[test-runner]   results: ${resultPath}`);
     } finally {
       await driver3.close();
@@ -55294,10 +55385,10 @@ async function executeStep2(driver3, step, outputDir) {
     } else if ("assert" in step) {
       await runAssert(driver3, step.assert);
     } else if ("screenshot" in step) {
-      await (0, import_promises35.mkdir)(outputDir, { recursive: true });
+      await (0, import_promises37.mkdir)(outputDir, { recursive: true });
       const screenshotPath = (0, import_path40.join)(outputDir, `${step.screenshot}.png`);
       const buf = await driver3.screenshot();
-      await (0, import_promises35.writeFile)(screenshotPath, buf);
+      await (0, import_promises37.writeFile)(screenshotPath, buf);
       return {
         step: stepDesc,
         passed: true,
@@ -55394,11 +55485,11 @@ function formatRunResult(result) {
   }
   return lines.join("\n");
 }
-var import_promises35, import_path40;
+var import_promises37, import_path40;
 var init_test_runner = __esm({
   "src/test-runner.ts"() {
     "use strict";
-    import_promises35 = require("fs/promises");
+    import_promises37 = require("fs/promises");
     import_path40 = require("path");
     init_driver();
   }
@@ -55447,12 +55538,12 @@ async function runScript(options) {
   } = options;
   const tmpId = (0, import_crypto7.randomBytes)(8).toString("hex");
   const tmpDir = (0, import_path41.join)((0, import_os6.tmpdir)(), `ibr-script-${tmpId}`);
-  await (0, import_promises36.mkdir)(tmpDir, { recursive: true });
+  await (0, import_promises38.mkdir)(tmpDir, { recursive: true });
   const copiedScript = (0, import_path41.join)(tmpDir, "user_script.py");
   const wrapperPath = (0, import_path41.join)(tmpDir, "wrapper.py");
   try {
-    await (0, import_promises36.copyFile)(scriptPath, copiedScript);
-    await (0, import_promises36.writeFile)(wrapperPath, buildWrapper(copiedScript, cpuSeconds, memoryMB), "utf-8");
+    await (0, import_promises38.copyFile)(scriptPath, copiedScript);
+    await (0, import_promises38.writeFile)(wrapperPath, buildWrapper(copiedScript, cpuSeconds, memoryMB), "utf-8");
     const start = Date.now();
     let timedOut = false;
     let stdout = "";
@@ -55511,7 +55602,7 @@ Process error: ${err.message}`;
     }
     return { exitCode, stdout, stderr, output, duration: duration3, timedOut };
   } finally {
-    await (0, import_promises36.rm)(tmpDir, { recursive: true, force: true }).catch(() => {
+    await (0, import_promises38.rm)(tmpDir, { recursive: true, force: true }).catch(() => {
     });
   }
 }
@@ -55529,12 +55620,12 @@ function formatScriptResult(result) {
   }
   return lines.join("\n");
 }
-var import_child_process18, import_promises36, import_path41, import_os6, import_crypto7;
+var import_child_process18, import_promises38, import_path41, import_os6, import_crypto7;
 var init_script_runner = __esm({
   "src/script-runner.ts"() {
     "use strict";
     import_child_process18 = require("child_process");
-    import_promises36 = require("fs/promises");
+    import_promises38 = require("fs/promises");
     import_path41 = require("path");
     import_os6 = require("os");
     import_crypto7 = require("crypto");
@@ -55551,15 +55642,15 @@ __export(iterate_exports, {
 });
 async function loadState(statePath) {
   try {
-    const raw = await (0, import_promises37.readFile)(statePath, "utf-8");
+    const raw = await (0, import_promises39.readFile)(statePath, "utf-8");
     return JSON.parse(raw);
   } catch {
     return null;
   }
 }
 async function saveState(statePath, state) {
-  await (0, import_promises37.mkdir)((0, import_path42.resolve)(statePath, ".."), { recursive: true });
-  await (0, import_promises37.writeFile)(statePath, JSON.stringify(state, null, 2), "utf-8");
+  await (0, import_promises39.mkdir)((0, import_path42.resolve)(statePath, ".."), { recursive: true });
+  await (0, import_promises39.writeFile)(statePath, JSON.stringify(state, null, 2), "utf-8");
 }
 function hashIssues(issues) {
   const sorted = [...issues].sort();
@@ -55726,7 +55817,7 @@ async function iterate(options) {
     autoApprove = false
   } = options;
   const statePath = (0, import_path42.join)(outputDir, "iterate-state.json");
-  await (0, import_promises37.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises39.mkdir)(outputDir, { recursive: true });
   let persisted = await loadState(statePath);
   if (!persisted || persisted.url !== url2) {
     persisted = {
@@ -55782,9 +55873,9 @@ async function iterate(options) {
   if (analysisStates.includes(targetState) && !testFile) {
     analysis = analyzeIssues(allIterations);
     const analysisDir = (0, import_path42.join)(outputDir);
-    await (0, import_promises37.mkdir)(analysisDir, { recursive: true }).catch(() => {
+    await (0, import_promises39.mkdir)(analysisDir, { recursive: true }).catch(() => {
     });
-    await (0, import_promises37.writeFile)(
+    await (0, import_promises39.writeFile)(
       (0, import_path42.join)(analysisDir, "analysis.json"),
       JSON.stringify(analysis, null, 2)
     ).catch(() => {
@@ -55828,15 +55919,15 @@ function buildResult(iterations, finalState, verificationPassed, analysis) {
 }
 async function resetIterateState(outputDir = ".ibr/iterate") {
   const statePath = (0, import_path42.join)(outputDir, "iterate-state.json");
-  await (0, import_promises37.writeFile)(statePath, JSON.stringify({ iterations: [] }, null, 2), "utf-8").catch(() => {
+  await (0, import_promises39.writeFile)(statePath, JSON.stringify({ iterations: [] }, null, 2), "utf-8").catch(() => {
   });
 }
-var import_crypto8, import_promises37, import_path42, CHECKPOINT_ITERATIONS, APPROACH_MAP;
+var import_crypto8, import_promises39, import_path42, CHECKPOINT_ITERATIONS, APPROACH_MAP;
 var init_iterate = __esm({
   "src/iterate.ts"() {
     "use strict";
     import_crypto8 = require("crypto");
-    import_promises37 = require("fs/promises");
+    import_promises39 = require("fs/promises");
     import_path42 = require("path");
     init_test_runner();
     init_scan();
@@ -58624,8 +58715,8 @@ async function handleAsk(args) {
   const screenshotPath = response.meta?.screenshotPath;
   if (wantScreenshot && screenshotPath) {
     try {
-      const { readFile: readFile24 } = await import("fs/promises");
-      const buf = await readFile24(screenshotPath);
+      const { readFile: readFile25 } = await import("fs/promises");
+      const buf = await readFile25(screenshotPath);
       content.unshift({
         type: "image",
         data: buf.toString("base64"),
@@ -60606,6 +60697,91 @@ var init_tools = __esm({
   }
 });
 
+// src/bin/cli-output.ts
+function writeCliOutput(text, exitCode) {
+  process.stdout.write(`${text}
+`);
+  process.exitCode = exitCode;
+}
+
+// src/native-output.ts
+var import_promises = require("fs/promises");
+var import_node_path = require("path");
+var import_node_crypto = require("crypto");
+async function saveNativeReport(payload, directory) {
+  const path3 = (0, import_node_path.resolve)(directory, `native-${(0, import_node_crypto.randomUUID)()}.json`);
+  await (0, import_promises.mkdir)((0, import_node_path.resolve)(directory), { recursive: true });
+  await (0, import_promises.writeFile)(path3, JSON.stringify(payload), { encoding: "utf8", mode: 384, flag: "wx" });
+  return path3;
+}
+function compactNativeScanReport(result, fullReport) {
+  if (!fullReport) throw new Error("Compact output requires saved full evidence");
+  return {
+    schema: "ibr.native.scan.compact/v1",
+    fullReport,
+    url: result.url,
+    timestamp: result.timestamp,
+    viewport: result.viewport,
+    verdict: result.verdict,
+    summary: result.summary,
+    issues: result.issues,
+    console: result.console,
+    semantic: result.semantic ? { verdict: result.semantic.verdict, issues: result.semantic.issues, state: result.semantic.state, pageIntent: result.semantic.pageIntent } : void 0,
+    visualCoverage: result.visualCoverage,
+    designSystem: result.designSystem,
+    layoutFill: result.layoutFill,
+    measured: { elements: result.elements.all.length }
+  };
+}
+var CONTROL_ROLES = /* @__PURE__ */ new Set([
+  "AXButton",
+  "AXLink",
+  "AXTextField",
+  "AXTextArea",
+  "AXSecureTextField",
+  "AXCheckBox",
+  "AXRadioButton",
+  "AXSlider",
+  "AXSwitch",
+  "AXPopUpButton",
+  "AXComboBox",
+  "AXTab",
+  "AXMenuItem",
+  "AXDisclosureTriangle",
+  "AXHeading"
+]);
+function compactNativeRead(payload, fullReport, limit) {
+  if (!fullReport) throw new Error("Compact output requires saved full evidence");
+  const source = Array.isArray(payload.elements) ? payload.elements : [];
+  const selected = source.filter((e) => e.selected !== void 0 && e.selected !== null || CONTROL_ROLES.has(e.role ?? "") || e.actions?.some((a) => a !== "AXScrollToVisible" && a !== "AXShowMenu"));
+  const controls = selected.slice(0, limit).map((e) => ({
+    role: e.role,
+    name: e.label,
+    identifier: e.identifier ?? void 0,
+    value: typeof e.value === "string" && e.value.length > 256 ? e.value.slice(0, 256) : e.value,
+    valueTruncated: typeof e.value === "string" && e.value.length > 256 ? true : void 0,
+    valueLength: typeof e.value === "string" && e.value.length > 256 ? e.value.length : void 0,
+    selected: e.selected,
+    enabled: e.enabled,
+    bounds: e.frame ? [e.frame.x, e.frame.y, e.frame.width, e.frame.height] : void 0
+  }));
+  return {
+    schema: "ibr.native.read.compact/v1",
+    fullReport,
+    type: payload.type,
+    backend: payload.backend,
+    window: payload.window,
+    observedAt: payload.observedAt,
+    totalElements: payload.totalElements,
+    controlsAvailable: selected.length,
+    returned: controls.length,
+    omittedStructural: source.length - selected.length,
+    truncated: controls.length < selected.length,
+    controls,
+    hostCursorAffected: payload.hostCursorAffected
+  };
+}
+
 // src/bin/node-version-guard.ts
 var import_fs = require("fs");
 var import_os = require("os");
@@ -60639,8 +60815,8 @@ if (message) {
 }
 
 // src/scan-output.ts
-var import_promises = require("fs/promises");
-var import_node_path = require("path");
+var import_promises2 = require("fs/promises");
+var import_node_path2 = require("path");
 var OUTPUT_MODES = ["full", "summary", "raw", "compact"];
 function resolveScanOutput(mode = "full", format, globalOutput) {
   const globalIsMode = format === void 0 && OUTPUT_MODES.includes(globalOutput ?? "");
@@ -60695,9 +60871,9 @@ function compactScanReport(result, fullReport) {
   };
 }
 async function saveFullScanReport(result, path3) {
-  const absolute = (0, import_node_path.resolve)(path3);
-  await (0, import_promises.mkdir)((0, import_node_path.dirname)(absolute), { recursive: true });
-  await (0, import_promises.writeFile)(absolute, JSON.stringify(result), { encoding: "utf8", mode: 384, flag: "wx" });
+  const absolute = (0, import_node_path2.resolve)(path3);
+  await (0, import_promises2.mkdir)((0, import_node_path2.dirname)(absolute), { recursive: true });
+  await (0, import_promises2.writeFile)(absolute, JSON.stringify(result), { encoding: "utf8", mode: 384, flag: "wx" });
   return absolute;
 }
 function applyOutputMode(result, mode) {
@@ -60735,9 +60911,9 @@ function applyOutputMode(result, mode) {
 }
 
 // src/bin/ibr.ts
-var import_node_crypto2 = require("crypto");
+var import_node_crypto5 = require("crypto");
 
-// ../../git-folder/interface-built-right/node_modules/commander/lib/error.js
+// node_modules/commander/lib/error.js
 var CommanderError = class extends Error {
   /**
    * Constructs the CommanderError class
@@ -60766,7 +60942,7 @@ var InvalidArgumentError = class extends CommanderError {
   }
 };
 
-// ../../git-folder/interface-built-right/node_modules/commander/lib/argument.js
+// node_modules/commander/lib/argument.js
 var Argument = class {
   /**
    * Initialize a new command argument with the given name and description.
@@ -60887,15 +61063,15 @@ function humanReadableArgName(arg) {
   return arg.required ? "<" + nameOutput + ">" : "[" + nameOutput + "]";
 }
 
-// ../../git-folder/interface-built-right/node_modules/commander/lib/command.js
+// node_modules/commander/lib/command.js
 var import_node_events = require("events");
 var import_node_child_process = __toESM(require("child_process"), 1);
-var import_node_path2 = __toESM(require("path"), 1);
+var import_node_path3 = __toESM(require("path"), 1);
 var import_node_fs = __toESM(require("fs"), 1);
 var import_node_process = __toESM(require("process"), 1);
 var import_node_util2 = require("util");
 
-// ../../git-folder/interface-built-right/node_modules/commander/lib/help.js
+// node_modules/commander/lib/help.js
 var import_node_util = require("util");
 var Help = class {
   constructor() {
@@ -61487,7 +61663,7 @@ ${itemIndentStr}`);
   }
 };
 
-// ../../git-folder/interface-built-right/node_modules/commander/lib/option.js
+// node_modules/commander/lib/option.js
 var Option = class {
   /**
    * Initialize a new `Option` with the given `flags` and `description`.
@@ -61793,7 +61969,7 @@ function splitOptionFlags(flags) {
   return { shortFlag, longFlag };
 }
 
-// ../../git-folder/interface-built-right/node_modules/commander/lib/suggestSimilar.js
+// node_modules/commander/lib/suggestSimilar.js
 var maxDistance = 3;
 function editDistance(a, b) {
   if (Math.abs(a.length - b.length) > maxDistance)
@@ -61868,7 +62044,7 @@ function suggestSimilar(word, candidates) {
   return "";
 }
 
-// ../../git-folder/interface-built-right/node_modules/commander/lib/command.js
+// node_modules/commander/lib/command.js
 var Command = class _Command extends import_node_events.EventEmitter {
   /**
    * Initialize a new `Command`.
@@ -62876,9 +63052,9 @@ Expecting one of '${allowedValues.join("', '")}'`);
     args = args.slice();
     const sourceExt = [".js", ".ts", ".tsx", ".mjs", ".cjs"];
     function findFile(baseDir, baseName) {
-      const localBin = import_node_path2.default.resolve(baseDir, baseName);
+      const localBin = import_node_path3.default.resolve(baseDir, baseName);
       if (import_node_fs.default.existsSync(localBin)) return localBin;
-      if (sourceExt.includes(import_node_path2.default.extname(baseName))) return void 0;
+      if (sourceExt.includes(import_node_path3.default.extname(baseName))) return void 0;
       const foundExt = sourceExt.find(
         (ext) => import_node_fs.default.existsSync(`${localBin}${ext}`)
       );
@@ -62896,17 +63072,17 @@ Expecting one of '${allowedValues.join("', '")}'`);
       } catch {
         resolvedScriptPath = this._scriptPath;
       }
-      executableDir = import_node_path2.default.resolve(
-        import_node_path2.default.dirname(resolvedScriptPath),
+      executableDir = import_node_path3.default.resolve(
+        import_node_path3.default.dirname(resolvedScriptPath),
         executableDir
       );
     }
     if (executableDir) {
       let localFile = findFile(executableDir, executableFile);
       if (!localFile && !subcommand._executableFile && this._scriptPath) {
-        const legacyName = import_node_path2.default.basename(
+        const legacyName = import_node_path3.default.basename(
           this._scriptPath,
-          import_node_path2.default.extname(this._scriptPath)
+          import_node_path3.default.extname(this._scriptPath)
         );
         if (legacyName !== this._name) {
           localFile = findFile(
@@ -62917,7 +63093,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
       }
       executableFile = localFile || executableFile;
     }
-    const launchWithNode = sourceExt.includes(import_node_path2.default.extname(executableFile));
+    const launchWithNode = sourceExt.includes(import_node_path3.default.extname(executableFile));
     let proc;
     if (import_node_process.default.platform !== "win32") {
       if (launchWithNode) {
@@ -63834,7 +64010,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
    * @return {Command}
    */
   nameFromFilename(filename) {
-    this._name = import_node_path2.default.basename(filename, import_node_path2.default.extname(filename));
+    this._name = import_node_path3.default.basename(filename, import_node_path3.default.extname(filename));
     return this;
   }
   /**
@@ -64102,11 +64278,11 @@ function useColor() {
   return void 0;
 }
 
-// ../../git-folder/interface-built-right/node_modules/commander/index.js
+// node_modules/commander/index.js
 var program = new Command();
 
 // src/bin/ibr.ts
-var import_promises38 = require("fs/promises");
+var import_promises40 = require("fs/promises");
 var import_path44 = require("path");
 var import_fs30 = require("fs");
 
@@ -64140,17 +64316,29 @@ init_index();
 init_operation_tracker();
 init_devices();
 
+// src/native/stream-capture.ts
+var import_promises26 = require("fs/promises");
+var import_node_path6 = require("path");
+var import_node_crypto4 = require("crypto");
+var import_pngjs5 = __toESM(require_png());
+var import_node_perf_hooks = require("perf_hooks");
+
 // src/native/compact-refs.ts
 var import_fs17 = require("fs");
 var import_path28 = require("path");
+var import_node_crypto3 = require("crypto");
 function keyOf(e) {
-  return `${e.role}|${e.label ?? ""}|${e.identifier ?? ""}|${e.frame?.join(",") ?? ""}`;
+  return JSON.stringify([e.windowId, e.role, e.identifier ? ["id", e.identifier] : ["label", e.label]]);
+}
+var highWater = /* @__PURE__ */ Symbol("highWater");
+function maxRef(refs) {
+  let high = refs[highWater] ?? 0;
+  for (const entry of refs) high = Math.max(high, Number(entry.ref.slice(1)) || 0);
+  return high;
 }
 function assignRefs(elements, prior) {
+  const entries = [];
   const seen = /* @__PURE__ */ new Set();
-  const out = [];
-  const priorByKey = new Map((prior ?? []).map((e) => [keyOf(e), e.ref]));
-  let next = 1 + (prior ?? []).reduce((m, e) => Math.max(m, Number(e.ref.slice(1)) || 0), 0);
   for (const el of elements) {
     const f = el.frame;
     const entry = {
@@ -64158,65 +64346,239 @@ function assignRefs(elements, prior) {
       role: el.role ?? "unknown",
       label: el.label ?? null,
       identifier: el.identifier ?? null,
+      value: el.value,
+      enabled: el.enabled,
+      selected: el.selected,
+      path: el.path,
+      windowId: el.windowId,
       frame: f ? [Math.round(f.x), Math.round(f.y), Math.round(f.width), Math.round(f.height)] : null
     };
-    const k = keyOf(entry);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    entry.ref = prior ? priorByKey.get(k) ?? `e${next++}` : `e${out.length + 1}`;
-    out.push(entry);
+    const duplicate = JSON.stringify(entry);
+    if (!seen.has(duplicate)) {
+      seen.add(duplicate);
+      entries.push(entry);
+    }
   }
-  return out;
+  const counts = (rows) => {
+    const map2 = /* @__PURE__ */ new Map();
+    for (const row of rows) {
+      const k = keyOf(row);
+      map2.set(k, [...map2.get(k) ?? [], row]);
+    }
+    return map2;
+  };
+  const old = counts(prior ?? []), current = counts(entries);
+  let next = maxRef(prior ?? []) + 1;
+  for (const entry of entries) {
+    const k = keyOf(entry), matches = old.get(k);
+    entry.ref = matches?.length === 1 && current.get(k)?.length === 1 ? matches[0].ref : `e${next++}`;
+  }
+  entries[highWater] = next - 1;
+  return entries;
 }
 function formatRefLine(e) {
   const role = e.role.replace(/^AX/, "");
   const parts = [e.ref, role];
   if (e.label) parts.push(JSON.stringify(e.label.length > 60 ? `${e.label.slice(0, 57)}...` : e.label));
   if (e.identifier) parts.push(`#${e.identifier}`);
+  if (e.value !== void 0 && e.value !== null) {
+    const value = typeof e.value === "string" && e.value.length > 256 ? e.value.slice(0, 256) : e.value;
+    parts.push(`value=${JSON.stringify(value)}`);
+    if (value !== e.value) parts.push(`[value-truncated length=${String(e.value).length}]`);
+  }
+  if (e.selected !== void 0 && e.selected !== null) parts.push(`selected=${e.selected}`);
+  if (e.enabled === false) parts.push("disabled");
   if (e.frame) parts.push(`@${e.frame[0]},${e.frame[1]} ${e.frame[2]}x${e.frame[3]}`);
   return parts.join(" ");
 }
 function diffRefs(before, after) {
-  const b = new Set(before.map(keyOf));
-  const a = new Set(after.map(keyOf));
+  const b = new Map(before.map((e) => [keyOf(e), e]));
+  const a = new Map(after.map((e) => [keyOf(e), e]));
+  const state = (e) => JSON.stringify([e.label, e.value, e.enabled, e.selected, e.frame, e.path]);
+  const matched = (e, rows) => rows.filter((r) => keyOf(r) === keyOf(e)).length === 1;
+  const same = (e) => b.has(keyOf(e)) && matched(e, before) && matched(e, after);
   return {
-    added: after.filter((e) => !b.has(keyOf(e))),
-    removed: before.filter((e) => !a.has(keyOf(e))),
-    unchanged: after.filter((e) => b.has(keyOf(e))).length
+    added: after.filter((e) => !same(e)),
+    removed: before.filter((e) => !a.has(keyOf(e)) || !matched(e, before) || !matched(e, after)),
+    updated: after.filter((e) => same(e) && state(e) !== state(b.get(keyOf(e)))),
+    unchanged: after.filter((e) => same(e) && state(e) === state(b.get(keyOf(e)))).length
   };
 }
 function formatDiff(d) {
-  if (d.added.length === 0 && d.removed.length === 0) return `no AX change (${d.unchanged} unchanged)`;
+  if (!d.added.length && !d.removed.length && !d.updated.length) return `no AX change (${d.unchanged} unchanged)`;
   return [
     ...d.added.map((e) => `+ ${formatRefLine(e)}`),
     ...d.removed.map((e) => `- ${formatRefLine(e)}`),
+    ...d.updated.map((e) => `~ ${formatRefLine(e)}`),
     `(${d.unchanged} unchanged)`
   ].join("\n");
 }
 function refsPath(dir, sessionId) {
   return (0, import_path28.join)(dir, `${sessionId}.refs.json`);
 }
-function saveRefs(dir, sessionId, refs) {
+function saveRefs(dir, sessionId, refs, scope) {
   (0, import_fs17.mkdirSync)(dir, { recursive: true });
   const p = refsPath(dir, sessionId);
-  (0, import_fs17.writeFileSync)(p, JSON.stringify(refs));
+  const tmp = `${p}.${(0, import_node_crypto3.randomUUID)()}.tmp`;
+  (0, import_fs17.writeFileSync)(tmp, JSON.stringify({ version: 2, scope, highWater: maxRef(refs), refs }), { mode: 384 });
+  (0, import_fs17.renameSync)(tmp, p);
   return p;
 }
-function loadRefs(dir, sessionId) {
+function loadRefs(dir, sessionId, scope) {
   const p = refsPath(dir, sessionId);
   if (!(0, import_fs17.existsSync)(p)) return null;
   try {
-    return JSON.parse((0, import_fs17.readFileSync)(p, "utf8"));
+    const data = JSON.parse((0, import_fs17.readFileSync)(p, "utf8"));
+    const refs = Array.isArray(data) ? data : data.refs;
+    if (!Array.isArray(refs) || refs.some((e) => !e || !/^e[0-9]+$/.test(e.ref) || typeof e.role !== "string")) return null;
+    const out = scope !== void 0 && data.scope !== scope ? [] : refs;
+    out[highWater] = Math.max(Number(data.highWater) || 0, maxRef(refs));
+    return out;
   } catch {
     return null;
   }
 }
 function writeFullPayload(dir, sessionId, what, payload) {
   (0, import_fs17.mkdirSync)(dir, { recursive: true });
-  const p = (0, import_path28.join)(dir, `${sessionId}.${what}.json`);
-  (0, import_fs17.writeFileSync)(p, JSON.stringify(payload));
+  const p = (0, import_path28.join)(dir, `${sessionId}.${what}.${(0, import_node_crypto3.randomUUID)()}.json`);
+  (0, import_fs17.writeFileSync)(p, JSON.stringify(payload), { mode: 384, flag: "wx" });
   return p;
 }
+
+// src/native/stream-capture.ts
+async function captureNativeStream(opts, deps) {
+  if (!Number.isInteger(opts.durationMs) || opts.durationMs < 100 || opts.durationMs > 6e4 || !Number.isInteger(opts.intervalMs) || opts.intervalMs < 100 || opts.intervalMs > opts.durationMs || !Number.isInteger(opts.maxFrames) || opts.maxFrames < 0 || opts.maxFrames > 20) {
+    throw new Error("Capture requires duration 100..60000ms, interval 100..duration, frames 0..20.");
+  }
+  const dir = (0, import_node_path6.resolve)(opts.outputDir);
+  await (0, import_promises26.mkdir)(dir, { recursive: true, mode: 448 });
+  const eventsPath = (0, import_node_path6.join)(dir, "events.jsonl");
+  await (0, import_promises26.writeFile)(eventsPath, "", { mode: 384, flag: "wx" });
+  const now = deps.now ?? (() => import_node_perf_hooks.performance.now());
+  const sleep8 = deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const started = now();
+  let prior = [], samples = 0, lastSample = started;
+  let largestGapMs = 0;
+  const frames = [];
+  const errors = [];
+  let sequence = 0, frameAttempts = 0;
+  const finalizationBudgetMs = 1e3;
+  const deadline = started + opts.durationMs;
+  const bounded = async (operation, until) => {
+    const remaining = until - now();
+    if (remaining <= 0) throw new Error("Capture operation deadline exceeded");
+    let timer;
+    try {
+      return await Promise.race([operation(), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Capture operation timed out; backend cancellation unavailable")), remaining);
+      })]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+  const matched = /* @__PURE__ */ new Set();
+  const emit2 = async (event) => (0, import_promises26.appendFile)(
+    eventsPath,
+    `${JSON.stringify({ seq: ++sequence, sample: samples, elapsedMs: now() - started, ...event })}
+`
+  );
+  const frame2 = async (reason, until = deadline) => {
+    if (frameAttempts >= opts.maxFrames) return;
+    frameAttempts++;
+    const acquisitionStartedMs = now() - started;
+    try {
+      const image = await bounded(deps.screenshot, until);
+      if (typeof image.screenshotPath !== "string") throw new Error("Screenshot artifact path missing");
+      const info = await bounded(() => (0, import_promises26.stat)(image.screenshotPath), until);
+      if (!info.isFile() || info.size > 16 * 1024 * 1024) throw new Error("Screenshot must be a regular PNG of at most 16 MiB");
+      const bytes = await bounded(() => (0, import_promises26.readFile)(image.screenshotPath), until);
+      if (bytes.length < 24 || bytes.readUInt32BE(16) * bytes.readUInt32BE(20) > 32e6) throw new Error("Screenshot exceeds 32 million pixels or has an invalid header");
+      const decoded = import_pngjs5.PNG.sync.read(bytes);
+      if (now() >= until) throw new Error("Screenshot decoding exhausted capture deadline");
+      const screenshotPath = (0, import_node_path6.join)(dir, `frame-${(0, import_node_crypto4.randomUUID)()}.png`);
+      await bounded(() => (0, import_promises26.writeFile)(screenshotPath, bytes, { mode: 384, flag: "wx" }), until);
+      const record2 = {
+        sample: samples,
+        acquisitionStartedMs,
+        elapsedMs: now() - started,
+        reason,
+        capture: {
+          ...image,
+          screenshotPath,
+          width: decoded.width,
+          height: decoded.height,
+          bytes: bytes.length,
+          sha256: (0, import_node_crypto4.createHash)("sha256").update(bytes).digest("hex")
+        }
+      };
+      frames.push(record2);
+      await emit2({ type: "keyframe", ...record2 });
+    } catch (e) {
+      const error51 = String(e);
+      errors.push(error51);
+      await emit2({ type: "screenshot-error", error: error51 });
+    }
+  };
+  while (true) {
+    const sampleStarted = now();
+    try {
+      const observation = await bounded(deps.read, samples === 0 ? deadline : deadline + finalizationBudgetMs);
+      if (!Array.isArray(observation.elements) || typeof observation.totalElements === "number" && observation.elements.length < observation.totalElements) {
+        await emit2({ type: "partial-observation", observation, resyncRequired: true });
+        throw new Error("Incomplete native observation cannot reconcile capture state");
+      }
+      const current = assignRefs(observation.elements, prior);
+      samples++;
+      largestGapMs = Math.max(largestGapMs, sampleStarted - lastSample);
+      lastSample = sampleStarted;
+      const delta = diffRefs(prior, current);
+      await emit2(samples === 1 ? { type: "baseline", observation, refs: current } : { type: "delta", observedAt: (/* @__PURE__ */ new Date()).toISOString(), ...delta });
+      const text = JSON.stringify(observation.elements);
+      const triggers = opts.keyframeOn.filter((t) => !matched.has(t) && text.includes(t));
+      triggers.forEach((t) => matched.add(t));
+      if (triggers.length) await emit2({ type: "trigger", detected: triggers, captureEligible: samples === 1 ? opts.maxFrames > 0 : frameAttempts < opts.maxFrames - 1 });
+      if (opts.maxFrames && samples === 1) await frame2("baseline");
+      else if (triggers.length && frameAttempts < opts.maxFrames - 1) await frame2(`match:${triggers.join(",")}`);
+      prior = current;
+    } catch (e) {
+      errors.push(String(e));
+      await emit2({ type: "observation-error", error: String(e), resyncRequired: true });
+      break;
+    }
+    if (now() - started >= opts.durationMs) break;
+    await sleep8(Math.min(Math.max(0, opts.intervalMs - (now() - sampleStarted)), opts.durationMs - (now() - started)));
+  }
+  if (frameAttempts < opts.maxFrames) await frame2(errors.length ? "unpaired-final-after-error" : "final", deadline + finalizationBudgetMs);
+  const result = {
+    schema: "ibr.native.capture/v1",
+    complete: errors.length === 0,
+    taskCompletion: "not-inferred",
+    captureMode: "polling",
+    durationMs: now() - started,
+    requestedIntervalMs: opts.intervalMs,
+    samples,
+    largestGapMs,
+    frameAttempts,
+    frames,
+    eventsPath,
+    errors,
+    finalizationBudgetMs,
+    oneFramePolicy: "baseline-only",
+    backendCancellation: "unavailable; timed-out read-only operations may finish later",
+    coverage: {
+      transientStatesBetweenSamples: "unobserved",
+      pixelChangesWithoutAX: "keyframes-only",
+      semanticCoverage: "extractor-exposed-elements",
+      screenshotAndAXAtomic: false,
+      localFilesystemFinalizationDeadline: "best-effort; OS writes are not cancellable"
+    }
+  };
+  await (0, import_promises26.writeFile)((0, import_node_path6.join)(dir, "manifest.json"), JSON.stringify(result, null, 2), { mode: 384, flag: "wx" });
+  return result;
+}
+
+// src/bin/native-session-cli.ts
+var import_node_path7 = require("path");
 
 // src/native/session-store.ts
 var import_fs18 = require("fs");
@@ -64657,6 +65019,49 @@ function waitFailed(message2, extra = {}) {
     text: `\u2717 ${message2}`
   };
 }
+async function compactActionFailure(result, directory) {
+  try {
+    const fullReport = await saveNativeReport(result.json, directory);
+    const source = result.json;
+    const post = postActionOf(source);
+    const bounded = (value) => typeof value === "string" ? value.slice(0, 800) : value;
+    const summary = {};
+    for (const key of ["settled", "reason", "attempts", "elapsedMs", "waitFor", "waitForFound", "totalElements", "interactiveElements"]) {
+      if (post?.[key] !== void 0) summary[key] = bounded(post[key]);
+    }
+    return {
+      exitCode: result.exitCode,
+      json: {
+        ok: false,
+        exitCode: result.exitCode,
+        sessionId: source.sessionId,
+        error: bounded(source.error),
+        errorTruncated: typeof source.error === "string" && source.error.length > 800,
+        success: source.success,
+        actionDelivered: source.success === true,
+        verificationPassed: false,
+        requestedAction: bounded(source.requestedAction),
+        target: bounded(source.target),
+        backend: source.backend,
+        pid: source.pid,
+        postAction: post ? summary : void 0,
+        fullReport,
+        evidenceSaved: true,
+        snapshotAvailable: Boolean(post?.observation),
+        hostCursorAffected: source.hostCursorAffected
+      },
+      text: `\u2717 ${bounded(source.error)}
+Complete failure evidence: ${fullReport}`
+    };
+  } catch (error51) {
+    return { ...result, json: {
+      ...result.json,
+      evidenceSaved: false,
+      compactFallback: "inline-evidence",
+      evidenceError: String(error51).slice(0, 800)
+    } };
+  }
+}
 function looksLikeTargetProblem(payload, rawText) {
   if (typeof payload.hint === "string") return true;
   return rawText.includes("not found") || rawText.includes("no AX path");
@@ -64705,22 +65110,24 @@ async function handleRead(opts, deps = defaultCliDeps()) {
   const entry = toSessionEntry(stored);
   const store = /* @__PURE__ */ new Map([[opts.sessionId, entry]]);
   const controller = deps.makeController(store);
+  if (opts.format && !["full", "compact"].includes(opts.format)) return invalidTarget("Use --format full or compact.");
+  if (opts.limit !== void 0 && (!Number.isInteger(opts.limit) || opts.limit < 0)) return invalidTarget("Read limit must be a non-negative integer.");
   const requested = opts.what ?? "observe";
   const compact = requested === "refs";
-  const what = compact ? "observe" : requested;
-  const limit = opts.what === "refs" ? Math.max(opts.limit ?? 200, 200) : opts.limit ?? 50;
+  const what = compact || opts.format === "compact" && ["observe", "extract"].includes(requested) ? "extract" : requested;
+  const limit = opts.format === "compact" && requested !== "refs" && ["observe", "extract"].includes(what) ? Number.MAX_SAFE_INTEGER : opts.what === "refs" ? Number.MAX_SAFE_INTEGER : opts.limit ?? 50;
   if (compact && entry.type !== "macos" && stored.device) {
     const readEls = deps.readSimulatorElements ?? readSimulatorElements;
     try {
       const elements = await readEls(stored.device.udid);
-      return compactRead(opts.sessionId, { elements }, deps.refsDir ?? DEFAULT_SESSION_STORE_DIR);
+      return compactRead(opts.sessionId, { elements }, deps.refsDir ?? DEFAULT_SESSION_STORE_DIR, JSON.stringify(stored));
     } catch (err) {
       return actionFailed(`idb describe-all failed: ${err instanceof Error ? err.message : String(err)}`, { sessionId: opts.sessionId });
     }
   }
   const result = entry.type === "macos" ? await controller.readMacOS(entry, what, limit) : await controller.readSimulator(entry, what, limit);
   if (compact && result.kind === "text" && !result.isError) {
-    return compactRead(opts.sessionId, parsePayload(result.text), deps.refsDir ?? DEFAULT_SESSION_STORE_DIR);
+    return compactRead(opts.sessionId, parsePayload(result.text), deps.refsDir ?? DEFAULT_SESSION_STORE_DIR, JSON.stringify(stored));
   }
   if (result.kind === "image") {
     const metadata = parsePayload(result.metadata);
@@ -64740,6 +65147,15 @@ async function handleRead(opts, deps = defaultCliDeps()) {
     };
   }
   const payload = parsePayload(result.text);
+  if (opts.format === "compact" && ["observe", "extract"].includes(what)) {
+    try {
+      const fullReport = await saveNativeReport(payload, deps.refsDir ?? DEFAULT_SESSION_STORE_DIR);
+      const compact2 = compactNativeRead(payload, fullReport, opts.limit ?? Number.MAX_SAFE_INTEGER);
+      return { exitCode: EXIT_OK, json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, ...compact2 }, text: JSON.stringify(compact2) };
+    } catch (error51) {
+      return actionFailed(`Could not save native evidence: ${error51 instanceof Error ? error51.message : String(error51)}`, { sessionId: opts.sessionId });
+    }
+  }
   return {
     exitCode: EXIT_OK,
     json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, ...payload },
@@ -64747,12 +65163,16 @@ async function handleRead(opts, deps = defaultCliDeps()) {
   };
 }
 function elementsOf(payload) {
-  return Array.isArray(payload.elements) ? payload.elements : [];
+  const windowId = payload.window?.windowId;
+  return Array.isArray(payload.elements) ? payload.elements.map((e) => ({ ...e, windowId })) : [];
 }
-function compactRead(sessionId, payload, dir) {
-  const refs = assignRefs(elementsOf(payload), loadRefs(dir, sessionId));
-  saveRefs(dir, sessionId, refs);
+function compactRead(sessionId, payload, dir, scope) {
+  if (!Array.isArray(payload.elements) || typeof payload.totalElements === "number" && payload.elements.length < payload.totalElements) {
+    return actionFailed("Incomplete observation cannot reconcile refs.");
+  }
+  const refs = assignRefs(elementsOf(payload), loadRefs(dir, sessionId, scope));
   const full = writeFullPayload(dir, sessionId, "observe", payload);
+  saveRefs(dir, sessionId, refs, scope);
   const lines = refs.map(formatRefLine);
   return {
     exitCode: EXIT_OK,
@@ -64764,14 +65184,20 @@ var ELEMENT_ACTIONS = /* @__PURE__ */ new Set(["click", "press", "fill", "type",
 async function handleAction(opts, deps = defaultCliDeps()) {
   const stored = deps.readSession(opts.sessionId);
   if (!stored) return sessionNotFound(opts.sessionId);
+  if (opts.format && !["full", "compact"].includes(opts.format)) return invalidTarget("Use --format full or compact.");
+  if (opts.observe && (stored.type !== "macos" || !ELEMENT_ACTIONS.has(opts.action) || opts.ref)) {
+    return invalidTarget("--observe requires a macOS element action without --ref.");
+  }
+  if (opts.format === "compact" && !opts.observe) return invalidTarget("Action --format compact requires --observe.");
   const entry = toSessionEntry(stored);
   const store = /* @__PURE__ */ new Map([[opts.sessionId, entry]]);
   const controller = deps.makeController(store);
   const refsDir = deps.refsDir ?? DEFAULT_SESSION_STORE_DIR;
   let refEntry;
   let beforeRefs = null;
+  let expectedRef;
   if (opts.ref) {
-    beforeRefs = loadRefs(refsDir, opts.sessionId);
+    beforeRefs = loadRefs(refsDir, opts.sessionId, JSON.stringify(stored));
     refEntry = beforeRefs?.find((r) => r.ref === opts.ref);
     if (!refEntry) {
       return invalidTarget(`Unknown ref "${opts.ref}". Run: ibr native:session:read ${opts.sessionId} --what refs`, { sessionId: opts.sessionId });
@@ -64779,15 +65205,26 @@ async function handleAction(opts, deps = defaultCliDeps()) {
     if (!refEntry.label && !refEntry.identifier) {
       return invalidTarget(`Ref ${opts.ref} (${refEntry.role}) has no accessible name or identifier to target.`, { sessionId: opts.sessionId });
     }
-    const name = refEntry.label ?? refEntry.identifier;
-    const twins = beforeRefs.filter((r) => r.role === refEntry.role && (r.label ?? r.identifier) === name);
+    const name = refEntry.identifier || refEntry.label;
+    const twins = beforeRefs.filter((r) => r.role === refEntry.role && (r.identifier || r.label) === name);
     if (twins.length > 1) {
       return invalidTarget(`Ref ${opts.ref} is ambiguous: ${twins.map((r) => r.ref).join(", ")} share role ${refEntry.role} and name ${JSON.stringify(name)}.`, { sessionId: opts.sessionId });
     }
   }
+  if (refEntry) {
+    const fresh = entry.type === "macos" ? await controller.readMacOS(entry, "extract", 1e5) : await controller.readSimulator(entry, "extract", 1e5);
+    if (fresh.kind !== "text" || fresh.isError) return invalidTarget("Could not revalidate ref; read refs again.");
+    const live = elementsOf(parsePayload(fresh.text)).filter((e) => e.windowId === refEntry.windowId && e.role === refEntry.role && (refEntry.identifier ? e.identifier === refEntry.identifier : e.label === refEntry.label));
+    if (live.length !== 1 || live[0].enabled === false) {
+      return invalidTarget(`Ref ${opts.ref} is stale, ambiguous, or disabled; read refs again.`, { sessionId: opts.sessionId });
+    }
+    expectedRef = { role: refEntry.role, label: refEntry.label, identifier: refEntry.identifier, path: live[0].path, windowId: live[0].windowId };
+  }
   const request = {
     action: opts.action,
-    target: refEntry ? refEntry.label ?? refEntry.identifier ?? void 0 : opts.target,
+    includeObservation: opts.observe || !!opts.ref,
+    expectedRef,
+    target: refEntry ? refEntry.identifier || refEntry.label || void 0 : opts.target,
     value: opts.value,
     role: refEntry ? refEntry.role : opts.role,
     waitFor: opts.waitFor,
@@ -64818,23 +65255,27 @@ async function handleAction(opts, deps = defaultCliDeps()) {
   }
   const payload = parsePayload(result.text);
   const postAction = postActionOf(payload);
+  const failure = (failed) => opts.observe && opts.format === "compact" || opts.ref ? compactActionFailure(failed, refsDir) : failed;
   if (result.isError) {
     if (opts.waitFor && postAction && postAction.settled === false) {
-      return waitFailed(`Wait for "${opts.waitFor}" timed out.`, { sessionId: opts.sessionId, ...payload });
+      return failure(waitFailed(`Wait for "${opts.waitFor}" timed out.`, { sessionId: opts.sessionId, ...payload }));
     }
     const code = looksLikeTargetProblem(payload, result.text) ? EXIT_INVALID_TARGET : EXIT_ACTION_FAILED;
     const message2 = typeof payload.error === "string" ? payload.error : result.text;
-    return {
+    return failure({
       exitCode: code,
       json: { ok: false, exitCode: code, sessionId: opts.sessionId, ...payload, error: message2 },
       text: `\u2717 ${message2}`
-    };
+    });
   }
   if (opts.waitFor && postAction && postAction.settled === false) {
-    return waitFailed(`Action succeeded but wait for "${opts.waitFor}" timed out.`, {
+    return failure(waitFailed(`Action delivered but wait for "${opts.waitFor}" timed out.`, {
       sessionId: opts.sessionId,
       ...payload
-    });
+    }));
+  }
+  if ((opts.observe || opts.ref) && postAction?.settled !== true) {
+    return failure(waitFailed("Action delivered but no settled observation was established.", { sessionId: opts.sessionId, ...payload }));
   }
   let recorded;
   let recordError;
@@ -64858,20 +65299,76 @@ async function handleAction(opts, deps = defaultCliDeps()) {
   const recNote = recorded ? `
 recorded step ${recorded} -> ${opts.record}` : recordError ? `
 not recorded: ${recordError}` : "";
-  if (refEntry && beforeRefs) {
-    const reread = entry.type === "macos" ? await controller.readMacOS(entry, "observe", 200) : await controller.readSimulator(entry, "observe", 200);
-    if (reread.kind === "text" && !reread.isError) {
-      const afterRefs = assignRefs(elementsOf(parsePayload(reread.text)), beforeRefs);
-      saveRefs(refsDir, opts.sessionId, afterRefs);
-      const d = diffRefs(beforeRefs, afterRefs);
-      const diff = formatDiff(d);
+  if (opts.observe) {
+    const raw = postAction?.observation;
+    if (!raw || typeof raw !== "object") return failure(actionFailed("Post-action observation unavailable.", { sessionId: opts.sessionId, ...payload }));
+    try {
+      const fullReport = await saveNativeReport(payload, refsDir);
+      const { observation: _snapshot, ...postSummary } = postAction;
+      const observation = opts.format === "compact" ? compactNativeRead(raw, fullReport, Number.MAX_SAFE_INTEGER) : raw;
+      const { elements: _controls, ...validation } = postSummary;
+      const actionSummary = opts.format === "compact" ? { action: opts.action, target: opts.target, success: payload.success, actionDelivered: payload.actionDelivered, verificationPassed: payload.verificationPassed, backend: payload.backend, hostCursorAffected: payload.hostCursorAffected } : payload;
       return {
         exitCode: EXIT_OK,
-        json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, action: opts.action, ref: opts.ref, axChanged: d.added.length + d.removed.length > 0, diff: diff.split("\n"), recorded },
-        text: `\u2713 ${opts.action} ${opts.ref}
-${diff}${recNote}`
+        json: {
+          ok: true,
+          exitCode: EXIT_OK,
+          sessionId: opts.sessionId,
+          ...actionSummary,
+          postAction: opts.format === "compact" ? validation : postSummary,
+          observation,
+          fullReport,
+          recorded
+        },
+        text: `Action and validated observation saved: ${fullReport}`
       };
+    } catch (error51) {
+      return failure(actionFailed(
+        `Action delivered; evidence could not be saved: ${error51 instanceof Error ? error51.message : String(error51)}`,
+        { sessionId: opts.sessionId, ...payload }
+      ));
     }
+  }
+  if (refEntry && beforeRefs) {
+    const observation = postAction?.observation;
+    if (!observation || typeof observation !== "object") {
+      return failure(actionFailed(
+        "Action delivered; settled observation unavailable for ref reconciliation.",
+        { sessionId: opts.sessionId, ...payload, actionDelivered: true, refReconciliation: "missing-settled-observation" }
+      ));
+    }
+    const after = observation;
+    let fullReport;
+    try {
+      fullReport = await saveNativeReport({ action: payload, before: beforeRefs, after, observedAt: (/* @__PURE__ */ new Date()).toISOString() }, refsDir);
+    } catch (error51) {
+      return actionFailed(`Action delivered; evidence could not be saved: ${String(error51)}`, { sessionId: opts.sessionId, ...payload });
+    }
+    const afterRefs = assignRefs(elementsOf(after), beforeRefs);
+    if (!Array.isArray(after.elements) || typeof after.totalElements === "number" && after.elements.length < after.totalElements) {
+      return actionFailed("Action delivered; incomplete observation cannot reconcile refs.", { sessionId: opts.sessionId, ...payload, actionDelivered: true, refReconciliation: "rejected-partial", fullReport });
+    }
+    const d = diffRefs(beforeRefs, afterRefs);
+    const diff = formatDiff(d);
+    saveRefs(refsDir, opts.sessionId, afterRefs, JSON.stringify(stored));
+    const { observation: _snapshot, elements: _elements, ...validation } = postAction ?? {};
+    return {
+      exitCode: EXIT_OK,
+      json: {
+        ok: true,
+        exitCode: EXIT_OK,
+        sessionId: opts.sessionId,
+        action: opts.action,
+        ref: opts.ref,
+        axChanged: d.added.length + d.removed.length + d.updated.length > 0,
+        postAction: validation,
+        fullReport,
+        diff: diff.split("\n"),
+        recorded
+      },
+      text: `\u2713 ${opts.action} ${opts.ref}
+${diff}${recNote}`
+    };
   }
   return {
     exitCode: EXIT_OK,
@@ -64932,14 +65429,14 @@ not recorded: ${recordError}` : "";
     const next = assignRefs(await readEls(udid), before);
     const same = diffRefs(after, next);
     after = next;
-    if (same.added.length === 0 && same.removed.length === 0) break;
+    if (same.added.length === 0 && same.removed.length === 0 && same.updated.length === 0) break;
   }
   saveRefs(refsDir, opts.sessionId, after);
   const d = diffRefs(before, after);
   const diff = formatDiff(d);
   return {
     exitCode: EXIT_OK,
-    json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, action: action.kind, axChanged: d.added.length + d.removed.length > 0, diff: diff.split("\n"), recorded },
+    json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, action: action.kind, axChanged: d.added.length + d.removed.length + d.updated.length > 0, diff: diff.split("\n"), recorded },
     text: `\u2713 ${action.kind}
 ${diff}${recNote}`
   };
@@ -64998,13 +65495,13 @@ async function handleClose(opts, deps = defaultCliDeps()) {
 }
 function emit(result, json2) {
   if (json2) {
-    console.log(JSON.stringify(result.json, null, 2));
+    writeCliOutput(JSON.stringify(result.json), result.exitCode);
   } else if (result.exitCode === EXIT_OK) {
     console.log(result.text);
   } else {
     console.error(result.text);
   }
-  process.exit(result.exitCode);
+  process.exitCode = result.exitCode;
 }
 function registerNativeSessionCommands(program3) {
   program3.command("native:session:start").description("Start a cursor-free native session for a running macOS app or iOS/watchOS simulator (CLI parity for native_session_start)").option("--app <name>", "macOS app name, bundle ID, or process-name fragment").option("--pid <n>", "Direct macOS process ID").option("--simulator <name>", "Simulator device name or UDID").option("--session-id <id>", "Use an explicit session ID instead of a generated UUID (for deterministic repros)").option("--json", "Emit structured JSON to stdout").action(async (opts) => {
@@ -65016,14 +65513,58 @@ function registerNativeSessionCommands(program3) {
     });
     emit(result, opts.json);
   });
-  program3.command("native:session:read <sessionId>").description("Read a native session \u2014 observe/extract/state/screenshot (CLI parity for native_session_read)").option("--what <mode>", "refs (compact numbered refs, full payload written to a file) | observe | extract | screenshot | state", "observe").option("--limit <n>", "Maximum elements to return", "50").option("--json", "Emit structured JSON to stdout").action(async (sessionId, opts) => {
-    const result = await handleRead({ sessionId, what: opts.what, limit: parseInt(opts.limit, 10) });
+  program3.command("native:session:capture <sessionId>").description("Record bounded native AX deltas and selected screenshots; does not infer task completion").option("--duration-ms <n>", "Recording duration, 100..60000ms", "5000").option("--interval-ms <n>", "Minimum sampling interval, 100..duration", "250").option("--max-frames <n>", "Screenshot budget, baseline and final reserved when possible, 0..20", "4").option("--keyframe-on <text...>", "Capture once when each literal text appears", []).option("--output-dir <path>", "New private evidence directory").option("--json", "Emit structured JSON").action(async (sessionId, opts) => {
+    const stored = readSession(sessionId);
+    if (!stored) {
+      emit(sessionNotFound(sessionId), opts.json);
+      return;
+    }
+    if (stored.type !== "macos") {
+      emit(invalidTarget("Streaming capture currently supports macOS sessions."), opts.json);
+      return;
+    }
+    const entry = toSessionEntry(stored);
+    const controller = defaultCliDeps().makeController(/* @__PURE__ */ new Map([[sessionId, entry]]));
+    try {
+      const result = await captureNativeStream({
+        durationMs: Number(opts.durationMs),
+        intervalMs: Number(opts.intervalMs),
+        maxFrames: Number(opts.maxFrames),
+        keyframeOn: opts.keyframeOn,
+        outputDir: opts.outputDir ?? (0, import_node_path7.join)(DEFAULT_SESSION_STORE_DIR, `capture-${(0, import_crypto6.randomUUID)()}`)
+      }, {
+        read: async () => {
+          const result2 = await controller.readMacOS(entry, "extract", 1e5);
+          if (result2.kind !== "text" || result2.isError) throw new Error("Native extraction failed");
+          const payload = parsePayload(result2.text);
+          if (!Array.isArray(payload.elements)) throw new Error("Native extraction omitted elements");
+          return { ...payload, elements: elementsOf(payload) };
+        },
+        screenshot: async () => {
+          const result2 = await controller.readMacOS(entry, "screenshot", 0);
+          if (result2.kind !== "image") throw new Error("Native screenshot failed");
+          return parsePayload(result2.metadata);
+        }
+      });
+      emit({
+        exitCode: result.complete ? EXIT_OK : EXIT_ACTION_FAILED,
+        json: { ok: result.complete, ...result },
+        text: `Capture evidence: ${result.eventsPath}`
+      }, opts.json);
+    } catch (error51) {
+      emit(actionFailed(String(error51)), opts.json);
+    }
+  });
+  program3.command("native:session:read <sessionId>").description("Read a native session \u2014 observe/extract/state/screenshot (CLI parity for native_session_read)").option("--what <mode>", "refs (compact numbered refs, full payload written to a file) | observe | extract | screenshot | state", "observe").option("--limit <n>", "Maximum elements: full defaults to 50; compact returns all controls unless limited").option("--format <mode>", "full or compact; compact saves full evidence and returns controls", "full").option("--json", "Emit structured JSON to stdout").action(async (sessionId, opts) => {
+    const result = await handleRead({ sessionId, what: opts.what, limit: opts.limit === void 0 ? void 0 : Number(opts.limit), format: opts.format });
     emit(result, opts.json);
   });
-  program3.command("native:session:action <sessionId>").description("Perform a native session action by accessible name (CLI parity for native_session_action)").requiredOption("--action <kind>", "click|press|fill|type|focus|showMenu|increment|decrement|confirm|cancel|scroll|scrollToVisible|check|select|drag|keystroke|app|menuPath|resizeWindow").option("--target <name>", "Accessible name / AX identifier / description / value to target").option("--ref <eN>", "Short ref from `native:session:read --what refs`; prints only the AX diff after acting").option("--value <text>", "Text for fill/type actions").option("--role <role>", "Optional role filter").option("--wait-for <name>", "Expected post-action target to poll for; failing to settle is a non-zero exit").option("--wait-timeout-ms <n>", "Post-action settle timeout in ms, clamped 0..5000").option("--chord <chord>", "Keyboard chord for the 'keystroke' action, e.g. 'Meta+n'").option("--delivery <mode>", "Keyboard delivery: background (default) or explicit foreground; never retries").option("--width <points>", "Requested outer window width for resizeWindow, 1..16384 points").option("--height <points>", "Requested outer window height for resizeWindow, 1..16384 points").option("--window-title <title>", "Exact unique AXWindow title; omission requires exactly one window").option("--op <op>", "App lifecycle op for the 'app' action: launch|switch|quit").option("--app <name>", "App name/bundle id for the 'app' action's lifecycle op").option("--menu-path <items>", "Comma-separated AXMenu titles for the 'menuPath' action, e.g. 'File,New Window'").option("--record <file>", "Append the resolved step to a replay file (macOS element actions); re-run with native:replay").option("--json", "Emit structured JSON to stdout").action(async (sessionId, opts) => {
+  program3.command("native:session:action <sessionId>").description("Perform a native session action by accessible name (CLI parity for native_session_action)").requiredOption("--action <kind>", "click|press|fill|type|focus|showMenu|increment|decrement|confirm|cancel|scroll|scrollToVisible|check|select|drag|keystroke|app|menuPath|resizeWindow").option("--target <name>", "Accessible name / AX identifier / description / value to target").option("--ref <eN>", "Short ref from `native:session:read --what refs`; prints only the AX diff after acting").option("--value <text>", "Text for fill/type actions").option("--role <role>", "Optional role filter").option("--wait-for <name>", "Expected post-action target to poll for; failing to settle is a non-zero exit").option("--wait-timeout-ms <n>", "Post-action settle timeout in ms, clamped 0..5000").option("--chord <chord>", "Keyboard chord for the 'keystroke' action, e.g. 'Meta+n'").option("--delivery <mode>", "Keyboard delivery: background (default) or explicit foreground; never retries").option("--width <points>", "Requested outer window width for resizeWindow, 1..16384 points").option("--height <points>", "Requested outer window height for resizeWindow, 1..16384 points").option("--window-title <title>", "Exact unique AXWindow title; omission requires exactly one window").option("--op <op>", "App lifecycle op for the 'app' action: launch|switch|quit").option("--app <name>", "App name/bundle id for the 'app' action's lifecycle op").option("--menu-path <items>", "Comma-separated AXMenu titles for the 'menuPath' action, e.g. 'File,New Window'").option("--record <file>", "Append the resolved step to a replay file (macOS element actions); re-run with native:replay").option("--observe", "Return the exact validated post-action snapshot; saves complete evidence").option("--format <mode>", "full or compact (compact requires --observe)", "full").option("--json", "Emit structured JSON to stdout").action(async (sessionId, opts) => {
     const result = await handleAction({
       sessionId,
       action: opts.action,
+      observe: opts.observe,
+      format: opts.format,
       target: opts.target,
       value: opts.value,
       role: opts.role,
@@ -65100,7 +65641,7 @@ init_session_idle();
 
 // src/bin/external-action-evidence-cli.ts
 var import_fs21 = require("fs");
-var import_promises25 = require("fs/promises");
+var import_promises27 = require("fs/promises");
 init_external_action_evidence();
 var MAX_INPUT_BYTES = 1024 * 1024;
 async function readEvidenceStdin(input = process.stdin) {
@@ -65117,12 +65658,12 @@ async function readEvidenceStdin(input = process.stdin) {
   return Buffer.concat(chunks).toString("utf8");
 }
 async function readEvidenceFile(path3) {
-  const beforeOpen = await (0, import_promises25.lstat)(path3);
+  const beforeOpen = await (0, import_promises27.lstat)(path3);
   if (beforeOpen.isSymbolicLink() || !beforeOpen.isFile()) {
     throw new Error("input must be a regular file");
   }
   if (beforeOpen.size > MAX_INPUT_BYTES) throw new Error(`input exceeds ${MAX_INPUT_BYTES} bytes`);
-  const handle = await (0, import_promises25.open)(path3, import_fs21.constants.O_RDONLY | import_fs21.constants.O_NOFOLLOW);
+  const handle = await (0, import_promises27.open)(path3, import_fs21.constants.O_RDONLY | import_fs21.constants.O_NOFOLLOW);
   const chunks = [];
   let totalBytes = 0;
   try {
@@ -65204,18 +65745,18 @@ function registerExternalActionEvidenceCommand(program3) {
 }
 
 // src/bin/design-spec-cli.ts
-var import_promises26 = require("fs/promises");
-var import_node_path5 = require("path");
+var import_promises28 = require("fs/promises");
+var import_node_path8 = require("path");
 init_schema2();
 init_figma();
 init_check();
 init_capture2();
 async function jsonFile(path3) {
-  return JSON.parse(await (0, import_promises26.readFile)(path3, "utf8"));
+  return JSON.parse(await (0, import_promises28.readFile)(path3, "utf8"));
 }
 async function writeSpec(path3, spec) {
-  await (0, import_promises26.mkdir)((0, import_node_path5.dirname)(path3), { recursive: true });
-  await (0, import_promises26.writeFile)(path3, `${JSON.stringify(spec, null, 2)}
+  await (0, import_promises28.mkdir)((0, import_node_path8.dirname)(path3), { recursive: true });
+  await (0, import_promises28.writeFile)(path3, `${JSON.stringify(spec, null, 2)}
 `, { flag: "wx" });
 }
 function registerDesignSpecCommands(program3) {
@@ -65441,7 +65982,7 @@ async function loadConfig() {
   const configPath = (0, import_path44.join)(process.cwd(), ".ibrrc.json");
   if ((0, import_fs30.existsSync)(configPath)) {
     try {
-      const content = await (0, import_promises38.readFile)(configPath, "utf-8");
+      const content = await (0, import_promises40.readFile)(configPath, "utf-8");
       return normalizeFileConfig(JSON.parse(content));
     } catch (error51) {
       console.warn(
@@ -65453,13 +65994,13 @@ async function loadConfig() {
 }
 var IBR_DEFAULT_PORT = 4200;
 async function isPortAvailable(port) {
-  return new Promise((resolve8) => {
+  return new Promise((resolve10) => {
     import("net").then(({ createServer: createServer4 }) => {
       const server = createServer4();
-      server.once("error", () => resolve8(false));
+      server.once("error", () => resolve10(false));
       server.once("listening", () => {
         server.close();
-        resolve8(true);
+        resolve10(true);
       });
       server.listen(port, "127.0.0.1");
     });
@@ -65753,8 +66294,8 @@ program2.command("audit [url]").description("Full audit: functional checks + vis
     if (runVisual) {
       const { compareImages: compareImages2, analyzeComparison: analyzeComparison2 } = await Promise.resolve().then(() => (init_compare(), compare_exports));
       const { listSessions: listSessions2, getSessionPaths: getSessionPaths2 } = await Promise.resolve().then(() => (init_session(), session_exports));
-      const { mkdir: mkdir31, access: access4 } = await import("fs/promises");
-      const { join: join42 } = await import("path");
+      const { mkdir: mkdir33, access: access4 } = await import("fs/promises");
+      const { join: join44 } = await import("path");
       const outputDir = globalOpts.output || "./.ibr";
       const sessions2 = await listSessions2(outputDir);
       const urlPath = new URL(resolvedUrl).pathname;
@@ -65762,7 +66303,7 @@ program2.command("audit [url]").description("Full audit: functional checks + vis
       if (baselineSession) {
         const paths = getSessionPaths2(outputDir, baselineSession.id);
         const currentPath = paths.current;
-        await mkdir31(join42(outputDir, "sessions", baselineSession.id), { recursive: true });
+        await mkdir33(join44(outputDir, "sessions", baselineSession.id), { recursive: true });
         await page.screenshot({ path: currentPath, fullPage: true });
         try {
           await access4(paths.baseline);
@@ -65796,8 +66337,8 @@ program2.command("audit [url]").description("Full audit: functional checks + vis
     if (runSemantic) {
       const { getSemanticOutput: getSemanticOutput2, detectLandmarks: detectLandmarks2, compareLandmarks: compareLandmarks2, getExpectedLandmarksForIntent: getExpectedLandmarksForIntent2, getExpectedLandmarksFromContext: getExpectedLandmarksFromContext2, LANDMARK_SELECTORS: LANDMARK_SELECTORS2 } = await Promise.resolve().then(() => (init_semantic(), semantic_exports));
       const { listSessions: listSessions2 } = await Promise.resolve().then(() => (init_session(), session_exports));
-      const { readFile: readFile24 } = await import("fs/promises");
-      const { join: join42 } = await import("path");
+      const { readFile: readFile25 } = await import("fs/promises");
+      const { join: join44 } = await import("path");
       const semantic = await getSemanticOutput2(page);
       const outputDir = globalOpts.output || "./.ibr";
       const sessions2 = await listSessions2(outputDir);
@@ -65822,8 +66363,8 @@ program2.command("audit [url]").description("Full audit: functional checks + vis
         const intentLandmarks = getExpectedLandmarksForIntent2(pageIntent);
         let contextLandmarks = [];
         try {
-          const claudeMdPath = join42(process.cwd(), "CLAUDE.md");
-          const content = await readFile24(claudeMdPath, "utf-8");
+          const claudeMdPath = join44(process.cwd(), "CLAUDE.md");
+          const content = await readFile25(claudeMdPath, "utf-8");
           contextLandmarks = getExpectedLandmarksFromContext2({ principles: [content] });
         } catch {
         }
@@ -66022,7 +66563,7 @@ unchanged from prior versions \u2014 verdict ISSUES has always exited 0 here.
     });
     let reportPath;
     if (options.report || outputFlags.mode === "compact") {
-      reportPath = await saveFullScanReport(result, options.report || (0, import_path44.join)(outputFlags.directory, "reports", `scan-${Date.now()}-${(0, import_node_crypto2.randomUUID)()}.json`));
+      reportPath = await saveFullScanReport(result, options.report || (0, import_path44.join)(outputFlags.directory, "reports", `scan-${Date.now()}-${(0, import_node_crypto5.randomUUID)()}.json`));
     }
     if (jsonOutput) {
       const output = outputFlags.mode === "compact" ? compactScanReport(result, reportPath) : applyOutputMode(result, outputFlags.mode);
@@ -66269,8 +66810,8 @@ program2.command("delete <sessionId>").description("Delete a specific session").
 });
 program2.command("serve").description("Start the comparison viewer web UI").option("-p, --port <port>", `Port number (default: ${IBR_DEFAULT_PORT}, auto-scans for available)`).option("--no-open", "Do not open browser automatically").action(async (options) => {
   const { spawn: spawn5 } = await import("child_process");
-  const { resolve: resolve8 } = await import("path");
-  const distBinRoot = resolve8(__dirname, "..", "..");
+  const { resolve: resolve10 } = await import("path");
+  const distBinRoot = resolve10(__dirname, "..", "..");
   const candidates = [
     (0, import_path44.join)(distBinRoot, "web-ui"),
     (0, import_path44.join)(process.cwd(), "web-ui"),
@@ -66469,9 +67010,9 @@ flowCmd.command("login <url>").description("Execute login flow").requiredOption(
 });
 async function startDetachedServer(outputDir, argv, expectSession) {
   const { spawn: spawn5 } = await import("child_process");
-  const { mkdir: mkdir31, open: open3 } = await import("fs/promises");
+  const { mkdir: mkdir33, open: open3 } = await import("fs/promises");
   const { isServerRunning: isServerRunning2, listActiveSessions: listActiveSessions2 } = await Promise.resolve().then(() => (init_browser_server(), browser_server_exports));
-  await mkdir31(outputDir, { recursive: true });
+  await mkdir33(outputDir, { recursive: true });
   const preexisting = new Set(await listActiveSessions2(outputDir).catch(() => []));
   const logPath = (0, import_path44.join)(outputDir, "browser-server.log");
   const logFile = await open3(logPath, "a");
@@ -66502,7 +67043,7 @@ async function startDetachedServer(outputDir, argv, expectSession) {
     if (child.exitCode !== null) break;
     await new Promise((r) => setTimeout(r, 250));
   }
-  const tail = await (0, import_promises38.readFile)(logPath, "utf-8").then((t) => t.slice(-1500)).catch(() => "");
+  const tail = await (0, import_promises40.readFile)(logPath, "utf-8").then((t) => t.slice(-1500)).catch(() => "");
   throw new Error(
     `Browser server did not come up within ${timeoutMs}ms (background pid ${child.pid ?? "unknown"}, exit ${child.exitCode ?? "still running"}).
 Its output is in ${logPath}.${tail ? `
@@ -66598,7 +67139,7 @@ program2.command("session:start [url]").description("Start an interactive browse
         console.log("it owns the browser and reaps it on exit. Nothing further will print.");
         console.log("For a command that returns, re-run with --detach.");
       }
-      await new Promise((resolve8) => {
+      await new Promise((resolve10) => {
         let cleanedUp = false;
         let idleTimer;
         const cleanup = async () => {
@@ -66614,7 +67155,7 @@ program2.command("session:start [url]").description("Start an interactive browse
             await cleanupServerState2(outputDir);
           } catch {
           }
-          resolve8();
+          resolve10();
         };
         const syncReap = () => {
           if (cleanedUp) return;
@@ -67393,7 +67934,7 @@ program2.command("search-test <url>").description("Run AI search test with scree
     const { generateValidationContext: generateValidationContext2, generateValidationPrompt: generateValidationPrompt2, analyzeForObviousIssues: analyzeForObviousIssues2 } = await Promise.resolve().then(() => (init_search_validation(), search_validation_exports));
     const globalOpts = program2.opts();
     const outputDir = globalOpts.output || "./.ibr";
-    const { mkdir: mkdir31 } = await import("fs/promises");
+    const { mkdir: mkdir33 } = await import("fs/promises");
     console.log(`Testing search on ${url2}...`);
     console.log(`Query: "${options.query}"`);
     if (options.intent) console.log(`Intent: ${options.intent}`);
@@ -67404,7 +67945,7 @@ program2.command("search-test <url>").description("Run AI search test with scree
     const page = new CompatPage(driver3);
     await page.goto(url2, { waitUntil: "networkidle", timeout: 3e4 });
     const sessionDir = (0, import_path44.join)(outputDir, "sessions", `search-${Date.now()}`);
-    await mkdir31(sessionDir, { recursive: true });
+    await mkdir33(sessionDir, { recursive: true });
     const result = await aiSearchFlow2(page, {
       query: options.query,
       userIntent: options.intent || `Find results related to: ${options.query}`,
@@ -67667,13 +68208,13 @@ program2.command("diagnose [url]").description("Diagnose page load issues (auto-
   try {
     const resolvedUrl = await resolveBaseUrl(url2);
     const { captureWithDiagnostics: captureWithDiagnostics2, closeBrowser: closeBrowser3 } = await Promise.resolve().then(() => (init_capture(), capture_exports));
-    const { join: join42 } = await import("path");
+    const { join: join44 } = await import("path");
     const outputDir = program2.opts().output || "./.ibr";
     console.log(`Diagnosing ${resolvedUrl}...`);
     console.log("");
     const result = await captureWithDiagnostics2({
       url: resolvedUrl,
-      outputPath: join42(outputDir, "diagnose", "test.png"),
+      outputPath: join44(outputDir, "diagnose", "test.png"),
       timeout: parseInt(options.timeout, 10),
       outputDir
     });
@@ -67735,13 +68276,13 @@ program2.command("diagnose [url]").description("Diagnose page load issues (auto-
   }
 });
 async function isPortInUse(port) {
-  return new Promise((resolve8) => {
+  return new Promise((resolve10) => {
     const net = require("net");
     const server = net.createServer();
-    server.once("error", () => resolve8(true));
+    server.once("error", () => resolve10(true));
     server.once("listening", () => {
       server.close();
-      resolve8(false);
+      resolve10(false);
     });
     server.listen(port, "127.0.0.1");
   });
@@ -67790,7 +68331,7 @@ async function resolveBaseUrl(providedUrl) {
   throw new Error("No URL provided and no dev server detected. Start your dev server or specify a URL.");
 }
 program2.command("init").description("Initialize IBR config and optionally register Claude Code plugin").option("-p, --port <port>", "Port for baseUrl (auto-detects available port if not specified)").option("-u, --url <url>", "Full base URL (overrides port)").option("--skip-plugin", "Skip Claude Code plugin registration prompt").action(async (options) => {
-  const { writeFile: writeFile22, readFile: readFile24, mkdir: mkdir31 } = await import("fs/promises");
+  const { writeFile: writeFile24, readFile: readFile25, mkdir: mkdir33 } = await import("fs/promises");
   const configPath = (0, import_path44.join)(process.cwd(), ".ibrrc.json");
   const claudeSettingsPath = (0, import_path44.join)(process.cwd(), ".claude", "settings.json");
   let configCreated = false;
@@ -67831,7 +68372,7 @@ program2.command("init").description("Initialize IBR config and optionally regis
         autoClean: true
       }
     };
-    await writeFile22(configPath, JSON.stringify(config2, null, 2));
+    await writeFile24(configPath, JSON.stringify(config2, null, 2));
     configCreated = true;
     console.log("");
     console.log("Created .ibrrc.json");
@@ -67875,7 +68416,7 @@ program2.command("init").description("Initialize IBR config and optionally regis
   let settings = { plugins: [] };
   if (hasClaudeSettings) {
     try {
-      const content = await readFile24(claudeSettingsPath, "utf-8");
+      const content = await readFile25(claudeSettingsPath, "utf-8");
       settings = JSON.parse(content);
       if (!settings.plugins) {
         settings.plugins = [];
@@ -67917,10 +68458,10 @@ program2.command("init").description("Initialize IBR config and optionally regis
     input: process.stdin,
     output: process.stdout
   });
-  const answer = await new Promise((resolve8) => {
+  const answer = await new Promise((resolve10) => {
     rl.question("Register IBR plugin for Claude Code? [Y/n] ", (ans) => {
       rl.close();
-      resolve8(ans.trim().toLowerCase());
+      resolve10(ans.trim().toLowerCase());
     });
   });
   if (answer === "n" || answer === "no") {
@@ -67937,11 +68478,11 @@ program2.command("init").description("Initialize IBR config and optionally regis
   }
   try {
     if (!claudeDirExists) {
-      await mkdir31((0, import_path44.join)(process.cwd(), ".claude"), { recursive: true });
+      await mkdir33((0, import_path44.join)(process.cwd(), ".claude"), { recursive: true });
     }
     settings.plugins = settings.plugins || [];
     settings.plugins.push(pluginPath);
-    await writeFile22(claudeSettingsPath, JSON.stringify(settings, null, 2));
+    await writeFile24(claudeSettingsPath, JSON.stringify(settings, null, 2));
     console.log("");
     console.log("IBR plugin registered.");
     console.log("");
@@ -68265,8 +68806,9 @@ program2.command("native:check [sessionId]").description("Compare current simula
     process.exit(EXIT_TOOL_ERROR);
   }
 });
-program2.command("scan:macos").description("Scan a running macOS native app via Accessibility API").option("--app <name>", 'App name (e.g., "Secrets Vault")').option("--bundle-id <id>", 'Bundle identifier (e.g., "com.secretsvault.app")').option("--pid <pid>", "Process ID").option("--screenshot <path>", "Save screenshot to path").option("--json", "Output as JSON").action(async (options) => {
+program2.command("scan:macos").description("Scan a running macOS native app via Accessibility API").option("--app <name>", 'App name (e.g., "Secrets Vault")').option("--bundle-id <id>", 'Bundle identifier (e.g., "com.secretsvault.app")').option("--pid <pid>", "Process ID").option("--screenshot <path>", "Save screenshot to path").option("--json", "Output as JSON").option("--format <mode>", "full or compact; compact saves complete evidence", "full").option("--report-dir <dir>", "Directory for private full reports in compact mode", ".ibr/reports").action(async (options) => {
   try {
+    if (!["full", "compact"].includes(options.format)) throw new Error("Use --format full or compact.");
     if (process.platform !== "darwin") {
       console.error("Error: scan:macos is only available on macOS");
       process.exit(EXIT_TOOL_ERROR);
@@ -68286,13 +68828,16 @@ program2.command("scan:macos").description("Scan a running macOS native app via 
       screenshot: options.screenshot ? { path: options.screenshot } : void 0,
       outputDir: program2.opts().output || ".ibr"
     });
-    if (options.json) {
-      console.log(JSON.stringify(result, null, 2));
+    if (options.format === "compact") {
+      const fullReport = await saveNativeReport(result, options.reportDir);
+      writeCliOutput(JSON.stringify(compactNativeScanReport(result, fullReport)), result.verdict === "FAIL" ? EXIT_ISSUES : EXIT_PASS);
+    } else if (options.json) {
+      writeCliOutput(JSON.stringify(result, null, 2), result.verdict === "FAIL" ? EXIT_ISSUES : EXIT_PASS);
     } else {
       console.log(formatMacOSScanResult2(result));
     }
     if (result.verdict === "FAIL") {
-      process.exit(EXIT_ISSUES);
+      process.exitCode = EXIT_ISSUES;
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
@@ -68888,13 +69433,13 @@ program2.command("compare-browsers <url>").description("Scan in Chrome and Safar
   let diffSaved = false;
   if (chromeScreenshot && safariScreenshot) {
     try {
-      const { PNG: PNG6 } = await Promise.resolve().then(() => __toESM(require_png()));
+      const { PNG: PNG7 } = await Promise.resolve().then(() => __toESM(require_png()));
       const pixelmatch2 = (await Promise.resolve().then(() => (init_pixelmatch(), pixelmatch_exports))).default;
-      const chromePng = PNG6.sync.read(chromeScreenshot);
-      const safariPng = PNG6.sync.read(safariScreenshot);
+      const chromePng = PNG7.sync.read(chromeScreenshot);
+      const safariPng = PNG7.sync.read(safariScreenshot);
       const w = Math.min(chromePng.width, safariPng.width);
       const h = Math.min(chromePng.height, safariPng.height);
-      const diff = new PNG6({ width: w, height: h });
+      const diff = new PNG7({ width: w, height: h });
       const chromeData = cropPngData(chromePng.data, chromePng.width, w, h);
       const safariData = cropPngData(safariPng.data, safariPng.width, w, h);
       pixelDiff = pixelmatch2(chromeData, safariData, diff.data, w, h, {
@@ -68903,10 +69448,10 @@ program2.command("compare-browsers <url>").description("Scan in Chrome and Safar
       });
       diffPercent = Math.round(pixelDiff / (w * h) * 1e4) / 100;
       if (options.saveDiff) {
-        const { writeFile: writeFile22, mkdir: mkdirFs } = await import("fs/promises");
+        const { writeFile: writeFile24, mkdir: mkdirFs } = await import("fs/promises");
         const { dirname: dirname17 } = await import("path");
         await mkdirFs(dirname17(options.saveDiff), { recursive: true });
-        await writeFile22(options.saveDiff, PNG6.sync.write(diff));
+        await writeFile24(options.saveDiff, PNG7.sync.write(diff));
         diffSaved = true;
       }
     } catch {
