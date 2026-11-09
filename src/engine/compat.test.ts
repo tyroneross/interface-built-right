@@ -279,6 +279,44 @@ describe('CompatElementHandle geometry (live Chrome fixture, Fix 2)', () => {
     expect(png.width).toBe(80)
     expect(png.height).toBe(40)
   }, 15000)
+
+  // Regression for INTE-CLI-m71693345m6a8ddxk00ss: dimensions were right but
+  // the captured CONTENT was wrong (blank for an element thousands of px down,
+  // shifted upward for one straddling the fold). Assert on pixel colour, not
+  // only on size. Each target is uniquely coloured on a grey page and has a
+  // zero-size hidden sibling matching the same selector, as observed.
+  function rgbAt(png: PNG, x: number, y: number): [number, number, number] {
+    const i = (png.width * y + x) << 2
+    return [png.data[i], png.data[i + 1], png.data[i + 2]]
+  }
+
+  for (const target of [
+    { name: 'far below the fold', id: 'far', top: 7441, height: 726, color: [255, 0, 255] as const },
+    { name: 'straddling the fold', id: 'near', top: 689, height: 682, color: [0, 200, 0] as const },
+  ]) {
+    it(`elementHandle.screenshot() captures the element's own pixels when it is ${target.name}`, async () => {
+      await ensureLaunched()
+      const rgb = `rgb(${target.color.join(',')})`
+      await page.goto(
+        'data:text/html,'
+        + '<body style="margin:0;background:rgb(128,128,128);">'
+        + '<div style="position:relative;height:11873px;">'
+        + `<section id="sec-${target.id}"><div class="pan" style="position:absolute;top:${target.top}px;left:340px;width:240px;height:${target.height}px;background:${rgb};"></div>`
+        + '<div class="pan" style="display:none;"></div></section>'
+        + '</div></body>',
+      )
+
+      const handle = await page.$(`#sec-${target.id} .pan`)
+      expect(handle).not.toBeNull()
+      const buf = await handle!.screenshot()
+      const png = PNG.sync.read(buf)
+      expect(png.width).toBe(240)
+      expect(png.height).toBe(target.height)
+      for (const [x, y] of [[1, 1], [120, Math.floor(target.height / 2)], [238, target.height - 2]] as const) {
+        expect(rgbAt(png, x, y), `pixel (${x},${y})`).toEqual([...target.color])
+      }
+    }, 15000)
+  }
 })
 
 // ─── Actionability (live Chrome, E3-A / T-06) ──────────────────────────

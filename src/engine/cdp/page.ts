@@ -10,7 +10,9 @@ export interface ScreenshotOptions {
   format?: 'png' | 'jpeg'
   quality?: number           // JPEG quality (0-100)
   fullPage?: boolean         // Capture entire scrollable page
-  clip?: {                   // Capture specific region
+  clip?: {                   // Capture specific region, in VIEWPORT-relative CSS px
+                             // (getBoundingClientRect / DOM.getBoxModel space);
+                             // screenshot() translates it to document space.
     x: number
     y: number
     width: number
@@ -23,6 +25,7 @@ export interface LayoutMetrics {
   contentSize: { width: number; height: number }
   layoutViewport: { pageX: number; pageY: number; clientWidth: number; clientHeight: number }
   visualViewport: { offsetX: number; offsetY: number; pageX: number; pageY: number; clientWidth: number; clientHeight: number; scale: number }
+  cssVisualViewport?: { offsetX: number; offsetY: number; pageX: number; pageY: number; clientWidth: number; clientHeight: number; scale?: number }
 }
 
 /**
@@ -78,7 +81,18 @@ export class PageDomain {
     const params: Record<string, unknown> = { format }
     if (options.quality !== undefined) params.quality = options.quality
     if (options.clip) {
-      params.clip = { ...options.clip, scale: options.clip.scale ?? 1 }
+      // CDP's Page.captureScreenshot clip is in DOCUMENT coordinates, but
+      // every caller measures the element in viewport coordinates. Add the
+      // current scroll offset, and capture beyond the viewport so a clip
+      // taller than (or outside) the visible area is still rendered.
+      const { pageX, pageY } = await this.getScrollOffset()
+      params.clip = {
+        ...options.clip,
+        x: options.clip.x + pageX,
+        y: options.clip.y + pageY,
+        scale: options.clip.scale ?? 1,
+      }
+      params.captureBeyondViewport = true
     }
 
     const result = await this.conn.send<{ data: string }>(
@@ -120,6 +134,13 @@ export class PageDomain {
       // Restore original viewport
       await this.conn.send('Emulation.clearDeviceMetricsOverride', {}, this.sessionId)
     }
+  }
+
+  /** Current scroll position of the visual viewport, in CSS pixels. */
+  private async getScrollOffset(): Promise<{ pageX: number; pageY: number }> {
+    const m = await this.getLayoutMetrics()
+    const vv = m.cssVisualViewport ?? m.visualViewport
+    return { pageX: vv.pageX, pageY: vv.pageY }
   }
 
   async getLayoutMetrics(): Promise<LayoutMetrics> {

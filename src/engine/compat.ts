@@ -118,11 +118,10 @@ export class CompatElementHandle {
     const x = Math.min(q[0], q[2], q[4], q[6])
     const y = Math.min(q[1], q[3], q[5], q[7])
 
-    // scrollIntoViewIfNeeded() guarantees the element now sits inside the
-    // current viewport, so a plain (non-`captureBeyondViewport`) clip in
-    // viewport-relative coordinates — what getBoxModel returns, matching
-    // getBoundingClientRect() — is correct without needing page-coordinate
-    // translation.
+    // getBoxModel returns viewport-relative coordinates (matching
+    // getBoundingClientRect()); PageDomain.screenshot() translates the clip
+    // to document coordinates using the scroll offset taken after the scroll
+    // above, so the element is captured even when taller than the viewport.
     const buf = await this.driver.page.screenshot({
       clip: { x, y, width: model.width, height: model.height },
     })
