@@ -144,6 +144,15 @@ interface LayoutMetrics {
         clientHeight: number;
         scale: number;
     };
+    cssVisualViewport?: {
+        offsetX: number;
+        offsetY: number;
+        pageX: number;
+        pageY: number;
+        clientWidth: number;
+        clientHeight: number;
+        scale?: number;
+    };
 }
 /**
  * A node in the frame hierarchy returned by Page.getFrameTree — verified
@@ -191,6 +200,8 @@ declare class PageDomain {
      * capture with captureBeyondViewport → restore viewport.
      */
     private fullPageScreenshot;
+    /** Current scroll position of the visual viewport, in CSS pixels. */
+    private getScrollOffset;
     getLayoutMetrics(): Promise<LayoutMetrics>;
     enableLifecycleEvents(): Promise<void>;
     /**

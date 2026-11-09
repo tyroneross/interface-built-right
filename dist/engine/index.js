@@ -1492,7 +1492,14 @@ var PageDomain = class {
     const params = { format };
     if (options.quality !== void 0) params.quality = options.quality;
     if (options.clip) {
-      params.clip = { ...options.clip, scale: options.clip.scale ?? 1 };
+      const { pageX, pageY } = await this.getScrollOffset();
+      params.clip = {
+        ...options.clip,
+        x: options.clip.x + pageX,
+        y: options.clip.y + pageY,
+        scale: options.clip.scale ?? 1
+      };
+      params.captureBeyondViewport = true;
     }
     const result = await this.conn.send(
       "Page.captureScreenshot",
@@ -1531,6 +1538,12 @@ var PageDomain = class {
     } finally {
       await this.conn.send("Emulation.clearDeviceMetricsOverride", {}, this.sessionId);
     }
+  }
+  /** Current scroll position of the visual viewport, in CSS pixels. */
+  async getScrollOffset() {
+    const m = await this.getLayoutMetrics();
+    const vv = m.cssVisualViewport ?? m.visualViewport;
+    return { pageX: vv.pageX, pageY: vv.pageY };
   }
   async getLayoutMetrics() {
     return this.conn.send(
