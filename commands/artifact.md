@@ -90,9 +90,10 @@ Jinja template.
 | Situation | Load |
 |---|---|
 | designing the page | `ibr:artifact-design` |
-| drawing a diagram in it | `ibr:artifact-diagramming` |
+| process-flow, workflow, data-flow, or sequence diagram (observed or proposed) | `diagram-intelligence:diagram-intelligence` by default; read `references/process-diagrams.md`, then `ibr:artifact-diagramming` for artifact integration |
+| drawing another diagram in it | `ibr:artifact-diagramming` |
 | it has charts or KPIs | `ibr:data-visualization` |
-| diagram generated from source, not argued | the `diagram-intelligence` plugin |
+| other diagram generated from source | `diagram-intelligence:diagram-intelligence` |
 | verifying it renders in a real browser | `/ibr:screenshot`, or load `design-validation` for a full scan |
 
 ## Notes

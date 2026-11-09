@@ -77,8 +77,12 @@ Inline SVG only for `standalone` — mermaid has no renderer off-viewer (`AX009`
 Use `viewBox` for sizing, `currentColor` for strokes and text, `<marker>` or
 `<polygon>` for arrowheads, `role="img"` plus `aria-label` for the claim, and a
 `<figure>`/`<figcaption>` around it. Label every arrow with the verb it performs.
-Diagrams generated *from source* belong to the `diagram-intelligence` plugin, not
-to hand-authoring.
+Process-flow, workflow, data-flow, and sequence diagrams default to
+`diagram-intelligence:diagram-intelligence`, including proposed processes.
+Read `<plugin-root>/references/process-diagrams.md`; Diagram Intelligence owns
+graph mapping and rendering, while IBR owns artifact integration and rendered
+review. Respect a user override and disclose an unavailable-skill fallback.
+Other diagrams generated from source also belong to Diagram Intelligence.
 
 ## Portability limits
 

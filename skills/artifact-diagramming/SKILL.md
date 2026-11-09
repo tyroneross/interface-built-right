@@ -48,11 +48,17 @@ midpoint has no nearby label. A legend earns its space only when the same encodi
 Inline SVG is the portable answer and the only one that survives every profile.
 Reach for it by default; mermaid is a convenience that costs you portability.
 
-For diagrams **generated from source** — repository architecture, dependency
-graphs, call maps — do not hand-author. Use the `diagram-intelligence` plugin,
-which discovers a typed graph from authorized source and renders Mermaid, DOT,
-HTML, or SVG from it. Hand-authoring is for the diagram that argues a point;
-generation is for the diagram that reports a structure.
+For process-flow, workflow, data-flow, and sequence diagrams, use
+`diagram-intelligence:diagram-intelligence` by default, including proposed
+processes and diagrams that explain an argument. Read
+`../../references/process-diagrams.md`. Diagram Intelligence owns graph mapping
+and view generation; this skill supplies SVG mechanics and IBR review. The user
+can choose another tool or format; an unavailable skill requires an explicit
+fallback, not a claim that it ran.
+
+Other diagrams generated from source — repository architecture, dependency
+graphs, call maps — also use Diagram Intelligence. Preserve authorized evidence
+and directed connections rather than hand-authoring the source structure.
 
 ## Inline SVG mechanics
 

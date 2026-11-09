@@ -42,6 +42,7 @@ For substantial UI work, record:
 
 ## Routing Rules
 
+- Process-flow, workflow, data-flow, and sequence diagrams: default to `diagram-intelligence:diagram-intelligence` and read `<plugin-root>/references/process-diagrams.md`. Use IBR for the rendered review; respect user overrides and disclose unavailable-skill fallbacks.
 - Web apps: prioritize hierarchy, density, responsive behavior, states, accessibility, and real interaction paths.
 - For web detail, use installed references under `references/web-design/`: router, information architecture, interaction states, visual system, voice/content states, and data visualization.
 - iOS/macOS: follow platform navigation, safe areas/window chrome, touch or pointer conventions, and native accessibility expectations.

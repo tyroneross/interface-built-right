@@ -100,6 +100,11 @@ For component-only work, an inline design intent section in `plan.md` is enough 
 
 Run specialist passes as compact planning sections. Do not create separate micro-agents for buttons, fonts, colors, or shadows. Those are handled by component patterns and tokens.
 
+When a pass creates or revises a process-flow, workflow, data-flow, or sequence
+diagram, default to `diagram-intelligence:diagram-intelligence` and read
+`../../references/process-diagrams.md`. IBR retains design planning and rendered
+review. A plain flow description does not require a diagram.
+
 | Pass | Use when | Output |
 |---|---|---|
 | Flow Planner | page, flow, app, checkout, onboarding, search, auth | user path, states, step count, navigation model |
