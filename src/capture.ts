@@ -455,6 +455,8 @@ export async function captureWithDiagnostics(
   const suggestions: string[] = [];
   let httpStatus: number | undefined;
 
+  // Closed in `finally` when an error skips the explicit close below.
+  let openDriver: EngineDriver | null = null;
   try {
     // Ensure output directory exists
     await mkdir(dirname(outputPath), { recursive: true });
@@ -473,6 +475,7 @@ export async function captureWithDiagnostics(
       wsEndpoint,
       chromePath,
     });
+    openDriver = driverInstance;
     const page = new CompatPage(driverInstance);
 
     // Collect console errors
@@ -506,6 +509,7 @@ export async function captureWithDiagnostics(
       navigationTime = Date.now() - navStart;
     } catch (navError) {
       await driverInstance.close();
+      openDriver = null;
 
       const errorMsg = navError instanceof Error ? navError.message : String(navError);
       const isTimeout = errorMsg.includes('Timeout');
@@ -575,6 +579,7 @@ export async function captureWithDiagnostics(
     renderTime = Date.now() - renderStart;
 
     await driverInstance.close();
+    openDriver = null;
 
     // Generate performance suggestions
     if (navigationTime > 5000) {
@@ -621,5 +626,7 @@ export async function captureWithDiagnostics(
         suggestion: 'Check that Chrome is installed and accessible. IBR uses a direct CDP connection — ensure Chrome is available on your PATH or at the default install location.',
       },
     };
+  } finally {
+    if (openDriver) await openDriver.close().catch(() => {});
   }
 }

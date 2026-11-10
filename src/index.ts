@@ -687,11 +687,17 @@ export class InterfaceBuiltRight {
     });
     const page = new CompatPage(driver);
 
-    // Navigate
-    await page.goto(fullUrl, {
-      waitUntil: 'domcontentloaded',
-      timeout: options.timeout || this.config.timeout,
-    });
+    // Navigate. On failure no session is returned, so nothing else could
+    // ever close this browser: close it here before rethrowing.
+    try {
+      await page.goto(fullUrl, {
+        waitUntil: 'domcontentloaded',
+        timeout: options.timeout || this.config.timeout,
+      });
+    } catch (error) {
+      await driver.close().catch(() => {});
+      throw error;
+    }
 
     // Wait for network idle
     if (this.config.waitForNetworkIdle) {

@@ -1908,6 +1908,18 @@ async function startDetachedServer(
     await new Promise((r) => setTimeout(r, 250));
   }
 
+  // A server that missed its deadline is reported as failed, so it must not
+  // keep running: stop the detached group (owner and its Chrome).
+  if (child.exitCode === null && child.pid) {
+    try { process.kill(-child.pid, 'SIGTERM'); } catch { /* already gone */ }
+    const stopBy = Date.now() + 10_000;
+    while (child.exitCode === null && Date.now() < stopBy) {
+      try { process.kill(child.pid, 0); } catch { break; }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already gone */ }
+  }
+
   // Never leave the caller guessing: name the deadline and where the child's
   // own output went.
   const tail = await readFile(logPath, 'utf-8').then((t) => t.slice(-1500)).catch(() => '');
@@ -4403,10 +4415,10 @@ program
         }
       }
 
-      if (!result.success) process.exit(EXIT_ISSUES);
+      if (!result.success) process.exitCode = EXIT_ISSUES;
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(EXIT_TOOL_ERROR);
+      process.exitCode = EXIT_TOOL_ERROR;
     } finally {
       await driver.close();
     }
@@ -4465,10 +4477,10 @@ program
         if (result.error) console.log(`Error: ${result.error}`);
       }
 
-      if (!result.success) process.exit(EXIT_ISSUES);
+      if (!result.success) process.exitCode = EXIT_ISSUES;
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(EXIT_TOOL_ERROR);
+      process.exitCode = EXIT_TOOL_ERROR;
     } finally {
       await driver.close();
     }
@@ -4521,10 +4533,10 @@ program
         if (result.error) console.log(`Error: ${result.error}`);
       }
 
-      if (!result.success) process.exit(EXIT_ISSUES);
+      if (!result.success) process.exitCode = EXIT_ISSUES;
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(EXIT_TOOL_ERROR);
+      process.exitCode = EXIT_TOOL_ERROR;
     } finally {
       await driver.close();
     }
@@ -5370,14 +5382,16 @@ program
       if (!element) {
         console.error(`Element not found: "${opts.target}"`)
         console.error('Use "ibr observe <url>" to see available elements.')
-        process.exit(EXIT_TOOL_ERROR)
+        process.exitCode = EXIT_TOOL_ERROR
+        return
       }
 
       const action = opts.action
       const knownActions = ['click', 'type', 'fill', 'hover', 'press', 'scroll', 'select', 'check']
       if (!knownActions.includes(action)) {
         console.error(`Unknown action: ${action}`)
-        process.exit(EXIT_TOOL_ERROR)
+        process.exitCode = EXIT_TOOL_ERROR
+        return
       }
 
       // f8 / T-09 (CLI leg): this used to print "✓ ... succeeded" unconditionally
@@ -5435,7 +5449,7 @@ program
       }
     } catch (err) {
       console.error(`Failed: ${err instanceof Error ? err.message : String(err)}`)
-      process.exit(EXIT_TOOL_ERROR)
+      process.exitCode = EXIT_TOOL_ERROR
     } finally {
       await driver.close().catch(() => {})
     }
@@ -5475,7 +5489,7 @@ program
       })
     } catch (err) {
       console.error(`Failed: ${err instanceof Error ? err.message : String(err)}`)
-      process.exit(EXIT_TOOL_ERROR)
+      process.exitCode = EXIT_TOOL_ERROR
     } finally {
       await driver.close().catch(() => {})
     }
@@ -5524,7 +5538,7 @@ program
       }
     } catch (err) {
       console.error(`Failed: ${err instanceof Error ? err.message : String(err)}`)
-      process.exit(EXIT_TOOL_ERROR)
+      process.exitCode = EXIT_TOOL_ERROR
     } finally {
       await driver.close().catch(() => {})
     }
