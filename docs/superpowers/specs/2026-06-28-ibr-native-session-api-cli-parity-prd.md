@@ -4,7 +4,6 @@
 **Owner:** IBR
 **Date:** 2026-06-28
 **Planning authority:** build-loop
-**Related research:** `/Users/tyroneross/dev/research/topics/tools/tools.ibr-cli-api-mcp-decision.md`
 **Related implementation note:** `3e9375a fix(native): stabilize AX session navigation`
 
 ---
