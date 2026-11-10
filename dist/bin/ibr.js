@@ -55803,6 +55803,13 @@ async function runScript(options) {
           ...env
         }
       });
+      const killGroupOnExit = () => {
+        try {
+          if (child.pid !== void 0) process.kill(-child.pid, "SIGKILL");
+        } catch {
+        }
+      };
+      process.once("exit", killGroupOnExit);
       const killTimer = setTimeout(() => {
         timedOut = true;
         try {
@@ -55821,11 +55828,13 @@ async function runScript(options) {
       });
       child.on("close", (code) => {
         clearTimeout(killTimer);
+        process.removeListener("exit", killGroupOnExit);
         exitCode = code ?? (timedOut ? 124 : 1);
         resolvePromise();
       });
       child.on("error", (err) => {
         clearTimeout(killTimer);
+        process.removeListener("exit", killGroupOnExit);
         stderr += `
 Process error: ${err.message}`;
         exitCode = 1;

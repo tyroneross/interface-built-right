@@ -20,8 +20,9 @@ import { ensureToolchainPath } from "../native/toolchain-env.js";
 ensureToolchainPath();
 
 // Best-effort cleanup of the warm browser pool on graceful exit. The pool is
-// lazy-init in tools.ts; this just closes it if it was ever opened. Hard
-// kills (SIGKILL) skip this — Chrome process is reaped by the OS.
+// lazy-init in tools.ts; this just closes it if it was ever opened. A SIGKILL
+// skips this and the OS does NOT reap Chrome (it reparents to launchd); the
+// engine's orphan reaper stops it on the next IBR command.
 let cleanedUp = false;
 async function shutdownPool() {
   if (cleanedUp) return;

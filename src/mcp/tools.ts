@@ -1530,8 +1530,8 @@ export async function closeMcpBrowserPool(): Promise<void> {
       await pool.close();
     } catch {
       // Best-effort cleanup. If the pool never finished initialising we have
-      // nothing concrete to close; the underlying browser process (if any)
-      // will be reaped on parent exit.
+      // nothing concrete to close; a Chrome the engine launched is killed by
+      // its exit handler when this process exits.
     }
   }
 }

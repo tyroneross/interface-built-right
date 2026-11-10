@@ -108,6 +108,13 @@ export async function runScript(options: RunScriptOptions): Promise<ScriptResult
         },
       })
 
+      // The script runs in its own process group (detached), so it would
+      // outlive this process. Kill the group if we exit first.
+      const killGroupOnExit = () => {
+        try { if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL') } catch { /* gone */ }
+      }
+      process.once('exit', killGroupOnExit)
+
       const killTimer = setTimeout(() => {
         timedOut = true
         try {
@@ -125,12 +132,14 @@ export async function runScript(options: RunScriptOptions): Promise<ScriptResult
 
       child.on('close', (code: number | null) => {
         clearTimeout(killTimer)
+        process.removeListener('exit', killGroupOnExit)
         exitCode = code ?? (timedOut ? 124 : 1)
         resolvePromise()
       })
 
       child.on('error', (err: Error) => {
         clearTimeout(killTimer)
+        process.removeListener('exit', killGroupOnExit)
         stderr += `\nProcess error: ${err.message}`
         exitCode = 1
         resolvePromise()
