@@ -555,6 +555,7 @@ function userDataDirFromCommand(command) {
   const match = command.match(/--user-data-dir=(?:"([^"]+)"|'([^']+)'|(\S+))/);
   return match?.[1] ?? match?.[2] ?? match?.[3] ?? null;
 }
+var IBR_OWNER_SWITCH = "--ibr-owner";
 function isIbrProfile(profileDir) {
   return profileDir.startsWith(`${tmpdir()}/ibr-chrome-`) || profileDir === join(homedir(), ".ibr", "chromium-profile") || profileDir === ".ibr/browser-profile" || profileDir.endsWith("/.ibr/browser-profile");
 }
@@ -566,7 +567,8 @@ function parseIbrChromeProcesses(psOutput) {
     const command = match[3];
     if (!command.includes("--remote-debugging-port=") || command.includes("--type=")) continue;
     const profileDir = userDataDirFromCommand(command);
-    if (!profileDir || !isIbrProfile(profileDir)) continue;
+    const tagged = command.includes(`${IBR_OWNER_SWITCH}=`);
+    if (!profileDir || !(tagged || isIbrProfile(profileDir))) continue;
     processes.push({
       pid: Number(match[1]),
       ppid: Number(match[2]),
@@ -915,6 +917,10 @@ var BrowserManager = class {
     const connection = resolveBrowserConnectionOptions(options);
     this._mode = connection.mode;
     if (connection.mode === "connect") {
+      try {
+        reapOrphanedIbrChromeProcesses();
+      } catch {
+      }
       this.process = null;
       this._port = 0;
       this._cdpUrl = connection.cdpUrl ?? null;
@@ -996,6 +1002,7 @@ Checked: ${CHROME_PATHS.join(", ")}`
     const args = [
       `--remote-debugging-port=${this._port}`,
       `--user-data-dir=${userDataDir}`,
+      `${IBR_OWNER_SWITCH}=${process.pid}`,
       "--no-first-run",
       "--no-default-browser-check",
       "--disable-background-networking",

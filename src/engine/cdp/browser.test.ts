@@ -118,6 +118,18 @@ describe('IBR Chrome process ownership', () => {
     expect(result).toEqual({ reaped: [101], preserved: [201] })
     expect(killed).toEqual([[101, 'SIGTERM']])
   })
+
+  it('recognises a tagged orphan in a profile the path rules miss, and never the shared Chrome', () => {
+    // `ibr -o out session:start` uses out/browser-profile; 44 such trees leaked on 2026-11-09.
+    const table = [
+      ' 401   1 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=50003 --user-data-dir=out/browser-profile --ibr-owner=4000 --headless=new',
+      ' 501   1 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=50004 --user-data-dir=/Users/test/.ibr/shared-chrome/profile-x --headless=new',
+    ].join('\n')
+    const killed: number[] = []
+    const result = reapOrphanedIbrChromeProcesses({ psOutput: table, kill: (pid) => killed.push(pid) })
+    expect(killed).toEqual([401])
+    expect(result.reaped).toEqual([401])
+  })
 })
 
 describe('Chrome SingletonLock reclamation', () => {

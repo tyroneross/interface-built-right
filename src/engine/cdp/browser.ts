@@ -177,6 +177,9 @@ function userDataDirFromCommand(command: string): string | null {
   return match?.[1] ?? match?.[2] ?? match?.[3] ?? null
 }
 
+/** Switch IBR adds to each private Chrome it launches; Chrome ignores unknown switches. */
+export const IBR_OWNER_SWITCH = '--ibr-owner'
+
 function isIbrProfile(profileDir: string): boolean {
   return profileDir.startsWith(`${tmpdir()}/ibr-chrome-`)
     || profileDir === join(homedir(), '.ibr', 'chromium-profile')
@@ -199,7 +202,10 @@ export function parseIbrChromeProcesses(psOutput: string): IbrChromeProcess[] {
     const command = match[3]
     if (!command.includes('--remote-debugging-port=') || command.includes('--type=')) continue
     const profileDir = userDataDirFromCommand(command)
-    if (!profileDir || !isIbrProfile(profileDir)) continue
+    // IBR tags every private Chrome it launches. The tag covers profiles the
+    // path rules cannot recognise, such as `ibr -o <dir>` (<dir>/browser-profile).
+    const tagged = command.includes(`${IBR_OWNER_SWITCH}=`)
+    if (!profileDir || !(tagged || isIbrProfile(profileDir))) continue
     processes.push({
       pid: Number(match[1]),
       ppid: Number(match[2]),
@@ -725,6 +731,9 @@ export class BrowserManager {
     this._mode = connection.mode
 
     if (connection.mode === 'connect') {
+      // Connect mode is the default path, so reap here too: otherwise an
+      // orphan is only collected when some later run happens to launch locally.
+      try { reapOrphanedIbrChromeProcesses() } catch { /* best effort */ }
       this.process = null
       this._port = 0
       this._cdpUrl = connection.cdpUrl ?? null
@@ -869,6 +878,7 @@ export class BrowserManager {
     const args = [
       `--remote-debugging-port=${this._port}`,
       `--user-data-dir=${userDataDir}`,
+      `${IBR_OWNER_SWITCH}=${process.pid}`,
       '--no-first-run',
       '--no-default-browser-check',
       '--disable-background-networking',

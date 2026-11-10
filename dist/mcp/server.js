@@ -20599,7 +20599,8 @@ function parseIbrChromeProcesses(psOutput) {
     const command = match[3];
     if (!command.includes("--remote-debugging-port=") || command.includes("--type=")) continue;
     const profileDir = userDataDirFromCommand(command);
-    if (!profileDir || !isIbrProfile(profileDir)) continue;
+    const tagged = command.includes(`${IBR_OWNER_SWITCH}=`);
+    if (!profileDir || !(tagged || isIbrProfile(profileDir))) continue;
     processes.push({
       pid: Number(match[1]),
       ppid: Number(match[2]),
@@ -20916,7 +20917,7 @@ function reapOrphanedProfiles() {
     }
   }
 }
-var import_node_child_process, import_node_fs, import_promises2, import_node_net, import_node_os, import_node_path, CHROME_PATHS, PROFILE_REAP_GRACE_MS, CHROME_EXIT_GRACE_MS, CODE_SIGN_CLONE_GRACE_MS, heldProfileLocks, RECLAIM_MUTEX_STALE_MS, launchedChromes, CHROME_KILL_WAIT_MS, BrowserManager;
+var import_node_child_process, import_node_fs, import_promises2, import_node_net, import_node_os, import_node_path, CHROME_PATHS, PROFILE_REAP_GRACE_MS, IBR_OWNER_SWITCH, CHROME_EXIT_GRACE_MS, CODE_SIGN_CLONE_GRACE_MS, heldProfileLocks, RECLAIM_MUTEX_STALE_MS, launchedChromes, CHROME_KILL_WAIT_MS, BrowserManager;
 var init_browser = __esm({
   "src/engine/cdp/browser.ts"() {
     "use strict";
@@ -20941,6 +20942,7 @@ var init_browser = __esm({
       "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"
     ];
     PROFILE_REAP_GRACE_MS = 60 * 60 * 1e3;
+    IBR_OWNER_SWITCH = "--ibr-owner";
     CHROME_EXIT_GRACE_MS = 1e4;
     CODE_SIGN_CLONE_GRACE_MS = 2 * 60 * 1e3;
     heldProfileLocks = /* @__PURE__ */ new Set();
@@ -20974,6 +20976,10 @@ var init_browser = __esm({
         const connection = resolveBrowserConnectionOptions(options);
         this._mode = connection.mode;
         if (connection.mode === "connect") {
+          try {
+            reapOrphanedIbrChromeProcesses();
+          } catch {
+          }
           this.process = null;
           this._port = 0;
           this._cdpUrl = connection.cdpUrl ?? null;
@@ -21056,6 +21062,7 @@ Checked: ${CHROME_PATHS.join(", ")}`
         const args = [
           `--remote-debugging-port=${this._port}`,
           `--user-data-dir=${userDataDir}`,
+          `${IBR_OWNER_SWITCH}=${process.pid}`,
           "--no-first-run",
           "--no-default-browser-check",
           "--disable-background-networking",
