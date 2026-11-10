@@ -4077,7 +4077,7 @@ function reapOrphanedIbrChromeProcesses(options = {}) {
   } catch {
     return { reaped: [], preserved: [] };
   }
-  const kill = options.kill ?? ((pid, signal) => process.kill(pid, signal));
+  const kill = options.kill ?? ((pid, signal2) => process.kill(pid, signal2));
   const result = { reaped: [], preserved: [] };
   for (const entry of processes) {
     if (entry.ppid !== 1) {
@@ -4532,8 +4532,8 @@ Checked: ${CHROME_PATHS.join(", ")}`
         this.process.stderr?.on("data", (chunk) => {
           this._stderrTail = (this._stderrTail + chunk.toString()).slice(-2e3);
         });
-        this.process.on("exit", (code, signal) => {
-          this._exit = { code, signal };
+        this.process.on("exit", (code, signal2) => {
+          this._exit = { code, signal: signal2 };
         });
         progress(`spawned chrome pid ${this.process.pid ?? "unknown"}`);
         const wsUrl = await this.waitForDebugger(progress);
@@ -44872,7 +44872,7 @@ async function* askStream(url2, question, options = {}) {
     else if (next === "WARN") aggregate = "WARN";
     else if (next === "UNCERTAIN" && aggregate === "PASS") aggregate = "UNCERTAIN";
   }
-  const signal = options.signal;
+  const signal2 = options.signal;
   let aborted2 = false;
   let exempted;
   let cropFn = null;
@@ -44901,7 +44901,7 @@ async function* askStream(url2, question, options = {}) {
       if (Object.keys(counts).length > 0) exempted = counts;
     }
     outer: for (const element of elements) {
-      if (signal?.aborted) {
+      if (signal2?.aborted) {
         aborted2 = true;
         break;
       }
@@ -46037,10 +46037,11 @@ function configuredSessionIdleMs(env = process.env) {
   const raw = Number(configured);
   return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_SESSION_IDLE_MS;
 }
-var DEFAULT_SESSION_IDLE_MS;
+var OWNER_CHECK_MS, DEFAULT_SESSION_IDLE_MS;
 var init_session_idle = __esm({
   "src/session-idle.ts"() {
     "use strict";
+    OWNER_CHECK_MS = 15e3;
     DEFAULT_SESSION_IDLE_MS = 60 * 60 * 1e3;
   }
 });
@@ -46333,7 +46334,7 @@ var init_daemon = __esm({
           child.on("error", (err) => this.onExit(`daemon spawn error: ${err.message}`));
           child.on(
             "exit",
-            (code, signal) => this.onExit(`daemon exited (code=${code ?? "null"}, signal=${signal ?? "null"})`)
+            (code, signal2) => this.onExit(`daemon exited (code=${code ?? "null"}, signal=${signal2 ?? "null"})`)
           );
           const ready = await this.waitForReady();
           if (!ready.trusted) {
@@ -51471,7 +51472,9 @@ __export(browser_server_exports, {
   isServerRunning: () => isServerRunning,
   lastBrowserServerFailure: () => lastBrowserServerFailure,
   lastBrowserServerStopFailure: () => lastBrowserServerStopFailure,
+  lastBrowserServerStopReport: () => lastBrowserServerStopReport,
   listActiveSessions: () => listActiveSessions,
+  manifestOwnedBy: () => manifestOwnedBy,
   startBrowserServer: () => startBrowserServer,
   stopBrowserServer: () => stopBrowserServer
 });
@@ -51725,43 +51728,96 @@ function lastBrowserServerFailure() {
 function lastBrowserServerStopFailure() {
   return lastStopFailure;
 }
+function lastBrowserServerStopReport() {
+  return lastStopReport;
+}
+async function waitForExit(pids, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let alive = pids.filter(pidAlive2);
+  while (alive.length > 0 && Date.now() < deadline) {
+    await sleep8(100);
+    alive = alive.filter(pidAlive2);
+  }
+  return alive;
+}
+function signal(pid, sig) {
+  try {
+    process.kill(pid, sig);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function manifestOwnedBy(outputDir, pid) {
+  const { stateFile } = getPaths(outputDir);
+  let text;
+  try {
+    text = await (0, import_promises30.readFile)(stateFile, "utf-8");
+  } catch (err) {
+    return err.code === "ENOENT" ? false : null;
+  }
+  try {
+    return JSON.parse(text).pid === pid;
+  } catch {
+    return null;
+  }
+}
 async function stopBrowserServer(outputDir) {
   lastStopFailure = null;
-  const { stateFile, profileDir: _profileDir } = getPaths(outputDir);
+  lastStopReport = null;
+  const { stateFile } = getPaths(outputDir);
   if (!(0, import_fs23.existsSync)(stateFile)) {
     return false;
   }
+  let state;
   try {
-    const content = await (0, import_promises30.readFile)(stateFile, "utf-8");
-    const state = JSON.parse(content);
-    const wsUrl = state.cdpUrl ? await resolveWsEndpoint2(state.cdpUrl) : state.wsEndpoint;
-    const driver3 = new EngineDriver();
-    await withTimeout(
-      driver3.connectExisting(wsUrl),
-      WS_CONNECT_TIMEOUT_MS,
-      `CDP attach to shut down browser server at ${state.cdpUrl ?? wsUrl}`
-    );
-    if (state.ownsBrowser) {
-      await withTimeout(driver3.close(), WS_CONNECT_TIMEOUT_MS, "browser shutdown");
-    } else {
-      await withTimeout(driver3.disconnect(), WS_CONNECT_TIMEOUT_MS, "browser detach");
-    }
-    await (0, import_promises30.unlink)(stateFile);
-    return true;
+    state = JSON.parse(await (0, import_promises30.readFile)(stateFile, "utf-8"));
   } catch (error51) {
-    lastStopFailure = error51 instanceof Error ? error51.message : String(error51);
-    try {
-      const content = await (0, import_promises30.readFile)(stateFile, "utf-8");
-      const state = JSON.parse(content);
-      if (state.chromePid) {
-        process.kill(state.chromePid, "SIGKILL");
-        sweepStaleChromeCodeSignClones();
-      }
-    } catch {
-    }
+    lastStopFailure = `browser-server.json was unreadable: ${error51 instanceof Error ? error51.message : String(error51)}`;
     await cleanupServerState(outputDir);
     return false;
   }
+  const report = { signalled: [], gone: [], alive: [] };
+  lastStopReport = report;
+  const owner = state.pid && state.pid !== process.pid ? state.pid : void 0;
+  const chrome = state.ownsBrowser && state.chromePid ? state.chromePid : void 0;
+  const watched = [owner, chrome].filter((pid) => pid !== void 0 && pidAlive2(pid));
+  if (state.ownsBrowser && owner && pidAlive2(owner)) {
+    if (signal(owner, "SIGTERM")) report.signalled.push(owner);
+    await waitForExit(watched, OWNER_STOP_WAIT_MS);
+  } else if (state.ownsBrowser) {
+    if (chrome && signal(chrome, "SIGTERM")) report.signalled.push(chrome);
+    if (watched.length > 0) await waitForExit(watched, KILL_WAIT_MS);
+  } else {
+    try {
+      const wsUrl = state.cdpUrl ? await resolveWsEndpoint2(state.cdpUrl) : state.wsEndpoint;
+      const driver3 = new EngineDriver();
+      await withTimeout(
+        driver3.connectExisting(wsUrl),
+        WS_CONNECT_TIMEOUT_MS,
+        `CDP attach to detach from browser at ${state.cdpUrl ?? wsUrl}`
+      );
+      await withTimeout(driver3.disconnect(), WS_CONNECT_TIMEOUT_MS, "browser detach");
+    } catch (error51) {
+      lastStopFailure = error51 instanceof Error ? error51.message : String(error51);
+    }
+  }
+  let survivors = watched.filter(pidAlive2);
+  if (survivors.length > 0) {
+    for (const pid of survivors) {
+      if (signal(pid, "SIGKILL") && !report.signalled.includes(pid)) report.signalled.push(pid);
+    }
+    sweepStaleChromeCodeSignClones();
+    survivors = await waitForExit(survivors, KILL_WAIT_MS);
+  }
+  report.alive = survivors;
+  report.gone = watched.filter((pid) => !survivors.includes(pid));
+  await cleanupServerState(outputDir);
+  if (survivors.length > 0) {
+    lastStopFailure = `pid ${survivors.join(", ")} still running after SIGKILL`;
+    return false;
+  }
+  return lastStopFailure === null;
 }
 async function listActiveSessions(outputDir) {
   const { sessionsDir } = getPaths(outputDir);
@@ -51781,7 +51837,7 @@ async function listActiveSessions(outputDir) {
   }
   return liveSessions;
 }
-var import_promises30, import_fs23, import_path33, UserActionRequiredError, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, HARD_WALL_SCAN_CONCURRENCY, lastConnectFailure, lastStopFailure, PersistentSession;
+var import_promises30, import_fs23, import_path33, UserActionRequiredError, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, HARD_WALL_SCAN_CONCURRENCY, lastConnectFailure, lastStopFailure, lastStopReport, OWNER_STOP_WAIT_MS, KILL_WAIT_MS, sleep8, PersistentSession;
 var init_browser_server = __esm({
   "src/browser-server.ts"() {
     "use strict";
@@ -51813,6 +51869,10 @@ var init_browser_server = __esm({
     HARD_WALL_SCAN_CONCURRENCY = 64;
     lastConnectFailure = null;
     lastStopFailure = null;
+    lastStopReport = null;
+    OWNER_STOP_WAIT_MS = 1e4;
+    KILL_WAIT_MS = 2e3;
+    sleep8 = (ms) => new Promise((resolve10) => setTimeout(resolve10, ms));
     PersistentSession = class _PersistentSession {
       driver;
       page;
@@ -63198,10 +63258,10 @@ Expecting one of '${allowedValues.join("', '")}'`);
     }
     if (!proc.killed) {
       const signals = ["SIGUSR1", "SIGUSR2", "SIGTERM", "SIGINT", "SIGHUP"];
-      signals.forEach((signal) => {
-        import_node_process.default.on(signal, () => {
+      signals.forEach((signal2) => {
+        import_node_process.default.on(signal2, () => {
           if (proc.killed === false && proc.exitCode === null) {
-            proc.kill(signal);
+            proc.kill(signal2);
           }
         });
       });
@@ -64540,7 +64600,7 @@ async function captureNativeStream(opts, deps) {
   const eventsPath = (0, import_node_path6.join)(dir, "events.jsonl");
   await (0, import_promises26.writeFile)(eventsPath, "", { mode: 384, flag: "wx" });
   const now = deps.now ?? (() => import_node_perf_hooks.performance.now());
-  const sleep8 = deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const sleep9 = deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   const started = now();
   let prior = [], samples = 0, lastSample = started;
   let largestGapMs = 0;
@@ -64631,7 +64691,7 @@ async function captureNativeStream(opts, deps) {
       break;
     }
     if (now() - started >= opts.durationMs) break;
-    await sleep8(Math.min(Math.max(0, opts.intervalMs - (now() - sampleStarted)), opts.durationMs - (now() - started)));
+    await sleep9(Math.min(Math.max(0, opts.intervalMs - (now() - sampleStarted)), opts.durationMs - (now() - started)));
   }
   if (frameAttempts < opts.maxFrames) await frame2(errors.length ? "unpaired-final-after-error" : "final", deadline + finalizationBudgetMs);
   const result = {
@@ -67170,7 +67230,8 @@ program2.command("session:start [url]").description("Start an interactive browse
       isServerRunning: isServerRunning2,
       PersistentSession: PersistentSession2,
       cleanupServerState: cleanupServerState2,
-      browserServerLastActivityAt: browserServerLastActivityAt2
+      browserServerLastActivityAt: browserServerLastActivityAt2,
+      manifestOwnedBy: manifestOwnedBy2
     } = await Promise.resolve().then(() => (init_browser_server(), browser_server_exports));
     const globalOpts = program2.opts();
     const outputDir = globalOpts.output || "./.ibr";
@@ -67251,10 +67312,12 @@ program2.command("session:start [url]").description("Start an interactive browse
       await new Promise((resolve10) => {
         let cleanedUp = false;
         let idleTimer;
+        let ownerTimer;
         const cleanup = async () => {
           if (cleanedUp) return;
           cleanedUp = true;
           if (idleTimer) clearInterval(idleTimer);
+          if (ownerTimer) clearInterval(ownerTimer);
           console.log("\nShutting down browser server...");
           try {
             await driver3.close();
@@ -67293,6 +67356,15 @@ Closing browser server after ${idleMs}ms without IBR session activity.`);
             });
           }, Math.min(idleMs, 6e4));
         }
+        ownerTimer = setInterval(() => {
+          void manifestOwnedBy2(outputDir, process.pid).then((owned) => {
+            if (!cleanedUp && owned === false) {
+              console.log("\nThe browser-server manifest no longer names this process; closing its browser.");
+              void cleanup();
+            }
+          }).catch(() => {
+          });
+        }, OWNER_CHECK_MS);
         process.on("SIGINT", cleanup);
         process.on("SIGTERM", cleanup);
         process.on("SIGHUP", cleanup);
@@ -67731,7 +67803,7 @@ program2.command("session:pending").description("List pending operations (useful
 });
 program2.command("session:close <sessionId>").description('Close a session (use "all" to stop browser server)').option("--force", "Skip waiting for pending operations").option("--wait-timeout <ms>", "Max wait time for pending operations (default: 30000)", "30000").action(async (sessionId, options) => {
   try {
-    const { stopBrowserServer: stopBrowserServer2, lastBrowserServerStopFailure: lastBrowserServerStopFailure2, PersistentSession: PersistentSession2, isServerRunning: isServerRunning2 } = await Promise.resolve().then(() => (init_browser_server(), browser_server_exports));
+    const { stopBrowserServer: stopBrowserServer2, lastBrowserServerStopFailure: lastBrowserServerStopFailure2, lastBrowserServerStopReport: lastBrowserServerStopReport2, PersistentSession: PersistentSession2, isServerRunning: isServerRunning2 } = await Promise.resolve().then(() => (init_browser_server(), browser_server_exports));
     const globalOpts = program2.opts();
     const outputDir = globalOpts.output || "./.ibr";
     if (sessionId === "all") {
@@ -67759,14 +67831,20 @@ program2.command("session:close <sessionId>").description('Close a session (use 
         console.log("All operations completed.");
       }
       const stopped = await stopBrowserServer2(outputDir);
+      const report = lastBrowserServerStopReport2();
+      const why = lastBrowserServerStopFailure2();
       if (stopped) {
-        console.log("Browser server stopped. All sessions closed.");
+        const gone = report && report.gone.length > 0 ? ` Confirmed gone: pid ${report.gone.join(", ")}.` : "";
+        console.log(`Browser server stopped. All sessions closed.${gone}`);
+      } else if (report && report.alive.length > 0) {
+        console.log(`Browser server did NOT stop: pid ${report.alive.join(", ")} still running after SIGKILL.`);
+        process.exitCode = EXIT_TOOL_ERROR;
+      } else if (why) {
+        const gone = report && report.gone.length > 0 ? ` Confirmed gone: pid ${report.gone.join(", ")}.` : "";
+        console.log(`Browser server did not shut down cleanly; stopped it and removed the manifest.${gone}
+Reason: ${why}`);
       } else {
-        const why = lastBrowserServerStopFailure2();
-        console.log(
-          why ? `Browser server did not shut down cleanly; killed it and removed the manifest.
-Reason: ${why}` : "No browser server running."
-        );
+        console.log("No browser server running.");
       }
       return;
     }
