@@ -544,61 +544,141 @@ export function lastBrowserServerStopFailure(): string | null {
   return lastStopFailure;
 }
 
+/** What the last `stopBrowserServer` signalled and what it confirmed gone. */
+export interface BrowserServerStopReport {
+  signalled: number[];
+  gone: number[];
+  alive: number[];
+}
+let lastStopReport: BrowserServerStopReport | null = null;
+
+export function lastBrowserServerStopReport(): BrowserServerStopReport | null {
+  return lastStopReport;
+}
+
+/** How long the owning `session:start` gets to close Chrome itself. */
+const OWNER_STOP_WAIT_MS = 10_000;
+/** How long a SIGKILL gets to take effect before the stop reports failure. */
+const KILL_WAIT_MS = 2_000;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Poll until every pid is gone or the deadline passes; returns the survivors. */
+async function waitForExit(pids: number[], timeoutMs: number): Promise<number[]> {
+  const deadline = Date.now() + timeoutMs;
+  let alive = pids.filter(pidAlive);
+  while (alive.length > 0 && Date.now() < deadline) {
+    await sleep(100);
+    alive = alive.filter(pidAlive);
+  }
+  return alive;
+}
+
+function signal(pid: number, sig: NodeJS.Signals): boolean {
+  try {
+    process.kill(pid, sig);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether the manifest on disk still names `pid` as the owner.
+ * `false` when it is missing or names another process; `null` when it cannot
+ * be read right now (for example mid-write), which proves nothing.
+ */
+export async function manifestOwnedBy(outputDir: string, pid: number): Promise<boolean | null> {
+  const { stateFile } = getPaths(outputDir);
+  let text: string;
+  try {
+    text = await readFile(stateFile, 'utf-8');
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'ENOENT' ? false : null;
+  }
+  try {
+    return (JSON.parse(text) as BrowserServerState).pid === pid;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Stop the browser server and prove it stopped.
+ *
+ * A resolved CDP close is not evidence that the processes are gone, and the
+ * `session:start` process that owns the browser is never reached over CDP. So
+ * when that owner is alive it is signalled (its own handler closes Chrome and
+ * removes the manifest), and success is reported only after both the owner and
+ * Chrome are confirmed gone by pid. Survivors are escalated to SIGKILL.
+ */
 export async function stopBrowserServer(outputDir: string): Promise<boolean> {
   lastStopFailure = null;
-  const { stateFile, profileDir: _profileDir } = getPaths(outputDir);
+  lastStopReport = null;
+  const { stateFile } = getPaths(outputDir);
 
   if (!existsSync(stateFile)) {
     return false;
   }
 
+  let state: BrowserServerState;
   try {
-    const content = await readFile(stateFile, 'utf-8');
-    const state: BrowserServerState = JSON.parse(content);
-
-    // Connect and release the session. In local mode this shuts down the
-    // browser we launched; in connect mode it only drops IBR's attachment.
-    const wsUrl = state.cdpUrl
-      ? await resolveWsEndpoint(state.cdpUrl)
-      : state.wsEndpoint;
-
-    // Bounded: a shutdown that hangs is worse than one that escalates to
-    // SIGKILL, because the user is left with no way to reclaim the browser.
-    const driver = new EngineDriver();
-    await withTimeout(
-      driver.connectExisting(wsUrl),
-      WS_CONNECT_TIMEOUT_MS,
-      `CDP attach to shut down browser server at ${state.cdpUrl ?? wsUrl}`,
-    );
-    if (state.ownsBrowser) {
-      await withTimeout(driver.close(), WS_CONNECT_TIMEOUT_MS, 'browser shutdown');
-    } else {
-      await withTimeout(driver.disconnect(), WS_CONNECT_TIMEOUT_MS, 'browser detach');
-    }
-
-    // Clean up state file
-    await unlink(stateFile);
-
-    // Optionally clean up profile dir
-    // await rm(profileDir, { recursive: true, force: true });
-
-    return true;
+    state = JSON.parse(await readFile(stateFile, 'utf-8')) as BrowserServerState;
   } catch (error) {
-    // CDP connect failed or timed out — Chrome may be a zombie. The user asked
-    // to stop it, so escalating to SIGKILL is the right call here (unlike the
-    // read-only liveness check, which must never kill on a failed probe).
-    lastStopFailure = error instanceof Error ? error.message : String(error);
-    try {
-      const content = await readFile(stateFile, 'utf-8');
-      const state = JSON.parse(content);
-      if (state.chromePid) {
-        process.kill(state.chromePid, 'SIGKILL');
-        sweepStaleChromeCodeSignClones();
-      }
-    } catch { /* PID already dead or state unreadable */ }
+    lastStopFailure = `browser-server.json was unreadable: ${error instanceof Error ? error.message : String(error)}`;
     await cleanupServerState(outputDir);
     return false;
   }
+
+  const report: BrowserServerStopReport = { signalled: [], gone: [], alive: [] };
+  lastStopReport = report;
+  const owner = state.pid && state.pid !== process.pid ? state.pid : undefined;
+  const chrome = state.ownsBrowser && state.chromePid ? state.chromePid : undefined;
+  const watched = [owner, chrome].filter((pid): pid is number => pid !== undefined && pidAlive(pid));
+
+  if (state.ownsBrowser && owner && pidAlive(owner)) {
+    // The owner holds the browser; ask it to shut down the way Ctrl+C would.
+    if (signal(owner, 'SIGTERM')) report.signalled.push(owner);
+    await waitForExit(watched, OWNER_STOP_WAIT_MS);
+  } else if (state.ownsBrowser) {
+    // The owner is gone, so the browser it launched is orphaned: stop it directly.
+    if (chrome && signal(chrome, 'SIGTERM')) report.signalled.push(chrome);
+    if (watched.length > 0) await waitForExit(watched, KILL_WAIT_MS);
+  } else {
+    // Connect mode: IBR does not own this browser, so only drop the attachment.
+    try {
+      const wsUrl = state.cdpUrl ? await resolveWsEndpoint(state.cdpUrl) : state.wsEndpoint;
+      const driver = new EngineDriver();
+      await withTimeout(
+        driver.connectExisting(wsUrl),
+        WS_CONNECT_TIMEOUT_MS,
+        `CDP attach to detach from browser at ${state.cdpUrl ?? wsUrl}`,
+      );
+      await withTimeout(driver.disconnect(), WS_CONNECT_TIMEOUT_MS, 'browser detach');
+    } catch (error) {
+      lastStopFailure = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  // Escalate anything that outlived the polite request.
+  let survivors = watched.filter(pidAlive);
+  if (survivors.length > 0) {
+    for (const pid of survivors) {
+      if (signal(pid, 'SIGKILL') && !report.signalled.includes(pid)) report.signalled.push(pid);
+    }
+    sweepStaleChromeCodeSignClones();
+    survivors = await waitForExit(survivors, KILL_WAIT_MS);
+  }
+
+  report.alive = survivors;
+  report.gone = watched.filter((pid) => !survivors.includes(pid));
+  await cleanupServerState(outputDir);
+
+  if (survivors.length > 0) {
+    lastStopFailure = `pid ${survivors.join(', ')} still running after SIGKILL`;
+    return false;
+  }
+  return lastStopFailure === null;
 }
 
 /**

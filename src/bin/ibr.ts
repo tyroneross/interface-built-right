@@ -45,7 +45,7 @@ import type { Viewport } from '../schemas.js';
 import { registerNativeSessionCommands } from './native-session-cli.js';
 import { mergeCliConfig, normalizeFileConfig } from './cli-config.js';
 import { formatUserActionRequired } from '../session-hard-wall.js';
-import { configuredSessionIdleMs } from '../session-idle.js';
+import { configuredSessionIdleMs, OWNER_CHECK_MS } from '../session-idle.js';
 import { registerExternalActionEvidenceCommand } from './external-action-evidence-cli.js';
 import { registerDesignSpecCommands } from './design-spec-cli.js';
 
@@ -1952,6 +1952,7 @@ program
         PersistentSession,
         cleanupServerState,
         browserServerLastActivityAt,
+        manifestOwnedBy,
       } = await import('../browser-server.js');
       const globalOpts = program.opts();
       const outputDir = globalOpts.output || './.ibr';
@@ -2067,10 +2068,12 @@ program
         await new Promise<void>((resolve) => {
           let cleanedUp = false;
           let idleTimer: ReturnType<typeof setInterval> | undefined;
+          let ownerTimer: ReturnType<typeof setInterval> | undefined;
           const cleanup = async () => {
             if (cleanedUp) return;
             cleanedUp = true;
             if (idleTimer) clearInterval(idleTimer);
+            if (ownerTimer) clearInterval(ownerTimer);
             console.log('\nShutting down browser server...');
             try { await driver.close(); } catch { /* best effort */ }
             // Remove the manifest we wrote. Without this every terminated
@@ -2101,6 +2104,17 @@ program
               }).catch(() => { /* activity tracking is best effort */ });
             }, Math.min(idleMs, 60_000));
           }
+          // Independent of idle: an owner whose manifest was removed or taken
+          // over can no longer be reached by any IBR command (and has no
+          // activity clock), so it would hold its browser forever.
+          ownerTimer = setInterval(() => {
+            void manifestOwnedBy(outputDir, process.pid).then((owned) => {
+              if (!cleanedUp && owned === false) {
+                console.log('\nThe browser-server manifest no longer names this process; closing its browser.');
+                void cleanup();
+              }
+            }).catch(() => { /* a failed read proves nothing */ });
+          }, OWNER_CHECK_MS);
           process.on('SIGINT', cleanup);
           process.on('SIGTERM', cleanup);
           process.on('SIGHUP', cleanup);
@@ -2675,7 +2689,7 @@ program
   .option('--wait-timeout <ms>', 'Max wait time for pending operations (default: 30000)', '30000')
   .action(async (sessionId: string, options: { force?: boolean; waitTimeout: string }) => {
     try {
-      const { stopBrowserServer, lastBrowserServerStopFailure, PersistentSession, isServerRunning } = await import('../browser-server.js');
+      const { stopBrowserServer, lastBrowserServerStopFailure, lastBrowserServerStopReport, PersistentSession, isServerRunning } = await import('../browser-server.js');
       const globalOpts = program.opts();
       const outputDir = globalOpts.output || './.ibr';
 
@@ -2711,16 +2725,20 @@ program
         }
 
         const stopped = await stopBrowserServer(outputDir);
+        const report = lastBrowserServerStopReport();
+        const why = lastBrowserServerStopFailure();
         if (stopped) {
-          console.log('Browser server stopped. All sessions closed.');
+          // A measured claim: name the processes confirmed gone.
+          const gone = report && report.gone.length > 0 ? ` Confirmed gone: pid ${report.gone.join(', ')}.` : '';
+          console.log(`Browser server stopped. All sessions closed.${gone}`);
+        } else if (report && report.alive.length > 0) {
+          console.log(`Browser server did NOT stop: pid ${report.alive.join(', ')} still running after SIGKILL.`);
+          process.exitCode = EXIT_TOOL_ERROR;
+        } else if (why) {
+          const gone = report && report.gone.length > 0 ? ` Confirmed gone: pid ${report.gone.join(', ')}.` : '';
+          console.log(`Browser server did not shut down cleanly; stopped it and removed the manifest.${gone}\nReason: ${why}`);
         } else {
-          // "No browser server running" is wrong when we just SIGKILLed one.
-          const why = lastBrowserServerStopFailure();
-          console.log(
-            why
-              ? `Browser server did not shut down cleanly; killed it and removed the manifest.\nReason: ${why}`
-              : 'No browser server running.',
-          );
+          console.log('No browser server running.');
         }
         return;
       }

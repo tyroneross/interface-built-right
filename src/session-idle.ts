@@ -1,3 +1,6 @@
+/** How often a `session:start` owner confirms the manifest still names it. */
+export const OWNER_CHECK_MS = 15_000
+
 /** Default idle lifetime for IBR-owned persistent browser sessions. */
 export const DEFAULT_SESSION_IDLE_MS = 60 * 60 * 1000
 
