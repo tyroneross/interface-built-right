@@ -640,7 +640,20 @@ export function releaseProfileLock(lockPath: string | null | undefined): void {
 // BrowserManager instance in this process.
 process.once('exit', () => {
   for (const lockPath of heldProfileLocks) unlinkIfOwned(lockPath)
+  // A Chrome this process launched must not outlive it. `process.exit()`
+  // skips every pending `finally { driver.close() }`, and Chrome is not in a
+  // child-reaping relationship with anything once we are gone, so without
+  // this each such exit orphaned a ~12-process Chrome tree to launchd.
+  for (const proc of launchedChromes) {
+    try { if (proc.pid) process.kill(proc.pid, 'SIGKILL') } catch { /* already gone */ }
+  }
 })
+
+/** Chrome processes spawned by this node process that have not exited yet. */
+const launchedChromes = new Set<ChildProcess>()
+
+/** How long `close()` waits for a SIGKILLed Chrome before giving up on cleanup. */
+const CHROME_KILL_WAIT_MS = 3_000
 
 /**
  * Detect Chrome's singleton-profile refusal from what a failed launch left
@@ -875,6 +888,9 @@ export class BrowserManager {
     this._stderrTail = ''
     this._exit = null
     this.process = spawn(chromePath, args, { stdio: 'pipe' })
+    const spawned = this.process
+    launchedChromes.add(spawned)
+    spawned.once('exit', () => launchedChromes.delete(spawned))
 
     this.process.on('error', (err) => {
       console.error(`Chrome process error: ${err.message}`)
@@ -989,7 +1005,22 @@ export class BrowserManager {
 
           proc.kill('SIGTERM')
         })
-        if (killed) sweepStaleChromeCodeSignClones()
+        if (killed) {
+          // SIGKILL is delivered, not completed: wait for the exit before
+          // deleting the profile Chrome may still be writing.
+          if (proc.exitCode === null && proc.signalCode === null) {
+            await new Promise<void>((resolve) => {
+              const t = setTimeout(resolve, CHROME_KILL_WAIT_MS)
+              proc.once('exit', () => { clearTimeout(t); resolve() })
+            })
+          }
+          sweepStaleChromeCodeSignClones()
+        }
+        if (proc.exitCode === null && proc.signalCode === null) {
+          // Still running after SIGKILL (stuck in I/O): keep its profile and
+          // lock rather than pull them out from under a live process.
+          return
+        }
       }
     }
 

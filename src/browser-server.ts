@@ -1,6 +1,7 @@
 import { EngineDriver } from './engine/driver.js';
 import { CompatPage } from './engine/compat.js';
-import { writeFile, readFile, unlink, mkdir, readdir, stat, utimes } from 'fs/promises';
+import { writeFile, readFile, unlink, mkdir, readdir, stat, utimes, rename } from 'fs/promises';
+import { execFileSync } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { nanoid } from 'nanoid';
@@ -261,7 +262,9 @@ export async function inspectBrowserServer(outputDir: string): Promise<ServerIns
   // process.kill(pid, 0) delivers no signal; it only asks.
   if (state.pid && state.pid !== process.pid && !pidAlive(state.pid)) {
     if (state.chromePid) {
-      try { process.kill(state.chromePid, 'SIGKILL'); } catch { /* already dead */ }
+      if (pidIs(state.chromePid, CHROME_MARK)) {
+        try { process.kill(state.chromePid, 'SIGKILL'); } catch { /* already dead */ }
+      }
       sweepStaleChromeCodeSignClones();
     }
     await cleanupServerState(outputDir);
@@ -319,7 +322,9 @@ export async function inspectBrowserServer(outputDir: string): Promise<ServerIns
       };
     }
     if (state.chromePid) {
-      try { process.kill(state.chromePid, 'SIGKILL'); } catch { /* already dead */ }
+      if (pidIs(state.chromePid, CHROME_MARK)) {
+        try { process.kill(state.chromePid, 'SIGKILL'); } catch { /* already dead */ }
+      }
       sweepStaleChromeCodeSignClones();
     }
     await cleanupServerState(outputDir);
@@ -348,6 +353,26 @@ function pidAlive(pid: number): boolean {
     return (err as NodeJS.ErrnoException).code === 'EPERM';
   }
 }
+
+/**
+ * Whether `pid` still looks like the process the manifest recorded. PIDs are
+ * reused, so a manifest days old can name an unrelated process; never signal
+ * one without this check. `mark` is a substring its command line must carry.
+ */
+function pidIs(pid: number, mark: string): boolean {
+  if (!pidAlive(pid)) return false;
+  try {
+    // ps can take seconds on a loaded host; a timeout reads as "not ours".
+    const cmd = execFileSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8', timeout: 5000 });
+    return cmd.includes(mark);
+  } catch {
+    return false;
+  }
+}
+
+/** Marks that identify the browser and owner a manifest names. */
+const CHROME_MARK = '--remote-debugging-port';
+const OWNER_MARK = 'session:start';
 
 /**
  * Check if browser server is running.
@@ -448,11 +473,17 @@ export async function startBrowserServer(
   });
   const mode = driver.browserMode;
   const cdpUrl = driver.cdpUrl ?? undefined;
-  const wsEndpoint = driver.wsEndpoint ?? (cdpUrl ? await resolveWsEndpoint(cdpUrl) : undefined);
   const ownsBrowser = mode === 'local';
-
-  if (!wsEndpoint) {
-    throw new Error('Failed to resolve browser WebSocket endpoint.');
+  let wsEndpoint: string | undefined;
+  try {
+    wsEndpoint = driver.wsEndpoint ?? (cdpUrl ? await resolveWsEndpoint(cdpUrl) : undefined);
+    if (!wsEndpoint) {
+      throw new Error('Failed to resolve browser WebSocket endpoint.');
+    }
+  } catch (error) {
+    // Nothing records this browser yet, so nothing else could stop it.
+    await (ownsBrowser ? driver.close() : driver.disconnect()).catch(() => {});
+    throw error;
   }
 
   // Save server state
@@ -469,7 +500,18 @@ export async function startBrowserServer(
     lowMemory: options.lowMemory,
   };
 
-  await writeFile(stateFile, JSON.stringify(state, null, 2));
+  // Write then rename, so a reader never sees a half-written manifest (a
+  // reader removes a malformed one, and the owner closes itself when its
+  // manifest disappears).
+  const tmp = `${stateFile}.${process.pid}.tmp`;
+  try {
+    await writeFile(tmp, JSON.stringify(state, null, 2));
+    await rename(tmp, stateFile);
+  } catch (error) {
+    await unlink(tmp).catch(() => {});
+    await (ownsBrowser ? driver.close() : driver.disconnect()).catch(() => {});
+    throw error;
+  }
 
   return { driver, wsEndpoint, ownsBrowser };
 }
@@ -632,8 +674,8 @@ export async function stopBrowserServer(outputDir: string): Promise<boolean> {
 
   const report: BrowserServerStopReport = { signalled: [], gone: [], alive: [] };
   lastStopReport = report;
-  const owner = state.pid && state.pid !== process.pid ? state.pid : undefined;
-  const chrome = state.ownsBrowser && state.chromePid ? state.chromePid : undefined;
+  const owner = state.pid && state.pid !== process.pid && pidIs(state.pid, OWNER_MARK) ? state.pid : undefined;
+  const chrome = state.ownsBrowser && state.chromePid && pidIs(state.chromePid, CHROME_MARK) ? state.chromePid : undefined;
   const watched = [owner, chrome].filter((pid): pid is number => pid !== undefined && pidAlive(pid));
 
   if (state.ownsBrowser && owner && pidAlive(owner)) {

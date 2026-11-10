@@ -46,8 +46,14 @@ export class SafariSession {
       this.process = null
     })
 
-    // Wait until safaridriver responds to /status
-    await this.waitUntilReady()
+    // Wait until safaridriver responds to /status. If it never does, stop it:
+    // the caller gets an error, not a handle, so nothing else could.
+    try {
+      await this.waitUntilReady()
+    } catch (error) {
+      await this.stop().catch(() => {})
+      throw error
+    }
 
     return this.port
   }

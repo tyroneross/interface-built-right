@@ -235,6 +235,9 @@ async function startSharedChrome(dir: string, options: SharedChromeOptions): Pro
   child.unref()
   const pid = child.pid
   if (!pid) throw new Error('shared Chrome did not start')
+  // Start the watchdog now, not after the debugger answers: if this command
+  // dies during the wait, the watchdog is what stops this detached Chrome.
+  const watchdogPid = spawnWatchdog(dir, { pid, port, wsEndpoint: '', profileDir, startedAt: Date.now() }, options)
 
   const deadline = Date.now() + DEBUGGER_WAIT_MS
   let wsEndpoint: string | null = null
@@ -245,11 +248,14 @@ async function startSharedChrome(dir: string, options: SharedChromeOptions): Pro
   }
   if (!wsEndpoint) {
     try { process.kill(pid, 'SIGTERM') } catch { /* already gone */ }
+    const stopBy = Date.now() + 5_000
+    while (pidAlive(pid) && Date.now() < stopBy) await sleep(100)
+    if (pidAlive(pid)) { try { process.kill(pid, 'SIGKILL') } catch { /* already gone */ } }
     throw new Error(`shared Chrome did not open its debugger on port ${port}`)
   }
 
   const state: SharedChromeState = { pid, port, wsEndpoint, profileDir, startedAt: Date.now() }
-  state.watchdogPid = spawnWatchdog(dir, state, options)
+  state.watchdogPid = watchdogPid
   writeFileSync(join(dir, 'state.json'), JSON.stringify(state, null, 2))
   progress(`shared Chrome pid ${pid} ready`)
   return state

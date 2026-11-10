@@ -39,7 +39,13 @@ export class SafariDriver implements BrowserDriver {
     const port = await this.session.start()
 
     this.client = new WebDriverClient(port)
-    await this.client.createSession()
+    try {
+      await this.client.createSession()
+    } catch (error) {
+      // e.g. remote automation is disabled: do not leave safaridriver running.
+      await this.session.stop().catch(() => {})
+      throw error
+    }
 
     // Set viewport size if requested
     const vp = options.viewport ?? { width: 1920, height: 1080 }

@@ -856,7 +856,15 @@ function releaseProfileLock(lockPath) {
 }
 process.once("exit", () => {
   for (const lockPath of heldProfileLocks) unlinkIfOwned(lockPath);
+  for (const proc of launchedChromes) {
+    try {
+      if (proc.pid) process.kill(proc.pid, "SIGKILL");
+    } catch {
+    }
+  }
 });
+var launchedChromes = /* @__PURE__ */ new Set();
+var CHROME_KILL_WAIT_MS = 3e3;
 function looksLikeSingletonCollision(exit, stderrTail) {
   if (exit?.code === 21) return true;
   return /ProcessSingleton/i.test(stderrTail);
@@ -1005,6 +1013,9 @@ Checked: ${CHROME_PATHS.join(", ")}`
     this._stderrTail = "";
     this._exit = null;
     this.process = spawn(chromePath, args, { stdio: "pipe" });
+    const spawned = this.process;
+    launchedChromes.add(spawned);
+    spawned.once("exit", () => launchedChromes.delete(spawned));
     this.process.on("error", (err) => {
       console.error(`Chrome process error: ${err.message}`);
     });
@@ -1099,7 +1110,21 @@ ${tail}` : "";
           });
           proc.kill("SIGTERM");
         });
-        if (killed) sweepStaleChromeCodeSignClones();
+        if (killed) {
+          if (proc.exitCode === null && proc.signalCode === null) {
+            await new Promise((resolve2) => {
+              const t = setTimeout(resolve2, CHROME_KILL_WAIT_MS);
+              proc.once("exit", () => {
+                clearTimeout(t);
+                resolve2();
+              });
+            });
+          }
+          sweepStaleChromeCodeSignClones();
+        }
+        if (proc.exitCode === null && proc.signalCode === null) {
+          return;
+        }
       }
     }
     if (this._ephemeralProfileDir) {
@@ -1301,6 +1326,7 @@ async function startSharedChrome(dir, options) {
   child.unref();
   const pid = child.pid;
   if (!pid) throw new Error("shared Chrome did not start");
+  const watchdogPid = spawnWatchdog(dir, { pid, profileDir}, options);
   const deadline = Date.now() + DEBUGGER_WAIT_MS;
   let wsEndpoint = null;
   while (Date.now() < deadline && pidAlive(pid)) {
@@ -1313,10 +1339,18 @@ async function startSharedChrome(dir, options) {
       process.kill(pid, "SIGTERM");
     } catch {
     }
+    const stopBy = Date.now() + 5e3;
+    while (pidAlive(pid) && Date.now() < stopBy) await sleep(100);
+    if (pidAlive(pid)) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+      }
+    }
     throw new Error(`shared Chrome did not open its debugger on port ${port}`);
   }
   const state = { pid, port, wsEndpoint, profileDir, startedAt: Date.now() };
-  state.watchdogPid = spawnWatchdog(dir, state, options);
+  state.watchdogPid = watchdogPid;
   writeFileSync(join(dir, "state.json"), JSON.stringify(state, null, 2));
   progress(`shared Chrome pid ${pid} ready`);
   return state;

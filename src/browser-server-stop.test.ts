@@ -24,7 +24,7 @@ const alive = (pid: number) => {
 function startOwner(opts: { ignoreTerm?: boolean } = {}): Promise<{ owner: ChildProcess; chromePid: number }> {
   const script = `
     const { spawn } = require('child_process');
-    const chrome = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    const chrome = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', '--', '--remote-debugging-port=0'], { stdio: 'ignore' });
     process.stdout.write(String(chrome.pid) + '\\n');
     process.on('SIGTERM', () => {
       if (${opts.ignoreTerm ? 'true' : 'false'}) return;
@@ -33,7 +33,8 @@ function startOwner(opts: { ignoreTerm?: boolean } = {}): Promise<{ owner: Child
     });
     setInterval(() => {}, 1000);
   `;
-  const owner = spawn(process.execPath, ['-e', script], { stdio: ['ignore', 'pipe', 'ignore'] });
+  // The trailing args give ps the marks a real owner and Chrome carry.
+  const owner = spawn(process.execPath, ['-e', script, 'session:start'], { stdio: ['ignore', 'pipe', 'ignore'] });
   return new Promise((resolve) => {
     owner.stdout!.once('data', (d) => resolve({ owner, chromePid: Number(String(d).trim()) }));
   });
@@ -83,7 +84,7 @@ describe('stopBrowserServer verifies by pid', () => {
   }, 20_000);
 
   it('stops an orphaned chrome whose owner is already dead', async () => {
-    const chrome = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    const chrome = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', '--', '--remote-debugging-port=0'], { stdio: 'ignore' });
     spawned.push(chrome.pid!);
     const dead = spawn(process.execPath, ['-e', '0']);
     await new Promise((r) => dead.once('exit', r));
@@ -91,6 +92,19 @@ describe('stopBrowserServer verifies by pid', () => {
 
     expect(await stopBrowserServer(outputDir)).toBe(true);
     expect(alive(chrome.pid!)).toBe(false);
+  }, 20_000);
+
+  it('never signals a reused pid that is not the recorded Chrome', async () => {
+    // A manifest days old can name a pid the OS has since given to something else.
+    const stranger = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    spawned.push(stranger.pid!);
+    const dead = spawn(process.execPath, ['-e', '0']);
+    await new Promise((r) => dead.once('exit', r));
+    await plant(outputDir, { pid: dead.pid, chromePid: stranger.pid });
+
+    await stopBrowserServer(outputDir);
+    expect(alive(stranger.pid!)).toBe(true);
+    expect(lastBrowserServerStopReport()!.signalled).toEqual([]);
   }, 20_000);
 });
 

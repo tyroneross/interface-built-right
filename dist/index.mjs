@@ -1256,7 +1256,7 @@ function reapOrphanedProfiles() {
     }
   }
 }
-var CHROME_PATHS, PROFILE_REAP_GRACE_MS, CHROME_EXIT_GRACE_MS, CODE_SIGN_CLONE_GRACE_MS, heldProfileLocks, RECLAIM_MUTEX_STALE_MS, BrowserManager;
+var CHROME_PATHS, PROFILE_REAP_GRACE_MS, CHROME_EXIT_GRACE_MS, CODE_SIGN_CLONE_GRACE_MS, heldProfileLocks, RECLAIM_MUTEX_STALE_MS, launchedChromes, CHROME_KILL_WAIT_MS, BrowserManager;
 var init_browser = __esm({
   "src/engine/cdp/browser.ts"() {
     init_net_timeout();
@@ -1280,7 +1280,15 @@ var init_browser = __esm({
     RECLAIM_MUTEX_STALE_MS = 3e4;
     process.once("exit", () => {
       for (const lockPath of heldProfileLocks) unlinkIfOwned(lockPath);
+      for (const proc of launchedChromes) {
+        try {
+          if (proc.pid) process.kill(proc.pid, "SIGKILL");
+        } catch {
+        }
+      }
     });
+    launchedChromes = /* @__PURE__ */ new Set();
+    CHROME_KILL_WAIT_MS = 3e3;
     BrowserManager = class {
       process = null;
       _port = 0;
@@ -1397,6 +1405,9 @@ Checked: ${CHROME_PATHS.join(", ")}`
         this._stderrTail = "";
         this._exit = null;
         this.process = spawn(chromePath, args, { stdio: "pipe" });
+        const spawned = this.process;
+        launchedChromes.add(spawned);
+        spawned.once("exit", () => launchedChromes.delete(spawned));
         this.process.on("error", (err) => {
           console.error(`Chrome process error: ${err.message}`);
         });
@@ -1491,7 +1502,21 @@ ${tail}` : "";
               });
               proc.kill("SIGTERM");
             });
-            if (killed) sweepStaleChromeCodeSignClones();
+            if (killed) {
+              if (proc.exitCode === null && proc.signalCode === null) {
+                await new Promise((resolve4) => {
+                  const t = setTimeout(resolve4, CHROME_KILL_WAIT_MS);
+                  proc.once("exit", () => {
+                    clearTimeout(t);
+                    resolve4();
+                  });
+                });
+              }
+              sweepStaleChromeCodeSignClones();
+            }
+            if (proc.exitCode === null && proc.signalCode === null) {
+              return;
+            }
           }
         }
         if (this._ephemeralProfileDir) {
@@ -1640,6 +1665,7 @@ async function startSharedChrome(dir, options) {
   child.unref();
   const pid = child.pid;
   if (!pid) throw new Error("shared Chrome did not start");
+  const watchdogPid = spawnWatchdog(dir, { pid, profileDir}, options);
   const deadline = Date.now() + DEBUGGER_WAIT_MS;
   let wsEndpoint = null;
   while (Date.now() < deadline && pidAlive(pid)) {
@@ -1652,10 +1678,18 @@ async function startSharedChrome(dir, options) {
       process.kill(pid, "SIGTERM");
     } catch {
     }
+    const stopBy = Date.now() + 5e3;
+    while (pidAlive(pid) && Date.now() < stopBy) await sleep(100);
+    if (pidAlive(pid)) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+      }
+    }
     throw new Error(`shared Chrome did not open its debugger on port ${port}`);
   }
   const state = { pid, port, wsEndpoint, profileDir, startedAt: Date.now() };
-  state.watchdogPid = spawnWatchdog(dir, state, options);
+  state.watchdogPid = watchdogPid;
   writeFileSync(join(dir, "state.json"), JSON.stringify(state, null, 2));
   progress(`shared Chrome pid ${pid} ready`);
   return state;
@@ -17878,6 +17912,7 @@ async function captureWithDiagnostics(options) {
   const networkErrors = [];
   const suggestions = [];
   let httpStatus;
+  let openDriver = null;
   try {
     await mkdir(dirname(outputPath), { recursive: true });
     if (outputDir && !isDeployedEnvironment()) {
@@ -17892,6 +17927,7 @@ async function captureWithDiagnostics(options) {
       wsEndpoint,
       chromePath
     });
+    openDriver = driverInstance;
     const page = new CompatPage(driverInstance);
     page.on("console", (msg) => {
       if (msg.type() === "error") {
@@ -17916,6 +17952,7 @@ async function captureWithDiagnostics(options) {
       navigationTime = Date.now() - navStart;
     } catch (navError) {
       await driverInstance.close();
+      openDriver = null;
       const errorMsg = navError instanceof Error ? navError.message : String(navError);
       const isTimeout = errorMsg.includes("Timeout");
       if (isTimeout) {
@@ -17972,6 +18009,7 @@ async function captureWithDiagnostics(options) {
     }
     renderTime = Date.now() - renderStart;
     await driverInstance.close();
+    openDriver = null;
     if (navigationTime > 5e3) {
       suggestions.push(`Slow page load: ${(navigationTime / 1e3).toFixed(1)}s`);
     }
@@ -18014,6 +18052,9 @@ async function captureWithDiagnostics(options) {
         suggestion: "Check that Chrome is installed and accessible. IBR uses a direct CDP connection \u2014 ensure Chrome is available on your PATH or at the default install location."
       }
     };
+  } finally {
+    if (openDriver) await openDriver.close().catch(() => {
+    });
   }
 }
 
@@ -25473,10 +25514,16 @@ var InterfaceBuiltRight = class {
       chromePath: this.config.chromePath
     });
     const page = new CompatPage(driver2);
-    await page.goto(fullUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: options.timeout || this.config.timeout
-    });
+    try {
+      await page.goto(fullUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: options.timeout || this.config.timeout
+      });
+    } catch (error) {
+      await driver2.close().catch(() => {
+      });
+      throw error;
+    }
     if (this.config.waitForNetworkIdle) {
       await page.waitForLoadState("networkidle", { timeout: 1e4 }).catch(() => {
       });

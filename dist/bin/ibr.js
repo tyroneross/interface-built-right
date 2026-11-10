@@ -4377,7 +4377,7 @@ function reapOrphanedProfiles() {
     }
   }
 }
-var import_node_child_process2, import_node_fs2, import_promises3, import_node_net, import_node_os, import_node_path4, CHROME_PATHS, PROFILE_REAP_GRACE_MS, CHROME_EXIT_GRACE_MS, CODE_SIGN_CLONE_GRACE_MS, heldProfileLocks, RECLAIM_MUTEX_STALE_MS, BrowserManager;
+var import_node_child_process2, import_node_fs2, import_promises3, import_node_net, import_node_os, import_node_path4, CHROME_PATHS, PROFILE_REAP_GRACE_MS, CHROME_EXIT_GRACE_MS, CODE_SIGN_CLONE_GRACE_MS, heldProfileLocks, RECLAIM_MUTEX_STALE_MS, launchedChromes, CHROME_KILL_WAIT_MS, BrowserManager;
 var init_browser = __esm({
   "src/engine/cdp/browser.ts"() {
     "use strict";
@@ -4408,7 +4408,15 @@ var init_browser = __esm({
     RECLAIM_MUTEX_STALE_MS = 3e4;
     process.once("exit", () => {
       for (const lockPath of heldProfileLocks) unlinkIfOwned(lockPath);
+      for (const proc of launchedChromes) {
+        try {
+          if (proc.pid) process.kill(proc.pid, "SIGKILL");
+        } catch {
+        }
+      }
     });
+    launchedChromes = /* @__PURE__ */ new Set();
+    CHROME_KILL_WAIT_MS = 3e3;
     BrowserManager = class {
       process = null;
       _port = 0;
@@ -4526,6 +4534,9 @@ Checked: ${CHROME_PATHS.join(", ")}`
         this._stderrTail = "";
         this._exit = null;
         this.process = (0, import_node_child_process2.spawn)(chromePath, args, { stdio: "pipe" });
+        const spawned = this.process;
+        launchedChromes.add(spawned);
+        spawned.once("exit", () => launchedChromes.delete(spawned));
         this.process.on("error", (err) => {
           console.error(`Chrome process error: ${err.message}`);
         });
@@ -4620,7 +4631,21 @@ ${tail}` : "";
               });
               proc.kill("SIGTERM");
             });
-            if (killed) sweepStaleChromeCodeSignClones();
+            if (killed) {
+              if (proc.exitCode === null && proc.signalCode === null) {
+                await new Promise((resolve10) => {
+                  const t = setTimeout(resolve10, CHROME_KILL_WAIT_MS);
+                  proc.once("exit", () => {
+                    clearTimeout(t);
+                    resolve10();
+                  });
+                });
+              }
+              sweepStaleChromeCodeSignClones();
+            }
+            if (proc.exitCode === null && proc.signalCode === null) {
+              return;
+            }
           }
         }
         if (this._ephemeralProfileDir) {
@@ -4771,6 +4796,7 @@ async function startSharedChrome(dir, options) {
   child.unref();
   const pid = child.pid;
   if (!pid) throw new Error("shared Chrome did not start");
+  const watchdogPid = spawnWatchdog(dir, { pid, port, wsEndpoint: "", profileDir, startedAt: Date.now() }, options);
   const deadline = Date.now() + DEBUGGER_WAIT_MS;
   let wsEndpoint = null;
   while (Date.now() < deadline && pidAlive(pid)) {
@@ -4783,10 +4809,18 @@ async function startSharedChrome(dir, options) {
       process.kill(pid, "SIGTERM");
     } catch {
     }
+    const stopBy = Date.now() + 5e3;
+    while (pidAlive(pid) && Date.now() < stopBy) await sleep(100);
+    if (pidAlive(pid)) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+      }
+    }
     throw new Error(`shared Chrome did not open its debugger on port ${port}`);
   }
   const state = { pid, port, wsEndpoint, profileDir, startedAt: Date.now() };
-  state.watchdogPid = spawnWatchdog(dir, state, options);
+  state.watchdogPid = watchdogPid;
   (0, import_node_fs3.writeFileSync)((0, import_node_path5.join)(dir, "state.json"), JSON.stringify(state, null, 2));
   progress(`shared Chrome pid ${pid} ready`);
   return state;
@@ -28281,6 +28315,7 @@ async function captureWithDiagnostics(options) {
   const networkErrors = [];
   const suggestions = [];
   let httpStatus;
+  let openDriver = null;
   try {
     await (0, import_promises6.mkdir)((0, import_path4.dirname)(outputPath), { recursive: true });
     if (outputDir && !isDeployedEnvironment()) {
@@ -28295,6 +28330,7 @@ async function captureWithDiagnostics(options) {
       wsEndpoint,
       chromePath
     });
+    openDriver = driverInstance;
     const page = new CompatPage(driverInstance);
     page.on("console", (msg) => {
       if (msg.type() === "error") {
@@ -28319,6 +28355,7 @@ async function captureWithDiagnostics(options) {
       navigationTime = Date.now() - navStart;
     } catch (navError) {
       await driverInstance.close();
+      openDriver = null;
       const errorMsg = navError instanceof Error ? navError.message : String(navError);
       const isTimeout = errorMsg.includes("Timeout");
       if (isTimeout) {
@@ -28375,6 +28412,7 @@ async function captureWithDiagnostics(options) {
     }
     renderTime = Date.now() - renderStart;
     await driverInstance.close();
+    openDriver = null;
     if (navigationTime > 5e3) {
       suggestions.push(`Slow page load: ${(navigationTime / 1e3).toFixed(1)}s`);
     }
@@ -28417,6 +28455,9 @@ async function captureWithDiagnostics(options) {
         suggestion: "Check that Chrome is installed and accessible. IBR uses a direct CDP connection \u2014 ensure Chrome is available on your PATH or at the default install location."
       }
     };
+  } finally {
+    if (openDriver) await openDriver.close().catch(() => {
+    });
   }
 }
 var import_promises6, import_path4, driver;
@@ -48921,10 +48962,16 @@ var init_index = __esm({
           chromePath: this.config.chromePath
         });
         const page = new CompatPage(driver3);
-        await page.goto(fullUrl, {
-          waitUntil: "domcontentloaded",
-          timeout: options.timeout || this.config.timeout
-        });
+        try {
+          await page.goto(fullUrl, {
+            waitUntil: "domcontentloaded",
+            timeout: options.timeout || this.config.timeout
+          });
+        } catch (error51) {
+          await driver3.close().catch(() => {
+          });
+          throw error51;
+        }
         if (this.config.waitForNetworkIdle) {
           await page.waitForLoadState("networkidle", { timeout: 1e4 }).catch(() => {
           });
@@ -49407,7 +49454,13 @@ var init_session2 = __esm({
           }
           this.process = null;
         });
-        await this.waitUntilReady();
+        try {
+          await this.waitUntilReady();
+        } catch (error51) {
+          await this.stop().catch(() => {
+          });
+          throw error51;
+        }
         return this.port;
       }
       // ─── Stop ───────────────────────────────────────────────
@@ -49509,7 +49562,13 @@ var init_driver2 = __esm({
         this.session = new SafariSession();
         const port = await this.session.start();
         this.client = new WebDriverClient(port);
-        await this.client.createSession();
+        try {
+          await this.client.createSession();
+        } catch (error51) {
+          await this.session.stop().catch(() => {
+          });
+          throw error51;
+        }
         const vp = options.viewport ?? { width: 1920, height: 1080 };
         await this.client.setWindowRect({ ...vp, x: -9999, y: -9999 });
         (0, import_child_process17.exec)(`osascript -e 'tell application "System Events" to set visible of process "Safari" to false'`, () => {
@@ -51539,9 +51598,11 @@ async function inspectBrowserServer(outputDir) {
   }
   if (state.pid && state.pid !== process.pid && !pidAlive2(state.pid)) {
     if (state.chromePid) {
-      try {
-        process.kill(state.chromePid, "SIGKILL");
-      } catch {
+      if (pidIs(state.chromePid, CHROME_MARK)) {
+        try {
+          process.kill(state.chromePid, "SIGKILL");
+        } catch {
+        }
       }
       sweepStaleChromeCodeSignClones();
     }
@@ -51578,9 +51639,11 @@ async function inspectBrowserServer(outputDir) {
       };
     }
     if (state.chromePid) {
-      try {
-        process.kill(state.chromePid, "SIGKILL");
-      } catch {
+      if (pidIs(state.chromePid, CHROME_MARK)) {
+        try {
+          process.kill(state.chromePid, "SIGKILL");
+        } catch {
+        }
       }
       sweepStaleChromeCodeSignClones();
     }
@@ -51604,6 +51667,15 @@ function pidAlive2(pid) {
     return true;
   } catch (err) {
     return err.code === "EPERM";
+  }
+}
+function pidIs(pid, mark) {
+  if (!pidAlive2(pid)) return false;
+  try {
+    const cmd = (0, import_child_process18.execFileSync)("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8", timeout: 5e3 });
+    return cmd.includes(mark);
+  } catch {
+    return false;
   }
 }
 async function isServerRunning(outputDir) {
@@ -51676,10 +51748,17 @@ async function startBrowserServer(outputDir, options = {}) {
   });
   const mode = driver3.browserMode;
   const cdpUrl = driver3.cdpUrl ?? void 0;
-  const wsEndpoint = driver3.wsEndpoint ?? (cdpUrl ? await resolveWsEndpoint2(cdpUrl) : void 0);
   const ownsBrowser = mode === "local";
-  if (!wsEndpoint) {
-    throw new Error("Failed to resolve browser WebSocket endpoint.");
+  let wsEndpoint;
+  try {
+    wsEndpoint = driver3.wsEndpoint ?? (cdpUrl ? await resolveWsEndpoint2(cdpUrl) : void 0);
+    if (!wsEndpoint) {
+      throw new Error("Failed to resolve browser WebSocket endpoint.");
+    }
+  } catch (error51) {
+    await (ownsBrowser ? driver3.close() : driver3.disconnect()).catch(() => {
+    });
+    throw error51;
   }
   const state = {
     wsEndpoint,
@@ -51693,7 +51772,17 @@ async function startBrowserServer(outputDir, options = {}) {
     isolatedProfile: isolated ? profileDir : "",
     lowMemory: options.lowMemory
   };
-  await (0, import_promises30.writeFile)(stateFile, JSON.stringify(state, null, 2));
+  const tmp = `${stateFile}.${process.pid}.tmp`;
+  try {
+    await (0, import_promises30.writeFile)(tmp, JSON.stringify(state, null, 2));
+    await (0, import_promises30.rename)(tmp, stateFile);
+  } catch (error51) {
+    await (0, import_promises30.unlink)(tmp).catch(() => {
+    });
+    await (ownsBrowser ? driver3.close() : driver3.disconnect()).catch(() => {
+    });
+    throw error51;
+  }
   return { driver: driver3, wsEndpoint, ownsBrowser };
 }
 async function connectToBrowserServer(outputDir, targetId) {
@@ -51779,8 +51868,8 @@ async function stopBrowserServer(outputDir) {
   }
   const report = { signalled: [], gone: [], alive: [] };
   lastStopReport = report;
-  const owner = state.pid && state.pid !== process.pid ? state.pid : void 0;
-  const chrome = state.ownsBrowser && state.chromePid ? state.chromePid : void 0;
+  const owner = state.pid && state.pid !== process.pid && pidIs(state.pid, OWNER_MARK) ? state.pid : void 0;
+  const chrome = state.ownsBrowser && state.chromePid && pidIs(state.chromePid, CHROME_MARK) ? state.chromePid : void 0;
   const watched = [owner, chrome].filter((pid) => pid !== void 0 && pidAlive2(pid));
   if (state.ownsBrowser && owner && pidAlive2(owner)) {
     if (signal(owner, "SIGTERM")) report.signalled.push(owner);
@@ -51837,13 +51926,14 @@ async function listActiveSessions(outputDir) {
   }
   return liveSessions;
 }
-var import_promises30, import_fs23, import_path33, UserActionRequiredError, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, HARD_WALL_SCAN_CONCURRENCY, lastConnectFailure, lastStopFailure, lastStopReport, OWNER_STOP_WAIT_MS, KILL_WAIT_MS, sleep8, PersistentSession;
+var import_promises30, import_child_process18, import_fs23, import_path33, UserActionRequiredError, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, HARD_WALL_SCAN_CONCURRENCY, CHROME_MARK, OWNER_MARK, lastConnectFailure, lastStopFailure, lastStopReport, OWNER_STOP_WAIT_MS, KILL_WAIT_MS, sleep8, PersistentSession;
 var init_browser_server = __esm({
   "src/browser-server.ts"() {
     "use strict";
     init_driver();
     init_compat();
     import_promises30 = require("fs/promises");
+    import_child_process18 = require("child_process");
     import_fs23 = require("fs");
     import_path33 = require("path");
     init_nanoid();
@@ -51867,6 +51957,8 @@ var init_browser_server = __esm({
     SERVER_STATE_FILE = "browser-server.json";
     ISOLATED_PROFILE_DIR = "browser-profile";
     HARD_WALL_SCAN_CONCURRENCY = 64;
+    CHROME_MARK = "--remote-debugging-port";
+    OWNER_MARK = "session:start";
     lastConnectFailure = null;
     lastStopFailure = null;
     lastStopReport = null;
@@ -52590,13 +52682,13 @@ var init_browser_server = __esm({
           if (ephemeral.length > 0) {
             const archiveDir = (0, import_path33.join)(this.sessionDir, "archive");
             await (0, import_promises30.mkdir)(archiveDir, { recursive: true });
-            const { rename: rename2 } = await import("fs/promises");
+            const { rename: rename3 } = await import("fs/promises");
             for (const cap of ephemeral) {
               const src = (0, import_path33.join)(this.sessionDir, cap.screenshot);
               const dest = (0, import_path33.join)(archiveDir, cap.screenshot);
               try {
                 if ((0, import_fs23.existsSync)(src)) {
-                  await rename2(src, dest);
+                  await rename3(src, dest);
                   cap.screenshot = `archive/${cap.screenshot}`;
                 }
               } catch {
@@ -55693,7 +55785,7 @@ async function runScript(options) {
     let stderr = "";
     let exitCode = 0;
     await new Promise((resolvePromise) => {
-      const child = (0, import_child_process18.spawn)("python3", [wrapperPath], {
+      const child = (0, import_child_process19.spawn)("python3", [wrapperPath], {
         cwd: tmpDir,
         detached: true,
         shell: false,
@@ -55763,11 +55855,11 @@ function formatScriptResult(result) {
   }
   return lines.join("\n");
 }
-var import_child_process18, import_promises38, import_path41, import_os6, import_crypto7;
+var import_child_process19, import_promises38, import_path41, import_os6, import_crypto7;
 var init_script_runner = __esm({
   "src/script-runner.ts"() {
     "use strict";
-    import_child_process18 = require("child_process");
+    import_child_process19 = require("child_process");
     import_promises38 = require("fs/promises");
     import_path41 = require("path");
     import_os6 = require("os");
@@ -67212,6 +67304,25 @@ async function startDetachedServer(outputDir, argv, expectSession) {
     if (child.exitCode !== null) break;
     await new Promise((r) => setTimeout(r, 250));
   }
+  if (child.exitCode === null && child.pid) {
+    try {
+      process.kill(-child.pid, "SIGTERM");
+    } catch {
+    }
+    const stopBy = Date.now() + 1e4;
+    while (child.exitCode === null && Date.now() < stopBy) {
+      try {
+        process.kill(child.pid, 0);
+      } catch {
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    try {
+      process.kill(-child.pid, "SIGKILL");
+    } catch {
+    }
+  }
   const tail = await (0, import_promises40.readFile)(logPath, "utf-8").then((t) => t.slice(-1500)).catch(() => "");
   throw new Error(
     `Browser server did not come up within ${timeoutMs}ms (background pid ${child.pid ?? "unknown"}, exit ${child.exitCode ?? "still running"}).
@@ -69058,10 +69169,10 @@ program2.command("test-search <url>").description("Test search functionality on 
         console.log(`Expected at least ${expected} results, got ${result.resultCount}`);
       }
     }
-    if (!result.success) process.exit(EXIT_ISSUES);
+    if (!result.success) process.exitCode = EXIT_ISSUES;
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(EXIT_TOOL_ERROR);
+    process.exitCode = EXIT_TOOL_ERROR;
   } finally {
     await driver3.close();
   }
@@ -69101,10 +69212,10 @@ program2.command("test-form <url>").description("Test form submission on a page 
       console.log(`Duration: ${result.duration}ms`);
       if (result.error) console.log(`Error: ${result.error}`);
     }
-    if (!result.success) process.exit(EXIT_ISSUES);
+    if (!result.success) process.exitCode = EXIT_ISSUES;
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(EXIT_TOOL_ERROR);
+    process.exitCode = EXIT_TOOL_ERROR;
   } finally {
     await driver3.close();
   }
@@ -69137,10 +69248,10 @@ program2.command("test-login <url>").description("Test login flow on a page usin
       console.log(`Duration: ${result.duration}ms`);
       if (result.error) console.log(`Error: ${result.error}`);
     }
-    if (!result.success) process.exit(EXIT_ISSUES);
+    if (!result.success) process.exitCode = EXIT_ISSUES;
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
-    process.exit(EXIT_TOOL_ERROR);
+    process.exitCode = EXIT_TOOL_ERROR;
   } finally {
     await driver3.close();
   }
@@ -69706,13 +69817,15 @@ program2.command("interact <url>").description("Click, type, fill, or interact w
     if (!element) {
       console.error(`Element not found: "${opts.target}"`);
       console.error('Use "ibr observe <url>" to see available elements.');
-      process.exit(EXIT_TOOL_ERROR);
+      process.exitCode = EXIT_TOOL_ERROR;
+      return;
     }
     const action = opts.action;
     const knownActions = ["click", "type", "fill", "hover", "press", "scroll", "select", "check"];
     if (!knownActions.includes(action)) {
       console.error(`Unknown action: ${action}`);
-      process.exit(EXIT_TOOL_ERROR);
+      process.exitCode = EXIT_TOOL_ERROR;
+      return;
     }
     const { validateWebAction: validateWebAction2 } = await Promise.resolve().then(() => (init_tools(), tools_exports));
     const beforeUrl = driver3.url;
@@ -69773,7 +69886,7 @@ program2.command("interact <url>").description("Click, type, fill, or interact w
     }
   } catch (err) {
     console.error(`Failed: ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(EXIT_TOOL_ERROR);
+    process.exitCode = EXIT_TOOL_ERROR;
   } finally {
     await driver3.close().catch(() => {
     });
@@ -69805,7 +69918,7 @@ program2.command("observe <url>").description("Preview available actions on a pa
     });
   } catch (err) {
     console.error(`Failed: ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(EXIT_TOOL_ERROR);
+    process.exitCode = EXIT_TOOL_ERROR;
   } finally {
     await driver3.close().catch(() => {
     });
@@ -69848,7 +69961,7 @@ program2.command("extract <url>").description("Extract structured data from a pa
     }
   } catch (err) {
     console.error(`Failed: ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(EXIT_TOOL_ERROR);
+    process.exitCode = EXIT_TOOL_ERROR;
   } finally {
     await driver3.close().catch(() => {
     });
