@@ -1,3 +1,4 @@
+import type { NativeContrastReport, NativeAppearanceReport } from './contrast.js';
 import type { EnhancedElement, AuditResult, Viewport, ElementIssue, DesignSystemResult } from '../schemas.js';
 import type { ScanIssue } from '../scan.js';
 import type { InteractivityResult } from '../interactivity.js';
@@ -55,8 +56,8 @@ export interface NativeScanOptions {
  * Result from scanning a native simulator
  */
 export interface NativeVisualCoverage {
-  appearance: 'unmeasured';
-  textContrast: 'unmeasured';
+  appearance: 'measured' | 'unmeasured';
+  textContrast: 'measured' | 'unmeasured';
   reason: string;
 }
 
@@ -167,6 +168,9 @@ export interface MacOSWindowInfo {
   width: number;
   height: number;
   title: string;
+  /** Window top-left in AX global points; absent from older extractors. */
+  originX?: number;
+  originY?: number;
 }
 
 /**
@@ -179,7 +183,9 @@ export interface MacOSScanOptions {
   bundleId?: string;
   /** Direct process ID */
   pid?: number;
-  /** Capture screenshot */
+  /** Exact window title, to scan a window other than the main one (e.g. a panel). */
+  windowTitle?: string;
+  /** Capture screenshot. Also enables pixel-measured text contrast and appearance. */
   screenshot?: { path: string };
   /** Output directory for design system config */
   outputDir?: string;
@@ -204,6 +210,10 @@ export interface MacOSScanOptions {
  */
 export interface MacOSScanResult {
   visualCoverage?: NativeVisualCoverage;
+  /** Pixel-measured text contrast; present when a screenshot was captured. */
+  contrast?: NativeContrastReport;
+  /** System appearance vs the surface the window actually paints. */
+  appearance?: NativeAppearanceReport;
   url: string;
   route: string;
   timestamp: string;

@@ -406,7 +406,7 @@ func findAppByPid(_ pid: pid_t) -> NSRunningApplication? {
 }
 
 /// Find the frontmost/main window for a given app
-func findMainWindow(pid: pid_t) -> (window: AXUIElement, id: CGWindowID, title: String, size: CGSize)? {
+func findMainWindow(pid: pid_t, title requestedTitle: String? = nil) -> (window: AXUIElement, id: CGWindowID, title: String, size: CGSize, origin: CGPoint)? {
     let appElement = AXUIElementCreateApplication(pid)
 
     var windowsValue: AnyObject?
@@ -464,10 +464,20 @@ func findMainWindow(pid: pid_t) -> (window: AXUIElement, id: CGWindowID, title: 
 
     // Prefer a genuinely-focused/main modal window; otherwise fall back to
     // the standard app window resolved above (never a passive overlay).
-    let window = modalWindow ?? standardWindow
+    // An explicit exact title (e.g. a utility panel such as a chat pop-out,
+    // which is never the main window) wins, and must match exactly one window.
+    let window: AXUIElement
+    if let requestedTitle {
+        let matches = windows.filter { isWindow($0) && getStringAttribute($0, kAXTitleAttribute) == requestedTitle }
+        guard matches.count == 1 else { return nil }
+        window = matches[0]
+    } else {
+        window = modalWindow ?? standardWindow
+    }
 
     let title = getStringAttribute(window, kAXTitleAttribute) ?? "Untitled"
     let sz = getSize(window) ?? AXExtractedElement.Size(width: 800, height: 600)
+    let pos = getPosition(window) ?? AXExtractedElement.Position(x: 0, y: 0)
 
     // Get CGWindowID via CGWindowListCopyWindowInfo
     var windowId: CGWindowID = 0
@@ -476,15 +486,25 @@ func findMainWindow(pid: pid_t) -> (window: AXUIElement, id: CGWindowID, title: 
         guard let ownerPid = info[kCGWindowOwnerPID as String] as? Int32,
               let wid = info[kCGWindowNumber as String] as? CGWindowID,
               ownerPid == pid else { continue }
+        // Window names need Screen Recording permission; bounds do not. Match
+        // the AX frame first so a pid with several windows (a child panel
+        // beside its parent) never captures the wrong one.
+        if let b = info[kCGWindowBounds as String] as? [String: Any],
+           let rect = CGRect(dictionaryRepresentation: b as CFDictionary),
+           abs(rect.origin.x - pos.x) < 1, abs(rect.origin.y - pos.y) < 1,
+           abs(rect.width - sz.width) < 1, abs(rect.height - sz.height) < 1 {
+            windowId = wid
+            break
+        }
         let wName = info[kCGWindowName as String] as? String ?? ""
         if wName == title || windowId == 0 {
             windowId = wid
-            if wName == title { break }
         }
     }
 
     return (window: window, id: windowId, title: title,
-            size: CGSize(width: sz.width, height: sz.height))
+            size: CGSize(width: sz.width, height: sz.height),
+            origin: CGPoint(x: pos.x, y: pos.y))
 }
 
 // MARK: - Action Execution
