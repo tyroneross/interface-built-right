@@ -69,17 +69,16 @@ intent and audit workflow; they do not reproduce the upstream implementations.
 The four source records are historical lessons or
 decisions, marked `cross_repo_validated: false`; these summaries do not claim
 universal validation, automatic enforcement, or current platform standards.
-Links pin the reviewed Build Loop Memory revision; IBR does not need that
-checkout or network access to apply the summaries above.
+The source records live in a private repository (Build Loop Memory) that is not publicly available; IBR does not need it to apply the summaries above.
 
 | Summary | Source record |
 |---|---|
-| Design-quality audit | [2026-06-26 audit lesson](https://github.com/tyroneross/build-loop-memory/blob/062e120723b31d1045d0e67204c2276e4423de49/lessons/2026-06-26-lesson-feedback-audit-design-quality.md) |
-| Narrow-container evidence | [2026-07-17 mobile lesson](https://github.com/tyroneross/build-loop-memory/blob/062e120723b31d1045d0e67204c2276e4423de49/lessons/2026-07-17-lesson-mobile-rendering-escapes-desktop-verification.md) |
-| Visible assumptions | [2026-09-01 assumptions decision](https://github.com/tyroneross/build-loop-memory/blob/062e120723b31d1045d0e67204c2276e4423de49/lessons/2026-09-01-decision-silent-assumptions-design.md) |
-| Most/least comparisons | [2026-07-15 preference lesson](https://github.com/tyroneross/build-loop-memory/blob/062e120723b31d1045d0e67204c2276e4423de49/lessons/2026-07-15-design-guidance-best-worst-most-least-preference-elicitation.md) |
+| Design-quality audit | 2026-06-26 audit lesson |
+| Narrow-container evidence | 2026-07-17 mobile lesson |
+| Visible assumptions | 2026-09-01 assumptions decision |
+| Most/least comparisons | 2026-07-15 preference lesson |
 
-Optional deeper references:
+Optional deeper references (private, not publicly available):
 
-- [Design approaches and source map](https://github.com/tyroneross/build-loop-memory/blob/062e120723b31d1045d0e67204c2276e4423de49/design/approaches.md): start with the task and project evidence, apply structural guidance, select a fitting layout, then add optional visual treatment and validate the render.
-- [UI Guidance corpus](https://github.com/tyroneross/build-loop-memory/blob/062e120723b31d1045d0e67204c2276e4423de49/design/ui-guidance/README.md) and [mockup review catalog](https://github.com/tyroneross/build-loop-memory/blob/062e120723b31d1045d0e67204c2276e4423de49/design/ui-guidance/mockup-review-catalog.md): preserved June 2026 modes, platform patterns, screenshots, and mixed-quality mockups. Historical ratings are preference evidence, not approval for the current build. Check provenance and current project fit before borrowing.
+- Design approaches and source map: start with the task and project evidence, apply structural guidance, select a fitting layout, then add optional visual treatment and validate the render.
+- UI Guidance corpus and mockup review catalog: preserved June 2026 modes, platform patterns, screenshots, and mixed-quality mockups. Historical ratings are preference evidence, not approval for the current build. Check provenance and current project fit before borrowing.

@@ -5,7 +5,7 @@ Created base UI components for the Design 3 dashboard following Calm Precision d
 ## Files Created
 
 ```
-/Users/tyroneross/Desktop/git-folder/interface-built-right/web-ui/components/ui/
+web-ui/components/ui/
 ├── Button.tsx          # Primary action component with variants
 ├── Modal.tsx           # Accessible dialog/overlay component
 ├── Badge.tsx           # Status indicator (text color only)
@@ -184,7 +184,7 @@ export default UIComponentsExample;
 
 ## Design Reference
 
-Based on `/Users/tyroneross/Desktop/git-folder/interface-built-right/web-ui/designs/design-3-updated.html`
+Based on `web-ui/designs/design-3-updated.html`
 
 **Color Palette:**
 - Gray scale: 50, 100, 200, 300, 400, 500, 600, 700, 900

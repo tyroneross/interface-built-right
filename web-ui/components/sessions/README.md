@@ -183,7 +183,7 @@ All components follow **Calm Precision 6.1** guidelines:
 ## File Locations
 
 ```
-/Users/tyroneross/Desktop/git-folder/interface-built-right/web-ui/components/sessions/
+web-ui/components/sessions/
 ├── SessionCard.tsx         # Individual session thumbnail
 ├── SessionList.tsx         # Scrollable list with empty state
 ├── SessionFilters.tsx      # Filter buttons (All/Changed/Broken)
