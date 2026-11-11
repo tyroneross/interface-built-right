@@ -16681,7 +16681,7 @@ async function extractMacOSElements(options) {
       throw err;
     }
     if (message.includes("No windows found")) {
-      const retry = await retryMacOSExtractionAfterActivation(options, extractorPath);
+      const retry = await retryMacOSExtractionAfterActivation(options, extractorPath, options.windowTitle);
       if (retry) return retry;
     }
     throw new Error(`macOS element extraction failed: ${message}`);
@@ -16723,13 +16723,15 @@ async function runMacOSExtraction(extractorPath, args) {
   const elements = JSON.parse(jsonStr);
   return { elements, window: window2 };
 }
-async function retryMacOSExtractionAfterActivation(options, extractorPath) {
+async function retryMacOSExtractionAfterActivation(options, extractorPath, windowTitle) {
   const pid = options.pid ?? (options.app ? await findProcess(options.app).catch(() => null) : null);
   if (!pid) return null;
   const activated = await activateMacOSProcess(pid);
   if (!activated) return null;
   try {
-    return await runMacOSExtraction(extractorPath, ["--pid", String(pid)]);
+    const args = ["--pid", String(pid)];
+    if (windowTitle !== void 0) args.push("--window-title", windowTitle);
+    return await runMacOSExtraction(extractorPath, args);
   } catch {
     return null;
   }
