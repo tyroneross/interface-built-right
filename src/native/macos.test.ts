@@ -65,6 +65,44 @@ describe('extractMacOSElements', () => {
     expect(result.elements[0]).toMatchObject({ role: 'AXButton', title: 'Save', path: [0] });
   });
 
+  it('reads the window origin line that newer extractors print after the header', async () => {
+    mockExecFileSuccess([
+      'WINDOW:42:932x264:Team chat: Performance durability test',
+      'ORIGIN:640.5,300',
+      JSON.stringify([{ role: 'AXStaticText', value: 'Send to', children: [], path: [0] }]),
+    ].join('\n'));
+
+    const result = await extractMacOSElements({ pid: 1234, windowTitle: 'Team chat: Performance durability test' });
+
+    expect(result.window).toEqual({
+      windowId: 42, width: 932, height: 264, title: 'Team chat: Performance durability test',
+      originX: 640.5, originY: 300,
+    });
+    expect(result.elements[0].value).toBe('Send to');
+    expect(execFileMock.mock.calls[0][1]).toEqual(['--pid', '1234', '--window-title', 'Team chat: Performance durability test']);
+  });
+
+  it('leaves the origin unset for an extractor that prints no ORIGIN line', async () => {
+    mockExecFileSuccess(['WINDOW:42:800x600:Demo', '[]'].join('\n'));
+    const { window } = await extractMacOSElements({ pid: 1234 });
+    expect(window.originX).toBeUndefined();
+    expect(window.originY).toBeUndefined();
+  });
+
+  it('keeps the requested window title when it retries after activation', async () => {
+    mockExecFileSequence([
+      () => ({ error: new Error('Error: No windows found for pid 1234') }),
+      (cmd) => { expect(cmd).toBe('osascript'); return { stdout: '' }; },
+      (_cmd, args) => {
+        expect(args).toEqual(['--pid', '1234', '--window-title', 'Team chat: Merge']);
+        return { stdout: ['WINDOW:7:420x340:Team chat: Merge', 'ORIGIN:10,20', '[]'].join('\n') };
+      },
+    ]);
+    const result = await extractMacOSElements({ pid: 1234, windowTitle: 'Team chat: Merge' });
+    expect(result.window.title).toBe('Team chat: Merge');
+    expect(execFileMock).toHaveBeenCalledTimes(3);
+  });
+
   it('accepts a long document AX value beyond the child-process default buffer', async () => {
     const value = 'x'.repeat(2 * 1024 * 1024);
     const stdout = 'WINDOW:42:800x600:Long note\n' + JSON.stringify([{ role: 'AXTextArea', value, children: [], path: [0] }]);

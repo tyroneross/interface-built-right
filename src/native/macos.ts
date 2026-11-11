@@ -103,7 +103,7 @@ export async function extractMacOSElements(options: {
       throw err;
     }
     if (message.includes('No windows found')) {
-      const retry = await retryMacOSExtractionAfterActivation(options, extractorPath);
+      const retry = await retryMacOSExtractionAfterActivation(options, extractorPath, options.windowTitle);
       if (retry) return retry;
     }
     throw new Error(`macOS element extraction failed: ${message}`);
@@ -159,7 +159,8 @@ async function runMacOSExtraction(
 
 async function retryMacOSExtractionAfterActivation(
   options: { pid?: number; app?: string },
-  extractorPath: string
+  extractorPath: string,
+  windowTitle?: string
 ): Promise<{ elements: MacOSAXElement[]; window: MacOSWindowInfo } | null> {
   const pid = options.pid ?? (options.app ? await findProcess(options.app).catch(() => null) : null);
   if (!pid) return null;
@@ -168,7 +169,11 @@ async function retryMacOSExtractionAfterActivation(
   if (!activated) return null;
 
   try {
-    return await runMacOSExtraction(extractorPath, ['--pid', String(pid)]);
+    // The retry targets the same window: dropping --window-title here would
+    // silently scan the main window under the caller's requested title.
+    const args = ['--pid', String(pid)];
+    if (windowTitle !== undefined) args.push('--window-title', windowTitle);
+    return await runMacOSExtraction(extractorPath, args);
   } catch {
     return null;
   }

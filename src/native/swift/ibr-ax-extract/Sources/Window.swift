@@ -8,6 +8,13 @@ struct WindowResizeSpec: Decodable {
     var isValid: Bool { width.isFinite && height.isFinite && width >= 1 && height >= 1 && width <= 16384 && height <= 16384 }
 }
 
+/// CG window bounds and the AX frame share global top-left points; allow
+/// sub-point rounding. Bounds need no Screen Recording permission, names do.
+func cgWindowMatchesAXFrame(_ bounds: CGRect, origin: CGPoint, size: CGSize) -> Bool {
+    abs(bounds.origin.x - origin.x) < 1 && abs(bounds.origin.y - origin.y) < 1
+        && abs(bounds.width - size.width) < 1 && abs(bounds.height - size.height) < 1
+}
+
 // Exact title matching includes the empty title. Omission requires one window.
 func resizeWindowMatches(titles: [String], title: String?) -> [Int] {
     titles.indices.filter { title == nil || titles[$0] == title! }

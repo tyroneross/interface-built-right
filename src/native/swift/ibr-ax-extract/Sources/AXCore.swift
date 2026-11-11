@@ -468,9 +468,11 @@ func findMainWindow(pid: pid_t, title requestedTitle: String? = nil) -> (window:
     // which is never the main window) wins, and must match exactly one window.
     let window: AXUIElement
     if let requestedTitle {
-        let matches = windows.filter { isWindow($0) && getStringAttribute($0, kAXTitleAttribute) == requestedTitle }
+        let candidates = windows.filter(isWindow)
+        let titles = candidates.map { getStringAttribute($0, kAXTitleAttribute) ?? "" }
+        let matches = resizeWindowMatches(titles: titles, title: requestedTitle)
         guard matches.count == 1 else { return nil }
-        window = matches[0]
+        window = candidates[matches[0]]
     } else {
         window = modalWindow ?? standardWindow
     }
@@ -491,8 +493,8 @@ func findMainWindow(pid: pid_t, title requestedTitle: String? = nil) -> (window:
         // beside its parent) never captures the wrong one.
         if let b = info[kCGWindowBounds as String] as? [String: Any],
            let rect = CGRect(dictionaryRepresentation: b as CFDictionary),
-           abs(rect.origin.x - pos.x) < 1, abs(rect.origin.y - pos.y) < 1,
-           abs(rect.width - sz.width) < 1, abs(rect.height - sz.height) < 1 {
+           cgWindowMatchesAXFrame(rect, origin: CGPoint(x: pos.x, y: pos.y),
+                                  size: CGSize(width: sz.width, height: sz.height)) {
             windowId = wid
             break
         }
