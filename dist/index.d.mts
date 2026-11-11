@@ -8197,6 +8197,38 @@ declare function reportElementSizes(roots: MacOSAXElement[], window?: {
     height: number;
 }): ElementSizeReport[];
 
+type Tone = 'light' | 'dark';
+interface NativeContrastEntry {
+    selector: string;
+    text: string;
+    role: string | null;
+    ratio: number;
+    foreground: string;
+    background: string;
+    /** Text darker than the surface behind it. */
+    tone: 'dark-on-light' | 'light-on-dark';
+}
+interface NativeContrastReport {
+    method: 'screenshot-pixels';
+    /** AA threshold applied. Native frames carry no font size, so 4.5:1 throughout. */
+    threshold: number;
+    totalChecked: number;
+    pass: number;
+    fail: number;
+    notMeasured: number;
+    failing: NativeContrastEntry[];
+    minRatio?: NativeContrastEntry;
+}
+interface NativeAppearanceReport {
+    /** The macOS system setting. */
+    system: Tone | 'unknown';
+    /** What the window actually paints, from its dominant colour. */
+    surface: Tone;
+    surfaceColor: string;
+    /** Surface and system disagree. Legitimate for themed apps; a lead when text fails. */
+    differsFromSystem: boolean;
+}
+
 /**
  * Simulator device from `xcrun simctl list devices --json`
  */
@@ -8245,8 +8277,8 @@ interface NativeScanOptions {
  * Result from scanning a native simulator
  */
 interface NativeVisualCoverage {
-    appearance: 'unmeasured';
-    textContrast: 'unmeasured';
+    appearance: 'measured' | 'unmeasured';
+    textContrast: 'measured' | 'unmeasured';
     reason: string;
 }
 interface NativeScanResult {
@@ -8350,6 +8382,9 @@ interface MacOSWindowInfo {
     width: number;
     height: number;
     title: string;
+    /** Window top-left in AX global points; absent from older extractors. */
+    originX?: number;
+    originY?: number;
 }
 /**
  * Options for scanning a running macOS native app
@@ -8361,7 +8396,9 @@ interface MacOSScanOptions {
     bundleId?: string;
     /** Direct process ID */
     pid?: number;
-    /** Capture screenshot */
+    /** Exact window title, to scan a window other than the main one (e.g. a panel). */
+    windowTitle?: string;
+    /** Capture screenshot. Also enables pixel-measured text contrast and appearance. */
     screenshot?: {
         path: string;
     };
@@ -8385,6 +8422,10 @@ interface MacOSScanOptions {
  */
 interface MacOSScanResult {
     visualCoverage?: NativeVisualCoverage;
+    /** Pixel-measured text contrast; present when a screenshot was captured. */
+    contrast?: NativeContrastReport;
+    /** System appearance vs the surface the window actually paints. */
+    appearance?: NativeAppearanceReport;
     url: string;
     route: string;
     timestamp: string;
@@ -8629,6 +8670,8 @@ declare function findProcess(appNameOrBundleId: string): Promise<number>;
 declare function extractMacOSElements(options: {
     pid?: number;
     app?: string;
+    /** Exact window title; selects a non-main window such as a utility panel. */
+    windowTitle?: string;
 }): Promise<{
     elements: MacOSAXElement[];
     window: MacOSWindowInfo;

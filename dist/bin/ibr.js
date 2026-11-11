@@ -8859,7 +8859,7 @@ var require_png = __commonJS({
     var Parser = require_parser_async();
     var Packer = require_packer_async();
     var PNGSync = require_png_sync();
-    var PNG7 = exports2.PNG = function(options) {
+    var PNG8 = exports2.PNG = function(options) {
       Stream.call(this);
       options = options || {};
       this.width = options.width | 0;
@@ -8888,9 +8888,9 @@ var require_png = __commonJS({
       this._parser.on("close", this._handleClose.bind(this));
       this._packer.on("error", this.emit.bind(this, "error"));
     };
-    util.inherits(PNG7, Stream);
-    PNG7.sync = PNGSync;
-    PNG7.prototype.pack = function() {
+    util.inherits(PNG8, Stream);
+    PNG8.sync = PNGSync;
+    PNG8.prototype.pack = function() {
       if (!this.data || !this.data.length) {
         this.emit("error", "No data provided");
         return this;
@@ -8902,7 +8902,7 @@ var require_png = __commonJS({
       );
       return this;
     };
-    PNG7.prototype.parse = function(data, callback) {
+    PNG8.prototype.parse = function(data, callback) {
       if (callback) {
         let onParsed, onError;
         onParsed = function(parsedData) {
@@ -8920,27 +8920,27 @@ var require_png = __commonJS({
       this.end(data);
       return this;
     };
-    PNG7.prototype.write = function(data) {
+    PNG8.prototype.write = function(data) {
       this._parser.write(data);
       return true;
     };
-    PNG7.prototype.end = function(data) {
+    PNG8.prototype.end = function(data) {
       this._parser.end(data);
     };
-    PNG7.prototype._metadata = function(metadata) {
+    PNG8.prototype._metadata = function(metadata) {
       this.width = metadata.width;
       this.height = metadata.height;
       this.emit("metadata", metadata);
     };
-    PNG7.prototype._gamma = function(gamma) {
+    PNG8.prototype._gamma = function(gamma) {
       this.gamma = gamma;
     };
-    PNG7.prototype._handleClose = function() {
+    PNG8.prototype._handleClose = function() {
       if (!this._parser.writable && !this._packer.readable) {
         this.emit("close");
       }
     };
-    PNG7.bitblt = function(src, dst, srcX, srcY, width, height, deltaX, deltaY) {
+    PNG8.bitblt = function(src, dst, srcX, srcY, width, height, deltaX, deltaY) {
       srcX |= 0;
       srcY |= 0;
       width |= 0;
@@ -8962,11 +8962,11 @@ var require_png = __commonJS({
         );
       }
     };
-    PNG7.prototype.bitblt = function(dst, srcX, srcY, width, height, deltaX, deltaY) {
-      PNG7.bitblt(this, dst, srcX, srcY, width, height, deltaX, deltaY);
+    PNG8.prototype.bitblt = function(dst, srcX, srcY, width, height, deltaX, deltaY) {
+      PNG8.bitblt(this, dst, srcX, srcY, width, height, deltaX, deltaY);
       return this;
     };
-    PNG7.adjustGamma = function(src) {
+    PNG8.adjustGamma = function(src) {
       if (src.gamma) {
         for (let y = 0; y < src.height; y++) {
           for (let x = 0; x < src.width; x++) {
@@ -8981,8 +8981,8 @@ var require_png = __commonJS({
         src.gamma = 0;
       }
     };
-    PNG7.prototype.adjustGamma = function() {
-      PNG7.adjustGamma(this);
+    PNG8.prototype.adjustGamma = function() {
+      PNG8.adjustGamma(this);
     };
   }
 });
@@ -12286,8 +12286,8 @@ function base64urlToUint8Array(base64url3) {
 function uint8ArrayToBase64url(bytes) {
   return uint8ArrayToBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
-function hexToUint8Array(hex3) {
-  const cleanHex = hex3.replace(/^0x/, "");
+function hexToUint8Array(hex4) {
+  const cleanHex = hex4.replace(/^0x/, "");
   if (cleanHex.length % 2 !== 0) {
     throw new Error("Invalid hex string length");
   }
@@ -31809,9 +31809,9 @@ function parseColor(color) {
     return { kind: "none", reason: lower };
   }
   if (NAMED[lower]) return { kind: "rgb", rgb: NAMED[lower], alpha: 1 };
-  const hex3 = lower.match(/^#([0-9a-f]{3,8})$/);
-  if (hex3) {
-    const h = hex3[1];
+  const hex4 = lower.match(/^#([0-9a-f]{3,8})$/);
+  if (hex4) {
+    const h = hex4[1];
     const exp = (i) => parseInt(h[i] + h[i], 16);
     const pair2 = (i) => parseInt(h.slice(i, i + 2), 16);
     if (h.length === 3) return { kind: "rgb", rgb: [exp(0), exp(1), exp(2)], alpha: 1 };
@@ -31956,19 +31956,19 @@ function parseColor2(color) {
   }
   const hexMatch = color.match(/^#([0-9a-f]{3,8})$/i);
   if (hexMatch) {
-    const hex3 = hexMatch[1];
-    if (hex3.length === 3) {
+    const hex4 = hexMatch[1];
+    if (hex4.length === 3) {
       return {
-        r: parseInt(hex3[0] + hex3[0], 16),
-        g: parseInt(hex3[1] + hex3[1], 16),
-        b: parseInt(hex3[2] + hex3[2], 16)
+        r: parseInt(hex4[0] + hex4[0], 16),
+        g: parseInt(hex4[1] + hex4[1], 16),
+        b: parseInt(hex4[2] + hex4[2], 16)
       };
     }
-    if (hex3.length >= 6) {
+    if (hex4.length >= 6) {
       return {
-        r: parseInt(hex3.slice(0, 2), 16),
-        g: parseInt(hex3.slice(2, 4), 16),
-        b: parseInt(hex3.slice(4, 6), 16)
+        r: parseInt(hex4.slice(0, 2), 16),
+        g: parseInt(hex4.slice(2, 4), 16),
+        b: parseInt(hex4.slice(4, 6), 16)
       };
     }
   }
@@ -43788,6 +43788,7 @@ async function extractMacOSElements(options) {
   } else {
     throw new Error("Either pid or app must be provided");
   }
+  if (options.windowTitle !== void 0) args.push("--window-title", options.windowTitle);
   try {
     return await runMacOSExtraction(extractorPath, args);
   } catch (err) {
@@ -43818,7 +43819,14 @@ async function runMacOSExtraction(extractorPath, args) {
   }
   const lines = stdout.split("\n");
   const headerLine = lines[0];
-  const jsonStr = lines.slice(1).join("\n");
+  let origin;
+  let jsonStart = 1;
+  if (lines[1]?.startsWith("ORIGIN:")) {
+    const [x, y] = lines[1].slice(7).split(",").map(Number);
+    if (Number.isFinite(x) && Number.isFinite(y)) origin = { x, y };
+    jsonStart = 2;
+  }
+  const jsonStr = lines.slice(jsonStart).join("\n");
   let window2 = { windowId: 0, width: 800, height: 600, title: "Unknown" };
   if (headerLine.startsWith("WINDOW:")) {
     const parts = headerLine.slice(7).split(":");
@@ -43829,7 +43837,8 @@ async function runMacOSExtraction(extractorPath, args) {
       windowId,
       width: parseInt(dims[0], 10) || 800,
       height: parseInt(dims[1], 10) || 600,
-      title
+      title,
+      ...origin ? { originX: origin.x, originY: origin.y } : {}
     };
   }
   const elements = JSON.parse(jsonStr);
@@ -43927,7 +43936,7 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
 }
 async function captureMacOSScreenshot(windowId, outputPath) {
   await (0, import_promises22.mkdir)((0, import_path21.dirname)(outputPath), { recursive: true });
-  await execFileAsync4("screencapture", ["-l", String(windowId), "-x", outputPath], {
+  await execFileAsync4("screencapture", ["-l", String(windowId), "-o", "-x", outputPath], {
     timeout: 1e4
   });
 }
@@ -44349,6 +44358,310 @@ var init_layout_fill = __esm({
   }
 });
 
+// src/live/color.ts
+function clamp(n, min, max) {
+  return n < min ? min : n > max ? max : n;
+}
+function parseChannel(token) {
+  const t = token.trim();
+  if (t === "") return null;
+  if (t.endsWith("%")) {
+    const pct = Number(t.slice(0, -1));
+    if (!Number.isFinite(pct)) return null;
+    return clamp(Math.round(pct / 100 * 255), 0, 255);
+  }
+  const n = Number(t);
+  if (!Number.isFinite(n)) return null;
+  return clamp(Math.round(n), 0, 255);
+}
+function parseAlpha(token) {
+  if (token === void 0) return 1;
+  const t = token.trim();
+  if (t === "") return 1;
+  if (t.endsWith("%")) {
+    const pct = Number(t.slice(0, -1));
+    return Number.isFinite(pct) ? clamp(pct / 100, 0, 1) : 1;
+  }
+  const n = Number(t);
+  return Number.isFinite(n) ? clamp(n, 0, 1) : 1;
+}
+function parseCssColor(input) {
+  if (!input) return null;
+  const s = String(input).trim().toLowerCase();
+  if (s === "transparent") return { r: 0, g: 0, b: 0, a: 0 };
+  const hex4 = HEX_RE.exec(s);
+  if (hex4) {
+    const h = hex4[1];
+    if (h.length === 3 || h.length === 4) {
+      const r = parseInt(h[0] + h[0], 16);
+      const g = parseInt(h[1] + h[1], 16);
+      const b = parseInt(h[2] + h[2], 16);
+      const a = h.length === 4 ? parseInt(h[3] + h[3], 16) / 255 : 1;
+      return { r, g, b, a };
+    }
+    if (h.length === 6 || h.length === 8) {
+      const r = parseInt(h.slice(0, 2), 16);
+      const g = parseInt(h.slice(2, 4), 16);
+      const b = parseInt(h.slice(4, 6), 16);
+      const a = h.length === 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1;
+      return { r, g, b, a };
+    }
+    return null;
+  }
+  const func = FUNC_RE.exec(s);
+  if (func) {
+    const body = func[2];
+    const [rgbPart, slashAlpha] = body.split("/");
+    const parts = rgbPart.trim().split(/[\s,]+/).filter(Boolean);
+    if (parts.length < 3) return null;
+    const r = parseChannel(parts[0]);
+    const g = parseChannel(parts[1]);
+    const b = parseChannel(parts[2]);
+    if (r === null || g === null || b === null) return null;
+    const a = parseAlpha(slashAlpha ?? parts[3]);
+    return { r, g, b, a };
+  }
+  const srgb = COLOR_SRGB_RE.exec(s);
+  if (srgb) {
+    const [channelPart, slashAlpha] = srgb[1].split("/");
+    const parts = channelPart.trim().split(/\s+/).filter(Boolean);
+    if (parts.length < 3) return null;
+    const chans = parts.slice(0, 3).map(parseUnitChannel);
+    if (chans.some((c) => c === null)) return null;
+    const [r, g, b] = chans;
+    return { r, g, b, a: parseAlpha(slashAlpha) };
+  }
+  return null;
+}
+function parseUnitChannel(token) {
+  const t = token.trim();
+  if (t === "" || t === "none") return t === "none" ? 0 : null;
+  const n = t.endsWith("%") ? Number(t.slice(0, -1)) / 100 : Number(t);
+  if (!Number.isFinite(n)) return null;
+  return clamp(Math.round(n * 255), 0, 255);
+}
+function formatRgba(c) {
+  const a = Math.round(c.a * 1e3) / 1e3;
+  return a >= 1 ? `rgb(${c.r}, ${c.g}, ${c.b})` : `rgba(${c.r}, ${c.g}, ${c.b}, ${a})`;
+}
+function isOpaque(c) {
+  return c.a >= 1;
+}
+function compositeOver(src, dst) {
+  if (src.a >= 1) return { ...src };
+  if (src.a <= 0) return { ...dst };
+  const outA = src.a + dst.a * (1 - src.a);
+  if (outA <= 0) return { r: 0, g: 0, b: 0, a: 0 };
+  const mix = (s, d) => Math.round((s * src.a + d * dst.a * (1 - src.a)) / outA);
+  return {
+    r: mix(src.r, dst.r),
+    g: mix(src.g, dst.g),
+    b: mix(src.b, dst.b),
+    a: outA
+  };
+}
+function resolveEffectiveBackground2(chain) {
+  const canonical = resolveEffectiveBackground(chain);
+  return {
+    color: { r: canonical.rgb[0], g: canonical.rgb[1], b: canonical.rgb[2], a: 1 },
+    resolved: canonical.resolved,
+    ...canonical.unsupported !== void 0 ? { unsupported: canonical.unsupported } : {}
+  };
+}
+function channelLuminance(v) {
+  const s = v / 255;
+  return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+}
+function relativeLuminance3(c) {
+  return 0.2126 * channelLuminance(c.r) + 0.7152 * channelLuminance(c.g) + 0.0722 * channelLuminance(c.b);
+}
+function contrastRatio2(fg, bg) {
+  const l1 = relativeLuminance3(fg);
+  const l2 = relativeLuminance3(bg);
+  const lighter = Math.max(l1, l2);
+  const darker = Math.min(l1, l2);
+  const ratio = (lighter + 0.05) / (darker + 0.05);
+  return Math.round(ratio * 100) / 100;
+}
+function isLargeText(fontSizePx, fontWeight) {
+  if (!Number.isFinite(fontSizePx)) return false;
+  if (fontWeight >= 700 && fontSizePx >= 18.66) return true;
+  return fontSizePx >= 24;
+}
+function aaThreshold(large) {
+  return large ? 3 : 4.5;
+}
+function parsePx3(value) {
+  if (!value) return null;
+  const n = Number.parseFloat(value);
+  return Number.isFinite(n) ? n : null;
+}
+function parseFontWeight(value) {
+  if (!value) return 400;
+  const t = String(value).trim().toLowerCase();
+  if (t === "bold") return 700;
+  if (t === "bolder") return 700;
+  if (t === "normal" || t === "lighter") return 400;
+  const n = Number.parseFloat(t);
+  return Number.isFinite(n) ? n : 400;
+}
+var HEX_RE, FUNC_RE, COLOR_SRGB_RE;
+var init_color = __esm({
+  "src/live/color.ts"() {
+    "use strict";
+    init_color_parse();
+    HEX_RE = /^#([0-9a-f]{3,8})$/i;
+    FUNC_RE = /^(rgba?)\(([^)]*)\)$/i;
+    COLOR_SRGB_RE = /^color\(\s*srgb\s+([^)]*)\)$/i;
+  }
+});
+
+// src/native/contrast.ts
+function decodePng(buffer) {
+  const png = import_pngjs3.PNG.sync.read(buffer);
+  return { width: png.width, height: png.height, data: png.data };
+}
+function histogram(img, rect) {
+  const bins = /* @__PURE__ */ new Map();
+  let total = 0;
+  const x0 = Math.max(0, Math.floor(rect.x));
+  const y0 = Math.max(0, Math.floor(rect.y));
+  const x1 = Math.min(img.width, Math.ceil(rect.x + rect.width));
+  const y1 = Math.min(img.height, Math.ceil(rect.y + rect.height));
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      const i = (y * img.width + x) * 4;
+      if (img.data[i + 3] < 128) continue;
+      const r = img.data[i], g = img.data[i + 1], b = img.data[i + 2];
+      const key = r >> QUANT_SHIFT << 10 | g >> QUANT_SHIFT << 5 | b >> QUANT_SHIFT;
+      const bin = bins.get(key);
+      if (bin) {
+        bin.count++;
+        bin.r += r;
+        bin.g += g;
+        bin.b += b;
+      } else bins.set(key, { count: 1, r, g, b });
+      total++;
+    }
+  }
+  return { bins, total };
+}
+function mean(bin) {
+  return { r: Math.round(bin.r / bin.count), g: Math.round(bin.g / bin.count), b: Math.round(bin.b / bin.count), a: 1 };
+}
+function measureRegion(img, rect) {
+  const { bins, total } = histogram(img, rect);
+  if (total === 0) return { status: "unmeasurable", reason: "frame is outside the captured window" };
+  let bgBin;
+  for (const bin of bins.values()) if (!bgBin || bin.count > bgBin.count) bgBin = bin;
+  const background = mean(bgBin);
+  const minCount = Math.max(MIN_TEXT_PIXELS, total * MIN_TEXT_SHARE);
+  let best;
+  for (const bin of bins.values()) {
+    if (bin === bgBin || bin.count < minCount) continue;
+    const color = mean(bin);
+    const ratio = contrastRatio2(color, background);
+    if (ratio < NOISE_RATIO) continue;
+    if (!best || ratio > best.ratio) best = { color, ratio };
+  }
+  if (!best) return { status: "unmeasurable", reason: "no text pixels distinct from the background" };
+  return { status: "measured", foreground: best.color, background, ratio: best.ratio };
+}
+function hex3(c) {
+  return "#" + [c.r, c.g, c.b].map((v) => v.toString(16).padStart(2, "0")).join("");
+}
+function toneOf(c) {
+  return relativeLuminance3(c) > 0.18 ? "light" : "dark";
+}
+function analyzeNativeContrast(img, window2, elements, threshold = 4.5) {
+  const scale = img.width / window2.width;
+  let pass = 0, fail = 0, notMeasured = 0;
+  const failing = [];
+  let minRatio;
+  for (const el of elements) {
+    const text = el.text?.trim();
+    const role = el.a11y?.role ?? null;
+    if (!text || !role || !TEXT_ROLES.has(role) || el.interactive?.isDisabled) continue;
+    const { x, y, width, height } = el.bounds;
+    if (width < 2 || height < 2) continue;
+    const m = measureRegion(img, {
+      x: (x - window2.originX) * scale,
+      y: (y - window2.originY) * scale,
+      width: width * scale,
+      height: height * scale
+    });
+    if (m.status !== "measured") {
+      notMeasured++;
+      continue;
+    }
+    const entry = {
+      selector: el.selector,
+      text: text.slice(0, 60),
+      role,
+      ratio: m.ratio,
+      foreground: hex3(m.foreground),
+      background: hex3(m.background),
+      tone: relativeLuminance3(m.foreground) > relativeLuminance3(m.background) ? "light-on-dark" : "dark-on-light"
+    };
+    if (m.ratio >= threshold) pass++;
+    else {
+      fail++;
+      if (failing.length < 50) failing.push(entry);
+    }
+    if (!minRatio || m.ratio < minRatio.ratio) minRatio = entry;
+  }
+  return { method: "screenshot-pixels", threshold, totalChecked: pass + fail, pass, fail, notMeasured, failing, minRatio };
+}
+function analyzeSurface(img, system) {
+  const { bins } = histogram(img, { x: 0, y: 0, width: img.width, height: img.height });
+  let top;
+  for (const bin of bins.values()) if (!top || bin.count > top.count) top = bin;
+  const color = top ? mean(top) : { r: 0, g: 0, b: 0, a: 1 };
+  const surface = toneOf(color);
+  return { system, surface, surfaceColor: hex3(color), differsFromSystem: system !== "unknown" && system !== surface };
+}
+async function readSystemAppearance() {
+  if (process.platform !== "darwin") return "unknown";
+  try {
+    const { stdout } = await execFileAsync5("defaults", ["read", "-g", "AppleInterfaceStyle"], { timeout: 3e3 });
+    return stdout.trim() === "Dark" ? "dark" : "light";
+  } catch (err) {
+    return err.code === 1 ? "light" : "unknown";
+  }
+}
+async function readPng(path3) {
+  return decodePng(await (0, import_promises23.readFile)(path3));
+}
+var import_child_process6, import_promises23, import_util7, import_pngjs3, execFileAsync5, QUANT_SHIFT, MIN_TEXT_SHARE, MIN_TEXT_PIXELS, NOISE_RATIO, TEXT_ROLES;
+var init_contrast = __esm({
+  "src/native/contrast.ts"() {
+    "use strict";
+    import_child_process6 = require("child_process");
+    import_promises23 = require("fs/promises");
+    import_util7 = require("util");
+    import_pngjs3 = __toESM(require_png());
+    init_color();
+    execFileAsync5 = (0, import_util7.promisify)(import_child_process6.execFile);
+    QUANT_SHIFT = 3;
+    MIN_TEXT_SHARE = 0.02;
+    MIN_TEXT_PIXELS = 4;
+    NOISE_RATIO = 1.05;
+    TEXT_ROLES = /* @__PURE__ */ new Set([
+      "text",
+      "button",
+      "link",
+      "radio",
+      "checkbox",
+      "tab",
+      "combobox",
+      "heading",
+      "menuitem",
+      "switch",
+      "cell"
+    ]);
+  }
+});
+
 // src/native/scan.ts
 var scan_exports2 = {};
 __export(scan_exports2, {
@@ -44512,7 +44825,7 @@ async function scanMacOS(options) {
   if (process.platform !== "darwin") {
     throw new Error("macOS native scanning is only available on macOS");
   }
-  const { app, bundleId, pid: directPid, screenshot } = options;
+  const { app, bundleId, pid: directPid, screenshot, windowTitle } = options;
   if (!app && !bundleId && !directPid) {
     throw new Error("Provide --app, --bundle-id, or --pid to identify the target app");
   }
@@ -44524,7 +44837,8 @@ async function scanMacOS(options) {
   }
   const { elements: nativeElements, window: window2 } = await extractMacOSElements({
     pid,
-    app: app || bundleId
+    app: app || bundleId,
+    windowTitle
   });
   const elements = mapMacOSToEnhancedElements(nativeElements);
   const audit = analyzeElements(elements, false);
@@ -44539,8 +44853,22 @@ async function scanMacOS(options) {
       window: { width: window2.width, height: window2.height }
     });
   }
+  let contrast;
+  let appearance;
+  let visualCoverage = nativeVisualCoverage;
   if (screenshot && window2.windowId > 0) {
     await captureMacOSScreenshot(window2.windowId, screenshot.path);
+    if (window2.originX !== void 0 && window2.originY !== void 0) {
+      const img = await readPng(screenshot.path);
+      const geometry = { width: window2.width, height: window2.height, originX: window2.originX, originY: window2.originY };
+      contrast = analyzeNativeContrast(img, geometry, elements);
+      appearance = analyzeSurface(img, await readSystemAppearance());
+      visualCoverage = {
+        appearance: "measured",
+        textContrast: "measured",
+        reason: `Measured from screenshot pixels: ${contrast.totalChecked} text elements checked, ${contrast.fail} below ${contrast.threshold}:1, ${contrast.notMeasured} unmeasurable. Surface ${appearance.surface}, system ${appearance.system}.`
+      };
+    }
   }
   const url2 = `macos://${app || bundleId || `pid-${pid}`}/${window2.title}`;
   const route = `/${window2.title}`;
@@ -44556,6 +44884,17 @@ async function scanMacOS(options) {
         category: "structure",
         severity: "warning",
         description: `layout-fill: ${f.detail}`
+      });
+    }
+  }
+  if (contrast) {
+    for (const f of contrast.failing) {
+      const mismatch = appearance && (appearance.surface === "dark" && f.tone === "dark-on-light" || appearance.surface === "light" && f.tone === "light-on-dark");
+      issues.push({
+        category: "accessibility",
+        severity: "error",
+        description: `contrast: "${f.text}" (${f.role}) ${f.ratio}:1, text ${f.foreground} on ${f.background}, needs ${contrast.threshold}:1`,
+        fix: mismatch ? `Text resolved for the ${appearance.surface === "dark" ? "light" : "dark"} appearance on a ${appearance.surface} surface. Set the window's appearance from the theme, or use colours that adapt to it.` : "Raise the text/background contrast to at least 4.5:1."
       });
     }
   }
@@ -44575,7 +44914,9 @@ async function scanMacOS(options) {
     []
   );
   return {
-    visualCoverage: nativeVisualCoverage,
+    visualCoverage,
+    contrast,
+    appearance,
     url: url2,
     route,
     timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -44685,6 +45026,7 @@ var init_scan2 = __esm({
     init_interactivity2();
     init_semantic2();
     init_layout_fill();
+    init_contrast();
     nativeVisualCoverage = {
       appearance: "unmeasured",
       textContrast: "unmeasured",
@@ -44700,7 +45042,7 @@ __export(crop_exports, {
 });
 function loadPng(path3) {
   return new Promise((resolve10, reject) => {
-    const png = new import_pngjs3.PNG();
+    const png = new import_pngjs4.PNG();
     (0, import_fs13.createReadStream)(path3).pipe(png).on("parsed", () => resolve10(png)).on("error", reject);
   });
 }
@@ -44709,34 +45051,34 @@ function writePng(png, path3) {
     png.pack().pipe((0, import_fs13.createWriteStream)(path3)).on("finish", resolve10).on("error", reject);
   });
 }
-function clamp(v, lo, hi) {
+function clamp2(v, lo, hi) {
   return Math.min(Math.max(v, lo), hi);
 }
 async function cropPng(srcPath, bounds, destPath, opts = {}) {
   const padding = opts.padding ?? 16;
   const scale = opts.scale ?? 1;
   const src = await loadPng(srcPath);
-  const x0 = Math.floor(clamp((bounds.x - padding) * scale, 0, src.width));
-  const y0 = Math.floor(clamp((bounds.y - padding) * scale, 0, src.height));
-  const x1 = Math.ceil(clamp((bounds.x + bounds.width + padding) * scale, 0, src.width));
-  const y1 = Math.ceil(clamp((bounds.y + bounds.height + padding) * scale, 0, src.height));
+  const x0 = Math.floor(clamp2((bounds.x - padding) * scale, 0, src.width));
+  const y0 = Math.floor(clamp2((bounds.y - padding) * scale, 0, src.height));
+  const x1 = Math.ceil(clamp2((bounds.x + bounds.width + padding) * scale, 0, src.width));
+  const y1 = Math.ceil(clamp2((bounds.y + bounds.height + padding) * scale, 0, src.height));
   const cropW = x1 - x0;
   const cropH = y1 - y0;
   if (cropW <= 0 || cropH <= 0) return null;
-  const out = new import_pngjs3.PNG({ width: cropW, height: cropH });
+  const out = new import_pngjs4.PNG({ width: cropW, height: cropH });
   src.bitblt(out, x0, y0, cropW, cropH, 0, 0);
-  await (0, import_promises23.mkdir)((0, import_path23.dirname)(destPath), { recursive: true });
+  await (0, import_promises24.mkdir)((0, import_path23.dirname)(destPath), { recursive: true });
   await writePng(out, destPath);
   return destPath;
 }
-var import_fs13, import_promises23, import_path23, import_pngjs3;
+var import_fs13, import_promises24, import_path23, import_pngjs4;
 var init_crop = __esm({
   "src/utils/crop.ts"() {
     "use strict";
     import_fs13 = require("fs");
-    import_promises23 = require("fs/promises");
+    import_promises24 = require("fs/promises");
     import_path23 = require("path");
-    import_pngjs3 = __toESM(require_png());
+    import_pngjs4 = __toESM(require_png());
   }
 });
 
@@ -45288,15 +45630,15 @@ function formatAxStressReport(report) {
   }
   return lines.join("\n");
 }
-var import_child_process6, import_util7, execFileAsync5, defaultRunner;
+var import_child_process7, import_util8, execFileAsync6, defaultRunner;
 var init_ax_stress = __esm({
   "src/native/ax-stress.ts"() {
     "use strict";
-    import_child_process6 = require("child_process");
-    import_util7 = require("util");
+    import_child_process7 = require("child_process");
+    import_util8 = require("util");
     init_extract3();
-    execFileAsync5 = (0, import_util7.promisify)(import_child_process6.execFile);
-    defaultRunner = (bin, args, timeoutMs) => execFileAsync5(bin, args, { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 });
+    execFileAsync6 = (0, import_util8.promisify)(import_child_process7.execFile);
+    defaultRunner = (bin, args, timeoutMs) => execFileAsync6(bin, args, { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 });
   }
 });
 
@@ -45355,16 +45697,16 @@ async function ensureSimDriver() {
   }
   if (buildError) throw new Error(buildError);
   try {
-    await execFileAsync6("swift", ["build", "--package-path", sourceDir, "-c", "release"], {
+    await execFileAsync7("swift", ["build", "--package-path", sourceDir, "-c", "release"], {
       timeout: 12e4
     });
     const builtPath = (0, import_path24.join)(sourceDir, ".build", "release", DRIVER_NAME);
     if (!(0, import_fs14.existsSync)(builtPath)) {
       throw new Error("Swift build succeeded but binary was not created");
     }
-    await (0, import_promises24.mkdir)(CACHE_DIR, { recursive: true });
-    await (0, import_promises24.copyFile)(builtPath, CACHE_PATH);
-    await (0, import_promises24.chmod)(CACHE_PATH, 493);
+    await (0, import_promises25.mkdir)(CACHE_DIR, { recursive: true });
+    await (0, import_promises25.copyFile)(builtPath, CACHE_PATH);
+    await (0, import_promises25.chmod)(CACHE_PATH, 493);
     cachedPath = CACHE_PATH;
     return CACHE_PATH;
   } catch (err) {
@@ -45375,7 +45717,7 @@ async function ensureSimDriver() {
 async function runSimDriver(args, action) {
   try {
     const driverPath = await ensureSimDriver();
-    await execFileAsync6(driverPath, args, { timeout: 15e3 });
+    await execFileAsync7(driverPath, args, { timeout: 15e3 });
     return { success: true, action };
   } catch (err) {
     return { success: false, action, error: errorMessage(err) };
@@ -45410,17 +45752,17 @@ function simDriverSwipe(udid, x1, y1, x2, y2, duration3, opts) {
   if (duration3) args.push("--duration", String(duration3));
   return runSimDriver(args, "swipe");
 }
-var import_child_process7, import_fs14, import_promises24, import_path24, import_util8, execFileAsync6, DRIVER_NAME, CACHE_DIR, CACHE_PATH, cachedPath, buildError;
+var import_child_process8, import_fs14, import_promises25, import_path24, import_util9, execFileAsync7, DRIVER_NAME, CACHE_DIR, CACHE_PATH, cachedPath, buildError;
 var init_sim_driver = __esm({
   "src/native/sim-driver.ts"() {
     "use strict";
-    import_child_process7 = require("child_process");
+    import_child_process8 = require("child_process");
     import_fs14 = require("fs");
-    import_promises24 = require("fs/promises");
+    import_promises25 = require("fs/promises");
     import_path24 = require("path");
-    import_util8 = require("util");
+    import_util9 = require("util");
     init_runtime_path();
-    execFileAsync6 = (0, import_util8.promisify)(import_child_process7.execFile);
+    execFileAsync7 = (0, import_util9.promisify)(import_child_process8.execFile);
     DRIVER_NAME = "ibr-sim-driver";
     CACHE_DIR = (0, import_path24.join)(process.cwd(), ".ibr", "bin");
     CACHE_PATH = (0, import_path24.join)(CACHE_DIR, DRIVER_NAME);
@@ -45455,7 +45797,7 @@ function formatSimulatorDriver(driver3) {
 }
 async function isIdbCliAvailable() {
   try {
-    await execFileAsync7("which", ["idb"]);
+    await execFileAsync8("which", ["idb"]);
     return true;
   } catch {
     return false;
@@ -45463,7 +45805,7 @@ async function isIdbCliAvailable() {
 }
 async function isSimctlAvailable() {
   try {
-    await execFileAsync7("which", ["xcrun"]);
+    await execFileAsync8("which", ["xcrun"]);
     return true;
   } catch {
     return false;
@@ -45544,7 +45886,7 @@ async function idbTap(udid, x, y) {
       }
     } else {
       try {
-        await execFileAsync7("idb", ["ui", "tap", String(x), String(y), "--udid", udid], { timeout: 1e4 });
+        await execFileAsync8("idb", ["ui", "tap", String(x), String(y), "--udid", udid], { timeout: 1e4 });
         return { success: true, action: "tap", driver: "idb" };
       } catch (err) {
         return { success: false, action: "tap", error: err.message, driver: "idb" };
@@ -45581,7 +45923,7 @@ async function idbType(udid, text) {
       }
     } else {
       try {
-        await execFileAsync7("idb", ["ui", "text", text, "--udid", udid], { timeout: 1e4 });
+        await execFileAsync8("idb", ["ui", "text", text, "--udid", udid], { timeout: 1e4 });
         return { success: true, action: "type", driver: "idb" };
       } catch (err) {
         return { success: false, action: "type", error: err.message, driver: "idb" };
@@ -45620,7 +45962,7 @@ async function idbSwipe(udid, x1, y1, x2, y2, duration3) {
       try {
         const args = ["ui", "swipe", String(x1), String(y1), String(x2), String(y2), "--udid", udid];
         if (duration3) args.push("--duration", String(duration3));
-        await execFileAsync7("idb", args, { timeout: 1e4 });
+        await execFileAsync8("idb", args, { timeout: 1e4 });
         return { success: true, action: "swipe", driver: "idb" };
       } catch (err) {
         return { success: false, action: "swipe", error: err.message, driver: "idb" };
@@ -45646,7 +45988,7 @@ async function idbButton(udid, button) {
       }
     } else {
       try {
-        await execFileAsync7("idb", ["ui", "button", button, "--udid", udid], { timeout: 1e4 });
+        await execFileAsync8("idb", ["ui", "button", button, "--udid", udid], { timeout: 1e4 });
         return { success: true, action, driver: "idb" };
       } catch (err) {
         return { success: false, action, error: err.message, driver: "idb" };
@@ -45655,7 +45997,7 @@ async function idbButton(udid, button) {
   }
   if (button === "HOME" && shouldTryDriver("simctl", preference)) {
     try {
-      await execFileAsync7(
+      await execFileAsync8(
         "xcrun",
         ["simctl", "spawn", udid, "launchctl", "stop", "com.apple.SpringBoard"],
         { timeout: 1e4 }
@@ -45676,20 +46018,20 @@ async function idbButton(udid, button) {
 }
 async function idbOpenUrl(udid, url2) {
   try {
-    await execFileAsync7("xcrun", ["simctl", "openurl", udid, url2], { timeout: 1e4 });
+    await execFileAsync8("xcrun", ["simctl", "openurl", udid, url2], { timeout: 1e4 });
     return { success: true, action: "openUrl", driver: "simctl" };
   } catch (err) {
     return { success: false, action: "openUrl", error: err.message, driver: "simctl" };
   }
 }
-var import_child_process8, import_util9, execFileAsync7, SIMULATOR_DRIVER_ENV, INSTALL_HINT, DRIVER_LABELS;
+var import_child_process9, import_util10, execFileAsync8, SIMULATOR_DRIVER_ENV, INSTALL_HINT, DRIVER_LABELS;
 var init_idb = __esm({
   "src/native/idb.ts"() {
     "use strict";
-    import_child_process8 = require("child_process");
-    import_util9 = require("util");
+    import_child_process9 = require("child_process");
+    import_util10 = require("util");
     init_sim_driver();
-    execFileAsync7 = (0, import_util9.promisify)(import_child_process8.execFile);
+    execFileAsync8 = (0, import_util10.promisify)(import_child_process9.execFile);
     SIMULATOR_DRIVER_ENV = "IBR_SIMULATOR_DRIVER";
     INSTALL_HINT = "Install IDB: brew tap facebook/fb && brew install idb-companion && pipx install fb-idb. IBR also ships a bundled native-window fallback (requires Accessibility permission and a visible Simulator window).";
     DRIVER_LABELS = {
@@ -45762,7 +46104,7 @@ async function annotateScreenshot(screenshotPath, issues) {
   let png;
   try {
     const buf = (0, import_fs15.readFileSync)(screenshotPath);
-    png = import_pngjs4.PNG.sync.read(buf);
+    png = import_pngjs5.PNG.sync.read(buf);
   } catch {
     return null;
   }
@@ -45773,17 +46115,17 @@ async function annotateScreenshot(screenshotPath, issues) {
   }
   const outPath = screenshotPath.replace(/\.png$/i, "-annotated.png");
   try {
-    (0, import_fs15.writeFileSync)(outPath, import_pngjs4.PNG.sync.write(png));
+    (0, import_fs15.writeFileSync)(outPath, import_pngjs5.PNG.sync.write(png));
   } catch {
     return null;
   }
   return outPath;
 }
-var import_pngjs4, import_fs15, DIGITS;
+var import_pngjs5, import_fs15, DIGITS;
 var init_annotate = __esm({
   "src/native/annotate.ts"() {
     "use strict";
-    import_pngjs4 = __toESM(require_png());
+    import_pngjs5 = __toESM(require_png());
     import_fs15 = require("fs");
     DIGITS = [
       [31, 17, 17, 17, 17, 17, 31],
@@ -46145,7 +46487,7 @@ async function performNativeAction(options) {
     args.push("--value", options.value);
   }
   try {
-    const { stdout } = await execFileAsync8(extractorPath, args, { timeout: 1e4 });
+    const { stdout } = await execFileAsync9(extractorPath, args, { timeout: 1e4 });
     return JSON.parse(stdout);
   } catch (err) {
     if (err && typeof err === "object" && "stdout" in err) {
@@ -46313,25 +46655,25 @@ function findElementByLabel(elements, label2) {
     (el) => el.label && el.label.toLowerCase().includes(needle) || el.identifier && el.identifier.toLowerCase().includes(needle)
   ) ?? null;
 }
-var import_child_process9, import_util10, execFileAsync8, SELECTABLE_ROW_ROLES;
+var import_child_process10, import_util11, execFileAsync9, SELECTABLE_ROW_ROLES;
 var init_actions = __esm({
   "src/native/actions.ts"() {
     "use strict";
-    import_child_process9 = require("child_process");
-    import_util10 = require("util");
+    import_child_process10 = require("child_process");
+    import_util11 = require("util");
     init_extract3();
     init_role_map();
-    execFileAsync8 = (0, import_util10.promisify)(import_child_process9.execFile);
+    execFileAsync9 = (0, import_util11.promisify)(import_child_process10.execFile);
     SELECTABLE_ROW_ROLES = /* @__PURE__ */ new Set(["AXRow", "AXOutlineRow"]);
   }
 });
 
 // src/native/daemon.ts
-var import_child_process10, DEFAULT_START_TIMEOUT, DEFAULT_REQUEST_TIMEOUT, DaemonError, AXDaemon;
+var import_child_process11, DEFAULT_START_TIMEOUT, DEFAULT_REQUEST_TIMEOUT, DaemonError, AXDaemon;
 var init_daemon = __esm({
   "src/native/daemon.ts"() {
     "use strict";
-    import_child_process10 = require("child_process");
+    import_child_process11 = require("child_process");
     init_extract3();
     DEFAULT_START_TIMEOUT = 1e4;
     DEFAULT_REQUEST_TIMEOUT = 3e4;
@@ -46352,7 +46694,7 @@ var init_daemon = __esm({
       requestTimeoutMs;
       constructor(opts = {}) {
         this.binaryPath = opts.binaryPath;
-        this.spawnFn = opts.spawnFn ?? import_child_process10.spawn;
+        this.spawnFn = opts.spawnFn ?? import_child_process11.spawn;
         this.startTimeoutMs = opts.startTimeoutMs ?? DEFAULT_START_TIMEOUT;
         this.requestTimeoutMs = opts.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT;
       }
@@ -46639,23 +46981,23 @@ async function runKeystrokeCapability(opts) {
     return keystrokeFailure(chord, "unavailable", "unavailable", `keystroke capability failed: ${message2}`);
   }
 }
-var import_child_process11, import_util11, execFileAsync9, SETTLE_MS, deliverKeystrokeOneShot;
+var import_child_process12, import_util12, execFileAsync10, SETTLE_MS, deliverKeystrokeOneShot;
 var init_keyboard = __esm({
   "src/native/keyboard.ts"() {
     "use strict";
-    import_child_process11 = require("child_process");
-    import_util11 = require("util");
+    import_child_process12 = require("child_process");
+    import_util12 = require("util");
     init_extract3();
     init_native();
     init_ax_signature();
-    execFileAsync9 = (0, import_util11.promisify)(import_child_process11.execFile);
+    execFileAsync10 = (0, import_util12.promisify)(import_child_process12.execFile);
     SETTLE_MS = 220;
     deliverKeystrokeOneShot = async (pid, chord, foreground) => {
       const extractorPath = await ensureExtractor();
       const args = ["--pid", String(pid), "--keystroke", chord];
       if (foreground) args.push("--foreground");
       try {
-        const { stdout } = await execFileAsync9(extractorPath, args, { timeout: 5e3 });
+        const { stdout } = await execFileAsync10(extractorPath, args, { timeout: 5e3 });
         return JSON.parse(stdout);
       } catch (err) {
         if (err && typeof err === "object" && "stdout" in err) {
@@ -46828,10 +47170,10 @@ async function runLifecycleCapability(target, spec, ops) {
 }
 async function defaultLaunch(app) {
   try {
-    await execFileAsync10("open", ["-a", app], { timeout: 8e3 });
+    await execFileAsync11("open", ["-a", app], { timeout: 8e3 });
   } catch (err) {
     if (BUNDLE_ID_RE.test(app)) {
-      await execFileAsync10("open", ["-b", app], { timeout: 8e3 });
+      await execFileAsync11("open", ["-b", app], { timeout: 8e3 });
       return;
     }
     throw err;
@@ -46839,7 +47181,7 @@ async function defaultLaunch(app) {
 }
 async function defaultFrontmostPid() {
   try {
-    const { stdout } = await execFileAsync10(
+    const { stdout } = await execFileAsync11(
       "osascript",
       ["-e", 'tell application "System Events" to get unix id of first application process whose frontmost is true'],
       { timeout: 3e3 }
@@ -46861,27 +47203,27 @@ async function defaultIsRunning(pid) {
 async function defaultQuit(target) {
   if (target.app) {
     const script = BUNDLE_ID_RE.test(target.app) ? `tell application id "${target.app}" to quit` : `tell application "${target.app}" to quit`;
-    await execFileAsync10("osascript", ["-e", script], { timeout: 5e3 });
+    await execFileAsync11("osascript", ["-e", script], { timeout: 5e3 });
     return;
   }
-  const { stdout } = await execFileAsync10(
+  const { stdout } = await execFileAsync11(
     "osascript",
     ["-e", `tell application "System Events" to get name of first application process whose unix id is ${target.pid}`],
     { timeout: 3e3 }
   );
   const name = stdout.trim();
   if (!name) throw new Error(`could not resolve an app name for pid ${target.pid}`);
-  await execFileAsync10("osascript", ["-e", `tell application "${name}" to quit`], { timeout: 5e3 });
+  await execFileAsync11("osascript", ["-e", `tell application "${name}" to quit`], { timeout: 5e3 });
 }
-var import_child_process12, import_util12, execFileAsync10, LAUNCH_TIMEOUT_MS, QUIT_TIMEOUT_MS, POLL_MS, BUNDLE_ID_RE, defaultLifecycleOps;
+var import_child_process13, import_util13, execFileAsync11, LAUNCH_TIMEOUT_MS, QUIT_TIMEOUT_MS, POLL_MS, BUNDLE_ID_RE, defaultLifecycleOps;
 var init_lifecycle = __esm({
   "src/native/lifecycle.ts"() {
     "use strict";
-    import_child_process12 = require("child_process");
-    import_util12 = require("util");
+    import_child_process13 = require("child_process");
+    import_util13 = require("util");
     init_native();
     init_macos();
-    execFileAsync10 = (0, import_util12.promisify)(import_child_process12.execFile);
+    execFileAsync11 = (0, import_util13.promisify)(import_child_process13.execFile);
     LAUNCH_TIMEOUT_MS = 8e3;
     QUIT_TIMEOUT_MS = 6e3;
     POLL_MS = 250;
@@ -46978,22 +47320,22 @@ async function runMenuCapability(opts) {
     return menuFailure(menuPath, "unavailable", "unavailable", `menu capability failed: ${message2}`);
   }
 }
-var import_child_process13, import_util13, execFileAsync11, SETTLE_MS2, deliverMenuOneShot;
+var import_child_process14, import_util14, execFileAsync12, SETTLE_MS2, deliverMenuOneShot;
 var init_menu = __esm({
   "src/native/menu.ts"() {
     "use strict";
-    import_child_process13 = require("child_process");
-    import_util13 = require("util");
+    import_child_process14 = require("child_process");
+    import_util14 = require("util");
     init_extract3();
     init_native();
     init_ax_signature();
-    execFileAsync11 = (0, import_util13.promisify)(import_child_process13.execFile);
+    execFileAsync12 = (0, import_util14.promisify)(import_child_process14.execFile);
     SETTLE_MS2 = 250;
     deliverMenuOneShot = async (pid, menuPath) => {
       const extractorPath = await ensureExtractor();
       const args = ["--pid", String(pid), "--menu-path", JSON.stringify(menuPath)];
       try {
-        const { stdout } = await execFileAsync11(extractorPath, args, { timeout: 5e3 });
+        const { stdout } = await execFileAsync12(extractorPath, args, { timeout: 5e3 });
         return JSON.parse(stdout);
       } catch (err) {
         if (err && typeof err === "object" && "stdout" in err) {
@@ -47075,8 +47417,8 @@ var init_backend = __esm({
             };
           }
           await captureMacOSScreenshot(window2.windowId, outputPath);
-          const { readFile: readFile26 } = await import("fs/promises");
-          const buf2 = await readFile26(outputPath);
+          const { readFile: readFile27 } = await import("fs/promises");
+          const buf2 = await readFile27(outputPath);
           return { kind: "macos", base64: buf2.toString("base64"), window: window2, screenshotPath: outputPath };
         }
         const device = await findDevice(target.device.udid);
@@ -47090,8 +47432,8 @@ var init_backend = __esm({
             error: `Simulator screenshot capture failed: ${capture.error || "unknown error"}`
           };
         }
-        const { readFile: readFile25 } = await import("fs/promises");
-        const buf = await readFile25(capture.outputPath);
+        const { readFile: readFile26 } = await import("fs/promises");
+        const buf = await readFile26(capture.outputPath);
         return {
           kind: "simulator",
           base64: buf.toString("base64"),
@@ -47258,8 +47600,8 @@ var init_backend = __esm({
               };
             }
             await captureMacOSScreenshot(window2.windowId, outputPath);
-            const { readFile: readFile25 } = await import("fs/promises");
-            const buf = await readFile25(outputPath);
+            const { readFile: readFile26 } = await import("fs/promises");
+            const buf = await readFile26(outputPath);
             return { kind: "macos", base64: buf.toString("base64"), window: window2, screenshotPath: outputPath };
           },
           () => this.fallback.captureScreenshot(target, outputPath)
@@ -47363,7 +47705,7 @@ function isMacOS(platformOverride) {
 }
 async function defaultHasCommand(name) {
   try {
-    await execFileAsync12("which", [name]);
+    await execFileAsync13("which", [name]);
     return true;
   } catch {
     return false;
@@ -47452,15 +47794,15 @@ function classifyExtractorError(err) {
   }
   return null;
 }
-var import_child_process14, import_util14, import_fs16, import_path25, execFileAsync12, _deps, SIMULATOR_CHROME_LABELS, HOST_CHROME_ROLES, ACCESSIBILITY_UNTRUSTED_EXIT_CODE, REQUEST_PERMISSION_COMMAND;
+var import_child_process15, import_util15, import_fs16, import_path25, execFileAsync13, _deps, SIMULATOR_CHROME_LABELS, HOST_CHROME_ROLES, ACCESSIBILITY_UNTRUSTED_EXIT_CODE, REQUEST_PERMISSION_COMMAND;
 var init_preflight = __esm({
   "src/native/preflight.ts"() {
     "use strict";
-    import_child_process14 = require("child_process");
-    import_util14 = require("util");
+    import_child_process15 = require("child_process");
+    import_util15 = require("util");
     import_fs16 = require("fs");
     import_path25 = require("path");
-    execFileAsync12 = (0, import_util14.promisify)(import_child_process14.execFile);
+    execFileAsync13 = (0, import_util15.promisify)(import_child_process15.execFile);
     _deps = {
       hasCommand: defaultHasCommand
     };
@@ -48588,7 +48930,7 @@ async function compare(options) {
     throw new Error("Either baselinePath or url must be provided");
   }
   const resolvedViewport = typeof viewport === "string" ? VIEWPORTS[viewport] || VIEWPORTS.desktop : viewport;
-  await (0, import_promises25.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises26.mkdir)(outputDir, { recursive: true });
   const timestamp2 = Date.now();
   const actualBaselinePath = baselinePath || (0, import_path27.join)(outputDir, `baseline-${timestamp2}.png`);
   const actualCurrentPath = currentPath || (0, import_path27.join)(outputDir, `current-${timestamp2}.png`);
@@ -48624,12 +48966,12 @@ async function compare(options) {
     });
   }
   try {
-    await (0, import_promises25.access)(actualBaselinePath);
+    await (0, import_promises26.access)(actualBaselinePath);
   } catch {
     throw new Error(`Baseline image not found: ${actualBaselinePath}`);
   }
   try {
-    await (0, import_promises25.access)(actualCurrentPath);
+    await (0, import_promises26.access)(actualCurrentPath);
   } catch {
     throw new Error(`Current image not found: ${actualCurrentPath}`);
   }
@@ -48709,7 +49051,7 @@ async function compareAll(options = {}) {
   await closeBrowser();
   return results;
 }
-var import_promises25, import_path27, import_os4, InterfaceBuiltRight, IBRSession;
+var import_promises26, import_path27, import_os4, InterfaceBuiltRight, IBRSession;
 var init_index = __esm({
   "src/index.ts"() {
     "use strict";
@@ -48724,7 +49066,7 @@ var init_index = __esm({
     init_flows();
     init_driver();
     init_compat();
-    import_promises25 = require("fs/promises");
+    import_promises26 = require("fs/promises");
     import_path27 = require("path");
     import_os4 = require("os");
     init_cleanup();
@@ -49427,14 +49769,14 @@ var session_exports2 = {};
 __export(session_exports2, {
   SafariSession: () => SafariSession
 });
-var import_child_process16, import_util16, execFileAsync14, PORT_RANGE_START, PORT_RANGE_END, READY_POLL_INTERVAL_MS, READY_TIMEOUT_MS, SafariSession;
+var import_child_process17, import_util17, execFileAsync15, PORT_RANGE_START, PORT_RANGE_END, READY_POLL_INTERVAL_MS, READY_TIMEOUT_MS, SafariSession;
 var init_session2 = __esm({
   "src/engine/safari/session.ts"() {
     "use strict";
-    import_child_process16 = require("child_process");
-    import_util16 = require("util");
+    import_child_process17 = require("child_process");
+    import_util17 = require("util");
     init_net_timeout();
-    execFileAsync14 = (0, import_util16.promisify)(import_child_process16.execFile);
+    execFileAsync15 = (0, import_util17.promisify)(import_child_process17.execFile);
     PORT_RANGE_START = 9500;
     PORT_RANGE_END = 9599;
     READY_POLL_INTERVAL_MS = 200;
@@ -49452,7 +49794,7 @@ var init_session2 = __esm({
           return this.port;
         }
         this.port = port ?? await this.findFreePort();
-        this.process = (0, import_child_process16.spawn)("safaridriver", ["--port", String(this.port)], {
+        this.process = (0, import_child_process17.spawn)("safaridriver", ["--port", String(this.port)], {
           stdio: ["ignore", "pipe", "pipe"]
         });
         this.process.on("exit", (code) => {
@@ -49496,7 +49838,7 @@ var init_session2 = __esm({
        */
       static async isEnabled() {
         try {
-          await execFileAsync14("safaridriver", ["--version"], { timeout: 5e3 });
+          await execFileAsync15("safaridriver", ["--version"], { timeout: 5e3 });
           return true;
         } catch {
           return false;
@@ -49548,17 +49890,17 @@ var driver_exports2 = {};
 __export(driver_exports2, {
   SafariDriver: () => SafariDriver
 });
-var import_child_process17, import_util17, execFileAsync15, SafariDriver;
+var import_child_process18, import_util18, execFileAsync16, SafariDriver;
 var init_driver2 = __esm({
   "src/engine/safari/driver.ts"() {
     "use strict";
-    import_child_process17 = require("child_process");
-    import_util17 = require("util");
+    import_child_process18 = require("child_process");
+    import_util18 = require("util");
     init_webdriver();
     init_session2();
     init_extract3();
     init_serialize();
-    execFileAsync15 = (0, import_util17.promisify)(import_child_process17.execFile);
+    execFileAsync16 = (0, import_util18.promisify)(import_child_process18.execFile);
     SafariDriver = class {
       client = null;
       session = null;
@@ -49578,7 +49920,7 @@ var init_driver2 = __esm({
         }
         const vp = options.viewport ?? { width: 1920, height: 1080 };
         await this.client.setWindowRect({ ...vp, x: -9999, y: -9999 });
-        (0, import_child_process17.exec)(`osascript -e 'tell application "System Events" to set visible of process "Safari" to false'`, () => {
+        (0, import_child_process18.exec)(`osascript -e 'tell application "System Events" to set visible of process "Safari" to false'`, () => {
         });
       }
       async close() {
@@ -49759,7 +50101,7 @@ var init_driver2 = __esm({
       async _fetchAXElements() {
         try {
           const extractorPath = await ensureExtractor();
-          const { stdout } = await execFileAsync15(
+          const { stdout } = await execFileAsync16(
             extractorPath,
             ["--app", "Safari"],
             { timeout: 15e3 }
@@ -49906,9 +50248,9 @@ var init_driver2 = __esm({
        */
       async _cropScreenshot(buf, clip) {
         try {
-          const { PNG: PNG7 } = await Promise.resolve().then(() => __toESM(require_png()));
-          const src = PNG7.sync.read(buf);
-          const dst = new PNG7({ width: clip.width, height: clip.height });
+          const { PNG: PNG8 } = await Promise.resolve().then(() => __toESM(require_png()));
+          const src = PNG8.sync.read(buf);
+          const dst = new PNG8({ width: clip.width, height: clip.height });
           for (let y = 0; y < clip.height; y++) {
             for (let x = 0; x < clip.width; x++) {
               const srcIdx = ((clip.y + y) * src.width + (clip.x + x)) * 4;
@@ -49919,7 +50261,7 @@ var init_driver2 = __esm({
               dst.data[dstIdx + 3] = src.data[srcIdx + 3];
             }
           }
-          return PNG7.sync.write(dst);
+          return PNG8.sync.write(dst);
         } catch {
           return buf;
         }
@@ -50132,7 +50474,7 @@ async function discoverUserContext(projectDir) {
   const memoryPath = (0, import_path32.join)(outputDir, "memory", "summary.json");
   if ((0, import_fs22.existsSync)(memoryPath)) {
     try {
-      const memContent = await (0, import_promises29.readFile)(memoryPath, "utf-8");
+      const memContent = await (0, import_promises30.readFile)(memoryPath, "utf-8");
       memory = JSON.parse(memContent);
     } catch {
     }
@@ -50157,7 +50499,7 @@ async function tryLoadFramework(filePath, type) {
   }
   source.found = true;
   try {
-    const content = await (0, import_promises29.readFile)(filePath, "utf-8");
+    const content = await (0, import_promises30.readFile)(filePath, "utf-8");
     const framework = parseDesignFramework(content, filePath);
     if (framework) {
       source.hasFramework = true;
@@ -50173,7 +50515,7 @@ async function loadIBRConfig(projectDir) {
     return {};
   }
   try {
-    const content = await (0, import_promises29.readFile)(configPath, "utf-8");
+    const content = await (0, import_promises30.readFile)(configPath, "utf-8");
     return JSON.parse(content);
   } catch {
     return {};
@@ -50203,12 +50545,12 @@ function formatContextSummary(context) {
   }
   return lines.join("\n");
 }
-var import_fs22, import_promises29, import_path32, import_os5;
+var import_fs22, import_promises30, import_path32, import_os5;
 var init_context_loader = __esm({
   "src/context-loader.ts"() {
     "use strict";
     import_fs22 = require("fs");
-    import_promises29 = require("fs/promises");
+    import_promises30 = require("fs/promises");
     import_path32 = require("path");
     import_os5 = require("os");
     init_framework_parser();
@@ -51555,13 +51897,13 @@ async function touchBrowserServerActivity(outputDir) {
   const { stateFile } = getPaths(outputDir);
   const now = /* @__PURE__ */ new Date();
   try {
-    await (0, import_promises30.utimes)(stateFile, now, now);
+    await (0, import_promises31.utimes)(stateFile, now, now);
   } catch {
   }
 }
 async function browserServerLastActivityAt(outputDir) {
   try {
-    return (await (0, import_promises30.stat)(getPaths(outputDir).stateFile)).mtimeMs;
+    return (await (0, import_promises31.stat)(getPaths(outputDir).stateFile)).mtimeMs;
   } catch {
     return null;
   }
@@ -51570,13 +51912,13 @@ async function findPendingHardWall(outputDir, requestedUrl, strategyKey) {
   const { sessionsDir } = getPaths(outputDir);
   if (!(0, import_fs23.existsSync)(sessionsDir)) return null;
   const attemptKey = sessionAttemptKey(requestedUrl, strategyKey);
-  const entries = await (0, import_promises30.readdir)(sessionsDir, { withFileTypes: true });
+  const entries = await (0, import_promises31.readdir)(sessionsDir, { withFileTypes: true });
   const candidates = entries.filter((e) => e.isDirectory() && e.name.startsWith("live_")).map((e) => (0, import_path33.join)(sessionsDir, e.name, "live-session.json"));
   for (let i = 0; i < candidates.length; i += HARD_WALL_SCAN_CONCURRENCY) {
     const batch = candidates.slice(i, i + HARD_WALL_SCAN_CONCURRENCY);
     const walls = await Promise.all(batch.map(async (statePath) => {
       try {
-        const state = JSON.parse(await (0, import_promises30.readFile)(statePath, "utf-8"));
+        const state = JSON.parse(await (0, import_promises31.readFile)(statePath, "utf-8"));
         return state.hardWall?.attemptKey === attemptKey ? state.hardWall : null;
       } catch {
         return null;
@@ -51594,7 +51936,7 @@ async function inspectBrowserServer(outputDir) {
   }
   let state;
   try {
-    state = JSON.parse(await (0, import_promises30.readFile)(stateFile, "utf-8"));
+    state = JSON.parse(await (0, import_promises31.readFile)(stateFile, "utf-8"));
   } catch {
     await cleanupServerState(outputDir);
     return {
@@ -51679,7 +52021,7 @@ function pidAlive2(pid) {
 function pidIs(pid, mark) {
   if (!pidAlive2(pid)) return false;
   try {
-    const cmd = (0, import_child_process18.execFileSync)("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8", timeout: 5e3 });
+    const cmd = (0, import_child_process19.execFileSync)("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8", timeout: 5e3 });
     return cmd.includes(mark);
   } catch {
     return false;
@@ -51692,7 +52034,7 @@ async function isServerRunning(outputDir) {
 async function cleanupServerState(outputDir) {
   const { stateFile } = getPaths(outputDir);
   try {
-    await (0, import_promises30.unlink)(stateFile);
+    await (0, import_promises31.unlink)(stateFile);
   } catch {
   }
 }
@@ -51711,9 +52053,9 @@ async function startBrowserServer(outputDir, options = {}) {
   if (await isServerRunning(outputDir)) {
     throw new Error("Browser server already running. Use session:close all to stop it first.");
   }
-  await (0, import_promises30.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises31.mkdir)(outputDir, { recursive: true });
   if (isolated) {
-    await (0, import_promises30.mkdir)(profileDir, { recursive: true });
+    await (0, import_promises31.mkdir)(profileDir, { recursive: true });
   }
   const extraArgs = [];
   if (options.lowMemory) {
@@ -51781,10 +52123,10 @@ async function startBrowserServer(outputDir, options = {}) {
   };
   const tmp = `${stateFile}.${process.pid}.tmp`;
   try {
-    await (0, import_promises30.writeFile)(tmp, JSON.stringify(state, null, 2));
-    await (0, import_promises30.rename)(tmp, stateFile);
+    await (0, import_promises31.writeFile)(tmp, JSON.stringify(state, null, 2));
+    await (0, import_promises31.rename)(tmp, stateFile);
   } catch (error51) {
-    await (0, import_promises30.unlink)(tmp).catch(() => {
+    await (0, import_promises31.unlink)(tmp).catch(() => {
     });
     await (ownsBrowser ? driver3.close() : driver3.disconnect()).catch(() => {
     });
@@ -51848,7 +52190,7 @@ async function manifestOwnedBy(outputDir, pid) {
   const { stateFile } = getPaths(outputDir);
   let text;
   try {
-    text = await (0, import_promises30.readFile)(stateFile, "utf-8");
+    text = await (0, import_promises31.readFile)(stateFile, "utf-8");
   } catch (err) {
     return err.code === "ENOENT" ? false : null;
   }
@@ -51867,7 +52209,7 @@ async function stopBrowserServer(outputDir) {
   }
   let state;
   try {
-    state = JSON.parse(await (0, import_promises30.readFile)(stateFile, "utf-8"));
+    state = JSON.parse(await (0, import_promises31.readFile)(stateFile, "utf-8"));
   } catch (error51) {
     lastStopFailure = `browser-server.json was unreadable: ${error51 instanceof Error ? error51.message : String(error51)}`;
     await cleanupServerState(outputDir);
@@ -51933,14 +52275,14 @@ async function listActiveSessions(outputDir) {
   }
   return liveSessions;
 }
-var import_promises30, import_child_process18, import_fs23, import_path33, UserActionRequiredError, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, HARD_WALL_SCAN_CONCURRENCY, CHROME_MARK, OWNER_MARK, lastConnectFailure, lastStopFailure, lastStopReport, OWNER_STOP_WAIT_MS, KILL_WAIT_MS, sleep8, PersistentSession;
+var import_promises31, import_child_process19, import_fs23, import_path33, UserActionRequiredError, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, HARD_WALL_SCAN_CONCURRENCY, CHROME_MARK, OWNER_MARK, lastConnectFailure, lastStopFailure, lastStopReport, OWNER_STOP_WAIT_MS, KILL_WAIT_MS, sleep8, PersistentSession;
 var init_browser_server = __esm({
   "src/browser-server.ts"() {
     "use strict";
     init_driver();
     init_compat();
-    import_promises30 = require("fs/promises");
-    import_child_process18 = require("child_process");
+    import_promises31 = require("fs/promises");
+    import_child_process19 = require("child_process");
     import_fs23 = require("fs");
     import_path33 = require("path");
     init_nanoid();
@@ -52012,7 +52354,7 @@ var init_browser_server = __esm({
         const sessionId = `live_${nanoid3(10)}`;
         const sessionsDir = (0, import_path33.join)(outputDir, "sessions");
         const sessionDir = (0, import_path33.join)(sessionsDir, sessionId);
-        await (0, import_promises30.mkdir)(sessionDir, { recursive: true });
+        await (0, import_promises31.mkdir)(sessionDir, { recursive: true });
         await driver3.emulationDomain.applyDeviceProfile(viewportToConfig(viewport));
         await driver3.emulationDomain.setReducedMotion(true);
         const page = new CompatPage(driver3);
@@ -52050,7 +52392,7 @@ var init_browser_server = __esm({
             duration: navDuration
           }]
         };
-        await (0, import_promises30.writeFile)(
+        await (0, import_promises31.writeFile)(
           (0, import_path33.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
@@ -52069,7 +52411,7 @@ var init_browser_server = __esm({
         if (!(0, import_fs23.existsSync)(statePath)) {
           return null;
         }
-        const content = await (0, import_promises30.readFile)(statePath, "utf-8");
+        const content = await (0, import_promises31.readFile)(statePath, "utf-8");
         const state = JSON.parse(content);
         if (!state.targetId) {
           throw new Error(
@@ -52094,7 +52436,7 @@ var init_browser_server = __esm({
         } else {
           delete state.hardWall;
         }
-        await (0, import_promises30.writeFile)(statePath, JSON.stringify(state, null, 2));
+        await (0, import_promises31.writeFile)(statePath, JSON.stringify(state, null, 2));
         return new _PersistentSession(driver3, page, state, sessionDir, outputDir);
       }
       get id() {
@@ -52114,7 +52456,7 @@ var init_browser_server = __esm({
         await this.saveState();
       }
       async saveState() {
-        await (0, import_promises30.writeFile)(
+        await (0, import_promises31.writeFile)(
           (0, import_path33.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
@@ -52688,7 +53030,7 @@ var init_browser_server = __esm({
           const ephemeral = this.state.captures.filter((c) => !c.keep);
           if (ephemeral.length > 0) {
             const archiveDir = (0, import_path33.join)(this.sessionDir, "archive");
-            await (0, import_promises30.mkdir)(archiveDir, { recursive: true });
+            await (0, import_promises31.mkdir)(archiveDir, { recursive: true });
             const { rename: rename3 } = await import("fs/promises");
             for (const cap of ephemeral) {
               const src = (0, import_path33.join)(this.sessionDir, cap.screenshot);
@@ -52708,7 +53050,7 @@ var init_browser_server = __esm({
         const liveSessionPath = (0, import_path33.join)(this.sessionDir, "live-session.json");
         try {
           if ((0, import_fs23.existsSync)(liveSessionPath)) {
-            await (0, import_promises30.unlink)(liveSessionPath);
+            await (0, import_promises31.unlink)(liveSessionPath);
           }
         } catch {
         }
@@ -52745,13 +53087,13 @@ __export(live_session_exports, {
   LiveSession: () => LiveSession,
   liveSessionManager: () => liveSessionManager
 });
-var import_promises31, import_fs24, import_path34, LiveSession, LiveSessionManager, liveSessionManager;
+var import_promises32, import_fs24, import_path34, LiveSession, LiveSessionManager, liveSessionManager;
 var init_live_session = __esm({
   "src/live-session.ts"() {
     "use strict";
     init_driver();
     init_compat();
-    import_promises31 = require("fs/promises");
+    import_promises32 = require("fs/promises");
     import_fs24 = require("fs");
     import_path34 = require("path");
     init_nanoid();
@@ -52804,7 +53146,7 @@ var init_live_session = __esm({
         const showBrowser = headed || sandbox || debug;
         const sessionId = `live_${nanoid3(10)}`;
         const sessionDir = (0, import_path34.join)(outputDir, "sessions", sessionId);
-        await (0, import_promises31.mkdir)(sessionDir, { recursive: true });
+        await (0, import_promises32.mkdir)(sessionDir, { recursive: true });
         const driver3 = new EngineDriver();
         await driver3.launch({
           headless: !showBrowser,
@@ -52841,7 +53183,7 @@ var init_live_session = __esm({
           }],
           captures: []
         };
-        await (0, import_promises31.writeFile)(
+        await (0, import_promises32.writeFile)(
           (0, import_path34.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
@@ -52865,7 +53207,7 @@ var init_live_session = __esm({
         if (!(0, import_fs24.existsSync)(statePath)) {
           return null;
         }
-        const content = await (0, import_promises31.readFile)(statePath, "utf-8");
+        const content = await (0, import_promises32.readFile)(statePath, "utf-8");
         const rawState = JSON.parse(content);
         const state = {
           ...rawState,
@@ -53618,13 +53960,13 @@ var init_live_session = __esm({
         const ephemeral = this.state.captures.filter((c) => !c.keep);
         if (ephemeral.length === 0) return;
         const archiveDir = (0, import_path34.join)(this.sessionDir, "archive");
-        await (0, import_promises31.mkdir)(archiveDir, { recursive: true });
+        await (0, import_promises32.mkdir)(archiveDir, { recursive: true });
         for (const cap of ephemeral) {
           const src = (0, import_path34.join)(this.sessionDir, cap.screenshot);
           const dest = (0, import_path34.join)(archiveDir, cap.screenshot);
           try {
             if ((0, import_fs24.existsSync)(src)) {
-              await (0, import_promises31.rename)(src, dest);
+              await (0, import_promises32.rename)(src, dest);
               cap.screenshot = `archive/${cap.screenshot}`;
             }
           } catch {
@@ -53639,7 +53981,7 @@ var init_live_session = __esm({
         await this.saveState();
       }
       async saveState() {
-        await (0, import_promises31.writeFile)(
+        await (0, import_promises32.writeFile)(
           (0, import_path34.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
@@ -53708,11 +54050,11 @@ function formatAge(ms) {
   if (minutes > 0) return `${minutes}m ago`;
   return `${seconds}s ago`;
 }
-var import_promises32, import_fs25, import_path35, DEFAULT_CONFIG, ScreenshotManager;
+var import_promises33, import_fs25, import_path35, DEFAULT_CONFIG, ScreenshotManager;
 var init_screenshot_manager = __esm({
   "src/screenshot-manager.ts"() {
     "use strict";
-    import_promises32 = require("fs/promises");
+    import_promises33 = require("fs/promises");
     import_fs25 = require("fs");
     import_path35 = require("path");
     DEFAULT_CONFIG = {
@@ -53736,10 +54078,10 @@ var init_screenshot_manager = __esm({
         let outputPath;
         if (sessionId) {
           const sessionDir = (0, import_path35.join)(this.outputDir, "sessions", sessionId);
-          await (0, import_promises32.mkdir)(sessionDir, { recursive: true });
+          await (0, import_promises33.mkdir)(sessionDir, { recursive: true });
           outputPath = (0, import_path35.join)(sessionDir, `${name}.png`);
         } else {
-          await (0, import_promises32.mkdir)(this.outputDir, { recursive: true });
+          await (0, import_promises33.mkdir)(this.outputDir, { recursive: true });
           outputPath = (0, import_path35.join)(this.outputDir, `${name}.png`);
         }
         await page.addStyleTag({
@@ -53789,10 +54131,10 @@ var init_screenshot_manager = __esm({
           return [];
         }
         const screenshots = [];
-        const sessions2 = await (0, import_promises32.readdir)(sessionsDir);
+        const sessions2 = await (0, import_promises33.readdir)(sessionsDir);
         for (const sessionId of sessions2) {
           const sessionDir = (0, import_path35.join)(sessionsDir, sessionId);
-          const stats = await (0, import_promises32.stat)(sessionDir);
+          const stats = await (0, import_promises33.stat)(sessionDir);
           if (stats.isDirectory()) {
             await this.scanDirectory(sessionDir, sessionId, screenshots);
           }
@@ -53804,13 +54146,13 @@ var init_screenshot_manager = __esm({
        * Scan a directory for PNG files
        */
       async scanDirectory(dir, sessionId, results) {
-        const entries = await (0, import_promises32.readdir)(dir, { withFileTypes: true });
+        const entries = await (0, import_promises33.readdir)(dir, { withFileTypes: true });
         for (const entry of entries) {
           const fullPath = (0, import_path35.join)(dir, entry.name);
           if (entry.isDirectory()) {
             await this.scanDirectory(fullPath, sessionId, results);
           } else if (entry.name.endsWith(".png")) {
-            const stats = await (0, import_promises32.stat)(fullPath);
+            const stats = await (0, import_promises33.stat)(fullPath);
             const now = Date.now();
             const stepMatch = entry.name.match(/^\d+-(.+)\.png$/);
             const step = stepMatch ? stepMatch[1] : void 0;
@@ -53833,7 +54175,7 @@ var init_screenshot_manager = __esm({
         if (!(0, import_fs25.existsSync)(path3)) {
           return null;
         }
-        const stats = await (0, import_promises32.stat)(path3);
+        const stats = await (0, import_promises33.stat)(path3);
         const name = (0, import_path35.basename)(path3);
         const dir = (0, import_path35.dirname)(path3);
         const stepMatch = name.match(/^\d+-(.+)\.png$/);
@@ -53845,7 +54187,7 @@ var init_screenshot_manager = __esm({
         const resultsPath = (0, import_path35.join)(dir, "results.json");
         if ((0, import_fs25.existsSync)(resultsPath)) {
           try {
-            const resultsContent = await (0, import_promises32.readFile)(resultsPath, "utf-8");
+            const resultsContent = await (0, import_promises33.readFile)(resultsPath, "utf-8");
             const results = JSON.parse(resultsContent);
             query = results.query;
             userIntent = results.userIntent;
@@ -53904,7 +54246,7 @@ var init_screenshot_manager = __esm({
         for (const shot of toDelete) {
           try {
             if (!dryRun) {
-              await (0, import_promises32.unlink)(shot.path);
+              await (0, import_promises33.unlink)(shot.path);
             }
             report.deleted++;
             report.bytesFreed += shot.size;
@@ -53943,7 +54285,7 @@ var init_screenshot_manager = __esm({
        */
       async saveConfig() {
         const configPath = (0, import_path35.join)(this.outputDir, "screenshot-config.json");
-        await (0, import_promises32.writeFile)(configPath, JSON.stringify(this.config, null, 2));
+        await (0, import_promises33.writeFile)(configPath, JSON.stringify(this.config, null, 2));
       }
       /**
        * Load configuration from file
@@ -53952,7 +54294,7 @@ var init_screenshot_manager = __esm({
         const configPath = (0, import_path35.join)(this.outputDir, "screenshot-config.json");
         if ((0, import_fs25.existsSync)(configPath)) {
           try {
-            const content = await (0, import_promises32.readFile)(configPath, "utf-8");
+            const content = await (0, import_promises33.readFile)(configPath, "utf-8");
             const loaded = JSON.parse(content);
             this.config = { ...DEFAULT_CONFIG, ...loaded };
           } catch {
@@ -54458,9 +54800,9 @@ async function executeStep(driver3, step, url2, outputDir) {
     }
     if (expectation.screenshot !== void 0) {
       try {
-        await (0, import_promises33.mkdir)(outputDir, { recursive: true });
+        await (0, import_promises34.mkdir)(outputDir, { recursive: true });
         const screenshotPath = (0, import_path37.join)(outputDir, `${expectation.screenshot}.png`);
-        await (0, import_promises33.writeFile)(screenshotPath, captureResult.after.screenshot);
+        await (0, import_promises34.writeFile)(screenshotPath, captureResult.after.screenshot);
         assertions.push({
           check: `screenshot: "${expectation.screenshot}"`,
           passed: true,
@@ -54606,11 +54948,11 @@ function formatInteractionResult(result) {
   }
   return lines.join("\n");
 }
-var import_promises33, import_path37;
+var import_promises34, import_path37;
 var init_interaction_test = __esm({
   "src/interaction-test.ts"() {
     "use strict";
-    import_promises33 = require("fs/promises");
+    import_promises34 = require("fs/promises");
     import_path37 = require("path");
     init_driver();
   }
@@ -54637,7 +54979,7 @@ function extractWindow(luma, imgWidth, x, y, windowSize) {
   }
   return win;
 }
-function mean(arr) {
+function mean2(arr) {
   let sum = 0;
   for (let i = 0; i < arr.length; i++) sum += arr[i];
   return sum / arr.length;
@@ -54657,8 +54999,8 @@ function statsWithMeans(x, y, meanX, meanY) {
   return { varX: varX / n, varY: varY / n, covXY: covXY / n };
 }
 function windowSSIM(winX, winY) {
-  const muX = mean(winX);
-  const muY = mean(winY);
+  const muX = mean2(winX);
+  const muY = mean2(winY);
   const { varX, varY, covXY } = statsWithMeans(winX, winY, muX, muY);
   const muX2 = muX * muX;
   const muY2 = muY * muY;
@@ -54725,13 +55067,13 @@ __export(mockup_match_exports, {
   matchMockup: () => matchMockup,
   saveDiffImage: () => saveDiffImage
 });
-async function readPng(filePath) {
-  const buffer = await (0, import_promises34.readFile)(filePath);
-  const png = import_pngjs6.PNG.sync.read(buffer);
+async function readPng2(filePath) {
+  const buffer = await (0, import_promises35.readFile)(filePath);
+  const png = import_pngjs7.PNG.sync.read(buffer);
   return { data: png.data, width: png.width, height: png.height };
 }
-function decodePng(buffer) {
-  const png = import_pngjs6.PNG.sync.read(buffer);
+function decodePng2(buffer) {
+  const png = import_pngjs7.PNG.sync.read(buffer);
   return { data: png.data, width: png.width, height: png.height };
 }
 function resizeNearest(src, srcW, srcH, dstW, dstH) {
@@ -54774,7 +55116,7 @@ async function matchMockup(options) {
     maskDynamic = false,
     headless = true
   } = options;
-  let mockup = await readPng(mockupPath);
+  let mockup = await readPng2(mockupPath);
   const viewport = {
     width: options.viewport?.width ?? mockup.width,
     height: options.viewport?.height ?? mockup.height,
@@ -54813,7 +55155,7 @@ async function matchMockup(options) {
     } else {
       screenshotBuffer = await driver3.screenshot();
     }
-    let live = decodePng(screenshotBuffer);
+    let live = decodePng2(screenshotBuffer);
     const maskedRegions = [];
     if (maskDynamic) {
       const dynamicRegions = await findDynamicRegions(driver3);
@@ -54850,7 +55192,7 @@ async function matchMockup(options) {
       { data: compareData1, width: compareWidth, height: compareHeight },
       { data: compareData2, width: compareWidth, height: compareHeight }
     );
-    const diffPng = new import_pngjs6.PNG({ width: compareWidth, height: compareHeight });
+    const diffPng = new import_pngjs7.PNG({ width: compareWidth, height: compareHeight });
     const diffPixelCount = pixelmatch(
       compareData1,
       compareData2,
@@ -54865,7 +55207,7 @@ async function matchMockup(options) {
       }
     );
     const totalPixels = compareWidth * compareHeight;
-    const diffImage = import_pngjs6.PNG.sync.write(diffPng);
+    const diffImage = import_pngjs7.PNG.sync.write(diffPng);
     return {
       ssim: ssimResult,
       pixelDiff: {
@@ -54934,14 +55276,14 @@ async function findDynamicRegions(driver3) {
   return regions;
 }
 async function saveDiffImage(diffImage, outputPath) {
-  await (0, import_promises34.writeFile)(outputPath, diffImage);
+  await (0, import_promises35.writeFile)(outputPath, diffImage);
 }
-var import_promises34, import_pngjs6;
+var import_promises35, import_pngjs7;
 var init_mockup_match = __esm({
   "src/mockup-match.ts"() {
     "use strict";
-    import_promises34 = require("fs/promises");
-    import_pngjs6 = __toESM(require_png());
+    import_promises35 = require("fs/promises");
+    import_pngjs7 = __toESM(require_png());
     init_pixelmatch();
     init_driver();
     init_ssim();
@@ -55203,7 +55545,7 @@ async function loadChanges(outputDir) {
   const filePath = (0, import_path38.join)(outputDir, CHANGES_FILE);
   if (!(0, import_fs27.existsSync)(filePath)) return [];
   try {
-    const raw = await (0, import_promises35.readFile)(filePath, "utf-8");
+    const raw = await (0, import_promises36.readFile)(filePath, "utf-8");
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     return parsed;
@@ -55212,17 +55554,17 @@ async function loadChanges(outputDir) {
   }
 }
 async function saveChange(outputDir, change) {
-  await (0, import_promises35.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises36.mkdir)(outputDir, { recursive: true });
   const existing = await loadChanges(outputDir);
   existing.push(change);
   const filePath = (0, import_path38.join)(outputDir, CHANGES_FILE);
-  await (0, import_promises35.writeFile)(filePath, JSON.stringify(existing, null, 2), "utf-8");
+  await (0, import_promises36.writeFile)(filePath, JSON.stringify(existing, null, 2), "utf-8");
 }
-var import_promises35, import_fs27, import_path38, CHANGES_FILE;
+var import_promises36, import_fs27, import_path38, CHANGES_FILE;
 var init_design_verifier = __esm({
   "src/design-verifier.ts"() {
     "use strict";
-    import_promises35 = require("fs/promises");
+    import_promises36 = require("fs/promises");
     import_fs27 = require("fs");
     import_path38 = require("path");
     CHANGES_FILE = "design-changes.json";
@@ -55273,7 +55615,7 @@ function buildZoomTrackFromScan(scan2, opts = {}) {
     if (w <= 0 || h <= 0) return;
     const centreX = x + w / 2;
     const centreY = y + h / 2;
-    const scrollY = clamp2(centreY - height / 2, 0, maxScroll);
+    const scrollY = clamp3(centreY - height / 2, 0, maxScroll);
     const cxRaw = centreX / width;
     const cyRaw = (centreY - scrollY) / height;
     if (cxRaw < 0 || cxRaw > 1 || cyRaw < 0 || cyRaw > 1) {
@@ -55343,7 +55685,7 @@ function toHex(css) {
   if (parsed.kind !== "rgb") return void 0;
   return "#" + parsed.rgb.map((c) => c.toString(16).padStart(2, "0")).join("");
 }
-function clamp2(n, lo, hi) {
+function clamp3(n, lo, hi) {
   return Math.min(hi, Math.max(lo, n));
 }
 function matchesLabel(eventLabel, text, selector) {
@@ -55452,9 +55794,9 @@ async function generateTest(options) {
   };
   const dir = (0, import_path39.dirname)(outputPath);
   if (dir && dir !== ".") {
-    await (0, import_promises36.mkdir)(dir, { recursive: true });
+    await (0, import_promises37.mkdir)(dir, { recursive: true });
   }
-  await (0, import_promises36.writeFile)(outputPath, JSON.stringify(suite, null, 2), "utf-8");
+  await (0, import_promises37.writeFile)(outputPath, JSON.stringify(suite, null, 2), "utf-8");
   console.log(`[test-generator] wrote ${outputPath}`);
   return suite;
 }
@@ -55509,11 +55851,11 @@ function buildScenarioTest(scenario, elements) {
     steps
   };
 }
-var import_promises36, import_path39, INPUT_SAMPLE_VALUES;
+var import_promises37, import_path39, INPUT_SAMPLE_VALUES;
 var init_test_generator = __esm({
   "src/test-generator.ts"() {
     "use strict";
-    import_promises36 = require("fs/promises");
+    import_promises37 = require("fs/promises");
     import_path39 = require("path");
     init_driver();
     INPUT_SAMPLE_VALUES = {
@@ -55549,9 +55891,9 @@ async function runTests(options = {}) {
     wsEndpoint,
     chromePath
   } = options;
-  const raw = await (0, import_promises37.readFile)((0, import_path40.resolve)(filePath), "utf-8");
+  const raw = await (0, import_promises38.readFile)((0, import_path40.resolve)(filePath), "utf-8");
   const suite = JSON.parse(raw);
-  await (0, import_promises37.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises38.mkdir)(outputDir, { recursive: true });
   const allResults = [];
   const runStart = Date.now();
   for (const [pageName, pageSuite] of Object.entries(suite)) {
@@ -55599,7 +55941,7 @@ async function runTests(options = {}) {
       };
       allResults.push(runResult);
       const resultPath = (0, import_path40.join)(outputDir, `${pageName}-results.json`);
-      await (0, import_promises37.writeFile)(resultPath, JSON.stringify(runResult, null, 2), "utf-8");
+      await (0, import_promises38.writeFile)(resultPath, JSON.stringify(runResult, null, 2), "utf-8");
       console.log(`[test-runner]   results: ${resultPath}`);
     } finally {
       await driver3.close();
@@ -55627,10 +55969,10 @@ async function executeStep2(driver3, step, outputDir) {
     } else if ("assert" in step) {
       await runAssert(driver3, step.assert);
     } else if ("screenshot" in step) {
-      await (0, import_promises37.mkdir)(outputDir, { recursive: true });
+      await (0, import_promises38.mkdir)(outputDir, { recursive: true });
       const screenshotPath = (0, import_path40.join)(outputDir, `${step.screenshot}.png`);
       const buf = await driver3.screenshot();
-      await (0, import_promises37.writeFile)(screenshotPath, buf);
+      await (0, import_promises38.writeFile)(screenshotPath, buf);
       return {
         step: stepDesc,
         passed: true,
@@ -55727,11 +56069,11 @@ function formatRunResult(result) {
   }
   return lines.join("\n");
 }
-var import_promises37, import_path40;
+var import_promises38, import_path40;
 var init_test_runner = __esm({
   "src/test-runner.ts"() {
     "use strict";
-    import_promises37 = require("fs/promises");
+    import_promises38 = require("fs/promises");
     import_path40 = require("path");
     init_driver();
   }
@@ -55780,19 +56122,19 @@ async function runScript(options) {
   } = options;
   const tmpId = (0, import_crypto7.randomBytes)(8).toString("hex");
   const tmpDir = (0, import_path41.join)((0, import_os6.tmpdir)(), `ibr-script-${tmpId}`);
-  await (0, import_promises38.mkdir)(tmpDir, { recursive: true });
+  await (0, import_promises39.mkdir)(tmpDir, { recursive: true });
   const copiedScript = (0, import_path41.join)(tmpDir, "user_script.py");
   const wrapperPath = (0, import_path41.join)(tmpDir, "wrapper.py");
   try {
-    await (0, import_promises38.copyFile)(scriptPath, copiedScript);
-    await (0, import_promises38.writeFile)(wrapperPath, buildWrapper(copiedScript, cpuSeconds, memoryMB), "utf-8");
+    await (0, import_promises39.copyFile)(scriptPath, copiedScript);
+    await (0, import_promises39.writeFile)(wrapperPath, buildWrapper(copiedScript, cpuSeconds, memoryMB), "utf-8");
     const start = Date.now();
     let timedOut = false;
     let stdout = "";
     let stderr = "";
     let exitCode = 0;
     await new Promise((resolvePromise) => {
-      const child = (0, import_child_process19.spawn)("python3", [wrapperPath], {
+      const child = (0, import_child_process20.spawn)("python3", [wrapperPath], {
         cwd: tmpDir,
         detached: true,
         shell: false,
@@ -55853,7 +56195,7 @@ Process error: ${err.message}`;
     }
     return { exitCode, stdout, stderr, output, duration: duration3, timedOut };
   } finally {
-    await (0, import_promises38.rm)(tmpDir, { recursive: true, force: true }).catch(() => {
+    await (0, import_promises39.rm)(tmpDir, { recursive: true, force: true }).catch(() => {
     });
   }
 }
@@ -55871,12 +56213,12 @@ function formatScriptResult(result) {
   }
   return lines.join("\n");
 }
-var import_child_process19, import_promises38, import_path41, import_os6, import_crypto7;
+var import_child_process20, import_promises39, import_path41, import_os6, import_crypto7;
 var init_script_runner = __esm({
   "src/script-runner.ts"() {
     "use strict";
-    import_child_process19 = require("child_process");
-    import_promises38 = require("fs/promises");
+    import_child_process20 = require("child_process");
+    import_promises39 = require("fs/promises");
     import_path41 = require("path");
     import_os6 = require("os");
     import_crypto7 = require("crypto");
@@ -55893,15 +56235,15 @@ __export(iterate_exports, {
 });
 async function loadState(statePath) {
   try {
-    const raw = await (0, import_promises39.readFile)(statePath, "utf-8");
+    const raw = await (0, import_promises40.readFile)(statePath, "utf-8");
     return JSON.parse(raw);
   } catch {
     return null;
   }
 }
 async function saveState(statePath, state) {
-  await (0, import_promises39.mkdir)((0, import_path42.resolve)(statePath, ".."), { recursive: true });
-  await (0, import_promises39.writeFile)(statePath, JSON.stringify(state, null, 2), "utf-8");
+  await (0, import_promises40.mkdir)((0, import_path42.resolve)(statePath, ".."), { recursive: true });
+  await (0, import_promises40.writeFile)(statePath, JSON.stringify(state, null, 2), "utf-8");
 }
 function hashIssues(issues) {
   const sorted = [...issues].sort();
@@ -56068,7 +56410,7 @@ async function iterate(options) {
     autoApprove = false
   } = options;
   const statePath = (0, import_path42.join)(outputDir, "iterate-state.json");
-  await (0, import_promises39.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises40.mkdir)(outputDir, { recursive: true });
   let persisted = await loadState(statePath);
   if (!persisted || persisted.url !== url2) {
     persisted = {
@@ -56124,9 +56466,9 @@ async function iterate(options) {
   if (analysisStates.includes(targetState) && !testFile) {
     analysis = analyzeIssues(allIterations);
     const analysisDir = (0, import_path42.join)(outputDir);
-    await (0, import_promises39.mkdir)(analysisDir, { recursive: true }).catch(() => {
+    await (0, import_promises40.mkdir)(analysisDir, { recursive: true }).catch(() => {
     });
-    await (0, import_promises39.writeFile)(
+    await (0, import_promises40.writeFile)(
       (0, import_path42.join)(analysisDir, "analysis.json"),
       JSON.stringify(analysis, null, 2)
     ).catch(() => {
@@ -56170,15 +56512,15 @@ function buildResult(iterations, finalState, verificationPassed, analysis) {
 }
 async function resetIterateState(outputDir = ".ibr/iterate") {
   const statePath = (0, import_path42.join)(outputDir, "iterate-state.json");
-  await (0, import_promises39.writeFile)(statePath, JSON.stringify({ iterations: [] }, null, 2), "utf-8").catch(() => {
+  await (0, import_promises40.writeFile)(statePath, JSON.stringify({ iterations: [] }, null, 2), "utf-8").catch(() => {
   });
 }
-var import_crypto8, import_promises39, import_path42, CHECKPOINT_ITERATIONS, APPROACH_MAP;
+var import_crypto8, import_promises40, import_path42, CHECKPOINT_ITERATIONS, APPROACH_MAP;
 var init_iterate = __esm({
   "src/iterate.ts"() {
     "use strict";
     import_crypto8 = require("crypto");
-    import_promises39 = require("fs/promises");
+    import_promises40 = require("fs/promises");
     import_path42 = require("path");
     init_test_runner();
     init_scan();
@@ -57041,164 +57383,6 @@ var init_attach = __esm({
         this.name = "LiveAttachError";
       }
     };
-  }
-});
-
-// src/live/color.ts
-function clamp3(n, min, max) {
-  return n < min ? min : n > max ? max : n;
-}
-function parseChannel(token) {
-  const t = token.trim();
-  if (t === "") return null;
-  if (t.endsWith("%")) {
-    const pct = Number(t.slice(0, -1));
-    if (!Number.isFinite(pct)) return null;
-    return clamp3(Math.round(pct / 100 * 255), 0, 255);
-  }
-  const n = Number(t);
-  if (!Number.isFinite(n)) return null;
-  return clamp3(Math.round(n), 0, 255);
-}
-function parseAlpha(token) {
-  if (token === void 0) return 1;
-  const t = token.trim();
-  if (t === "") return 1;
-  if (t.endsWith("%")) {
-    const pct = Number(t.slice(0, -1));
-    return Number.isFinite(pct) ? clamp3(pct / 100, 0, 1) : 1;
-  }
-  const n = Number(t);
-  return Number.isFinite(n) ? clamp3(n, 0, 1) : 1;
-}
-function parseCssColor(input) {
-  if (!input) return null;
-  const s = String(input).trim().toLowerCase();
-  if (s === "transparent") return { r: 0, g: 0, b: 0, a: 0 };
-  const hex3 = HEX_RE.exec(s);
-  if (hex3) {
-    const h = hex3[1];
-    if (h.length === 3 || h.length === 4) {
-      const r = parseInt(h[0] + h[0], 16);
-      const g = parseInt(h[1] + h[1], 16);
-      const b = parseInt(h[2] + h[2], 16);
-      const a = h.length === 4 ? parseInt(h[3] + h[3], 16) / 255 : 1;
-      return { r, g, b, a };
-    }
-    if (h.length === 6 || h.length === 8) {
-      const r = parseInt(h.slice(0, 2), 16);
-      const g = parseInt(h.slice(2, 4), 16);
-      const b = parseInt(h.slice(4, 6), 16);
-      const a = h.length === 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1;
-      return { r, g, b, a };
-    }
-    return null;
-  }
-  const func = FUNC_RE.exec(s);
-  if (func) {
-    const body = func[2];
-    const [rgbPart, slashAlpha] = body.split("/");
-    const parts = rgbPart.trim().split(/[\s,]+/).filter(Boolean);
-    if (parts.length < 3) return null;
-    const r = parseChannel(parts[0]);
-    const g = parseChannel(parts[1]);
-    const b = parseChannel(parts[2]);
-    if (r === null || g === null || b === null) return null;
-    const a = parseAlpha(slashAlpha ?? parts[3]);
-    return { r, g, b, a };
-  }
-  const srgb = COLOR_SRGB_RE.exec(s);
-  if (srgb) {
-    const [channelPart, slashAlpha] = srgb[1].split("/");
-    const parts = channelPart.trim().split(/\s+/).filter(Boolean);
-    if (parts.length < 3) return null;
-    const chans = parts.slice(0, 3).map(parseUnitChannel);
-    if (chans.some((c) => c === null)) return null;
-    const [r, g, b] = chans;
-    return { r, g, b, a: parseAlpha(slashAlpha) };
-  }
-  return null;
-}
-function parseUnitChannel(token) {
-  const t = token.trim();
-  if (t === "" || t === "none") return t === "none" ? 0 : null;
-  const n = t.endsWith("%") ? Number(t.slice(0, -1)) / 100 : Number(t);
-  if (!Number.isFinite(n)) return null;
-  return clamp3(Math.round(n * 255), 0, 255);
-}
-function formatRgba(c) {
-  const a = Math.round(c.a * 1e3) / 1e3;
-  return a >= 1 ? `rgb(${c.r}, ${c.g}, ${c.b})` : `rgba(${c.r}, ${c.g}, ${c.b}, ${a})`;
-}
-function isOpaque(c) {
-  return c.a >= 1;
-}
-function compositeOver(src, dst) {
-  if (src.a >= 1) return { ...src };
-  if (src.a <= 0) return { ...dst };
-  const outA = src.a + dst.a * (1 - src.a);
-  if (outA <= 0) return { r: 0, g: 0, b: 0, a: 0 };
-  const mix = (s, d) => Math.round((s * src.a + d * dst.a * (1 - src.a)) / outA);
-  return {
-    r: mix(src.r, dst.r),
-    g: mix(src.g, dst.g),
-    b: mix(src.b, dst.b),
-    a: outA
-  };
-}
-function resolveEffectiveBackground2(chain) {
-  const canonical = resolveEffectiveBackground(chain);
-  return {
-    color: { r: canonical.rgb[0], g: canonical.rgb[1], b: canonical.rgb[2], a: 1 },
-    resolved: canonical.resolved,
-    ...canonical.unsupported !== void 0 ? { unsupported: canonical.unsupported } : {}
-  };
-}
-function channelLuminance(v) {
-  const s = v / 255;
-  return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
-}
-function relativeLuminance3(c) {
-  return 0.2126 * channelLuminance(c.r) + 0.7152 * channelLuminance(c.g) + 0.0722 * channelLuminance(c.b);
-}
-function contrastRatio2(fg, bg) {
-  const l1 = relativeLuminance3(fg);
-  const l2 = relativeLuminance3(bg);
-  const lighter = Math.max(l1, l2);
-  const darker = Math.min(l1, l2);
-  const ratio = (lighter + 0.05) / (darker + 0.05);
-  return Math.round(ratio * 100) / 100;
-}
-function isLargeText(fontSizePx, fontWeight) {
-  if (!Number.isFinite(fontSizePx)) return false;
-  if (fontWeight >= 700 && fontSizePx >= 18.66) return true;
-  return fontSizePx >= 24;
-}
-function aaThreshold(large) {
-  return large ? 3 : 4.5;
-}
-function parsePx3(value) {
-  if (!value) return null;
-  const n = Number.parseFloat(value);
-  return Number.isFinite(n) ? n : null;
-}
-function parseFontWeight(value) {
-  if (!value) return 400;
-  const t = String(value).trim().toLowerCase();
-  if (t === "bold") return 700;
-  if (t === "bolder") return 700;
-  if (t === "normal" || t === "lighter") return 400;
-  const n = Number.parseFloat(t);
-  return Number.isFinite(n) ? n : 400;
-}
-var HEX_RE, FUNC_RE, COLOR_SRGB_RE;
-var init_color = __esm({
-  "src/live/color.ts"() {
-    "use strict";
-    init_color_parse();
-    HEX_RE = /^#([0-9a-f]{3,8})$/i;
-    FUNC_RE = /^(rgba?)\(([^)]*)\)$/i;
-    COLOR_SRGB_RE = /^color\(\s*srgb\s+([^)]*)\)$/i;
   }
 });
 
@@ -58966,8 +59150,8 @@ async function handleAsk(args) {
   const screenshotPath = response.meta?.screenshotPath;
   if (wantScreenshot && screenshotPath) {
     try {
-      const { readFile: readFile25 } = await import("fs/promises");
-      const buf = await readFile25(screenshotPath);
+      const { readFile: readFile26 } = await import("fs/promises");
+      const buf = await readFile26(screenshotPath);
       content.unshift({
         type: "image",
         data: buf.toString("base64"),
@@ -64533,7 +64717,7 @@ function useColor() {
 var program = new Command();
 
 // src/bin/ibr.ts
-var import_promises40 = require("fs/promises");
+var import_promises41 = require("fs/promises");
 var import_path44 = require("path");
 var import_fs30 = require("fs");
 
@@ -64568,10 +64752,10 @@ init_operation_tracker();
 init_devices();
 
 // src/native/stream-capture.ts
-var import_promises26 = require("fs/promises");
+var import_promises27 = require("fs/promises");
 var import_node_path6 = require("path");
 var import_node_crypto4 = require("crypto");
-var import_pngjs5 = __toESM(require_png());
+var import_pngjs6 = __toESM(require_png());
 var import_node_perf_hooks = require("perf_hooks");
 
 // src/native/compact-refs.ts
@@ -64704,9 +64888,9 @@ async function captureNativeStream(opts, deps) {
     throw new Error("Capture requires duration 100..60000ms, interval 100..duration, frames 0..20.");
   }
   const dir = (0, import_node_path6.resolve)(opts.outputDir);
-  await (0, import_promises26.mkdir)(dir, { recursive: true, mode: 448 });
+  await (0, import_promises27.mkdir)(dir, { recursive: true, mode: 448 });
   const eventsPath = (0, import_node_path6.join)(dir, "events.jsonl");
-  await (0, import_promises26.writeFile)(eventsPath, "", { mode: 384, flag: "wx" });
+  await (0, import_promises27.writeFile)(eventsPath, "", { mode: 384, flag: "wx" });
   const now = deps.now ?? (() => import_node_perf_hooks.performance.now());
   const sleep9 = deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   const started = now();
@@ -64730,7 +64914,7 @@ async function captureNativeStream(opts, deps) {
     }
   };
   const matched = /* @__PURE__ */ new Set();
-  const emit2 = async (event) => (0, import_promises26.appendFile)(
+  const emit2 = async (event) => (0, import_promises27.appendFile)(
     eventsPath,
     `${JSON.stringify({ seq: ++sequence, sample: samples, elapsedMs: now() - started, ...event })}
 `
@@ -64742,14 +64926,14 @@ async function captureNativeStream(opts, deps) {
     try {
       const image = await bounded(deps.screenshot, until);
       if (typeof image.screenshotPath !== "string") throw new Error("Screenshot artifact path missing");
-      const info = await bounded(() => (0, import_promises26.stat)(image.screenshotPath), until);
+      const info = await bounded(() => (0, import_promises27.stat)(image.screenshotPath), until);
       if (!info.isFile() || info.size > 16 * 1024 * 1024) throw new Error("Screenshot must be a regular PNG of at most 16 MiB");
-      const bytes = await bounded(() => (0, import_promises26.readFile)(image.screenshotPath), until);
+      const bytes = await bounded(() => (0, import_promises27.readFile)(image.screenshotPath), until);
       if (bytes.length < 24 || bytes.readUInt32BE(16) * bytes.readUInt32BE(20) > 32e6) throw new Error("Screenshot exceeds 32 million pixels or has an invalid header");
-      const decoded = import_pngjs5.PNG.sync.read(bytes);
+      const decoded = import_pngjs6.PNG.sync.read(bytes);
       if (now() >= until) throw new Error("Screenshot decoding exhausted capture deadline");
       const screenshotPath = (0, import_node_path6.join)(dir, `frame-${(0, import_node_crypto4.randomUUID)()}.png`);
-      await bounded(() => (0, import_promises26.writeFile)(screenshotPath, bytes, { mode: 384, flag: "wx" }), until);
+      await bounded(() => (0, import_promises27.writeFile)(screenshotPath, bytes, { mode: 384, flag: "wx" }), until);
       const record2 = {
         sample: samples,
         acquisitionStartedMs,
@@ -64826,7 +65010,7 @@ async function captureNativeStream(opts, deps) {
       localFilesystemFinalizationDeadline: "best-effort; OS writes are not cancellable"
     }
   };
-  await (0, import_promises26.writeFile)((0, import_node_path6.join)(dir, "manifest.json"), JSON.stringify(result, null, 2), { mode: 384, flag: "wx" });
+  await (0, import_promises27.writeFile)((0, import_node_path6.join)(dir, "manifest.json"), JSON.stringify(result, null, 2), { mode: 384, flag: "wx" });
   return result;
 }
 
@@ -64879,12 +65063,12 @@ function deleteSession2(sessionId, baseDir = DEFAULT_SESSION_STORE_DIR) {
 }
 
 // src/native/computer-use.ts
-var import_child_process15 = require("child_process");
-var import_util15 = require("util");
+var import_child_process16 = require("child_process");
+var import_util16 = require("util");
 var import_fs19 = require("fs");
 var import_path30 = require("path");
 init_idb();
-var execFileAsync13 = (0, import_util15.promisify)(import_child_process15.execFile);
+var execFileAsync14 = (0, import_util16.promisify)(import_child_process16.execFile);
 var num2 = (v) => {
   const n = Number(v);
   if (!Number.isFinite(n)) throw new Error(`expected a number, got ${JSON.stringify(v)}`);
@@ -64970,7 +65154,7 @@ async function executeOnSimulator(udid, a, outDir) {
     case "screenshot": {
       (0, import_fs19.mkdirSync)(outDir, { recursive: true });
       const p = (0, import_path30.join)(outDir, `cu-${Date.now()}.png`);
-      await execFileAsync13("xcrun", ["simctl", "io", udid, "screenshot", p], { timeout: 15e3 });
+      await execFileAsync14("xcrun", ["simctl", "io", udid, "screenshot", p], { timeout: 15e3 });
       return { success: true, screenshot: p };
     }
     case "click": {
@@ -65010,7 +65194,7 @@ async function executeOnSimulator(udid, a, outDir) {
   }
 }
 async function readSimulatorElements(udid) {
-  const { stdout } = await execFileAsync13("idb", ["ui", "describe-all", "--udid", udid], { timeout: 15e3, maxBuffer: 16 * 1024 * 1024 });
+  const { stdout } = await execFileAsync14("idb", ["ui", "describe-all", "--udid", udid], { timeout: 15e3, maxBuffer: 16 * 1024 * 1024 });
   const nodes = JSON.parse(stdout);
   return nodes.map((n) => ({
     role: n.role ?? n.type ?? "unknown",
@@ -65918,7 +66102,7 @@ init_session_idle();
 
 // src/bin/external-action-evidence-cli.ts
 var import_fs21 = require("fs");
-var import_promises27 = require("fs/promises");
+var import_promises28 = require("fs/promises");
 init_external_action_evidence();
 var MAX_INPUT_BYTES = 1024 * 1024;
 async function readEvidenceStdin(input = process.stdin) {
@@ -65935,12 +66119,12 @@ async function readEvidenceStdin(input = process.stdin) {
   return Buffer.concat(chunks).toString("utf8");
 }
 async function readEvidenceFile(path3) {
-  const beforeOpen = await (0, import_promises27.lstat)(path3);
+  const beforeOpen = await (0, import_promises28.lstat)(path3);
   if (beforeOpen.isSymbolicLink() || !beforeOpen.isFile()) {
     throw new Error("input must be a regular file");
   }
   if (beforeOpen.size > MAX_INPUT_BYTES) throw new Error(`input exceeds ${MAX_INPUT_BYTES} bytes`);
-  const handle = await (0, import_promises27.open)(path3, import_fs21.constants.O_RDONLY | import_fs21.constants.O_NOFOLLOW);
+  const handle = await (0, import_promises28.open)(path3, import_fs21.constants.O_RDONLY | import_fs21.constants.O_NOFOLLOW);
   const chunks = [];
   let totalBytes = 0;
   try {
@@ -66022,18 +66206,18 @@ function registerExternalActionEvidenceCommand(program3) {
 }
 
 // src/bin/design-spec-cli.ts
-var import_promises28 = require("fs/promises");
+var import_promises29 = require("fs/promises");
 var import_node_path8 = require("path");
 init_schema2();
 init_figma();
 init_check();
 init_capture2();
 async function jsonFile(path3) {
-  return JSON.parse(await (0, import_promises28.readFile)(path3, "utf8"));
+  return JSON.parse(await (0, import_promises29.readFile)(path3, "utf8"));
 }
 async function writeSpec(path3, spec) {
-  await (0, import_promises28.mkdir)((0, import_node_path8.dirname)(path3), { recursive: true });
-  await (0, import_promises28.writeFile)(path3, `${JSON.stringify(spec, null, 2)}
+  await (0, import_promises29.mkdir)((0, import_node_path8.dirname)(path3), { recursive: true });
+  await (0, import_promises29.writeFile)(path3, `${JSON.stringify(spec, null, 2)}
 `, { flag: "wx" });
 }
 function registerDesignSpecCommands(program3) {
@@ -66259,7 +66443,7 @@ async function loadConfig() {
   const configPath = (0, import_path44.join)(process.cwd(), ".ibrrc.json");
   if ((0, import_fs30.existsSync)(configPath)) {
     try {
-      const content = await (0, import_promises40.readFile)(configPath, "utf-8");
+      const content = await (0, import_promises41.readFile)(configPath, "utf-8");
       return normalizeFileConfig(JSON.parse(content));
     } catch (error51) {
       console.warn(
@@ -66614,7 +66798,7 @@ program2.command("audit [url]").description("Full audit: functional checks + vis
     if (runSemantic) {
       const { getSemanticOutput: getSemanticOutput2, detectLandmarks: detectLandmarks2, compareLandmarks: compareLandmarks2, getExpectedLandmarksForIntent: getExpectedLandmarksForIntent2, getExpectedLandmarksFromContext: getExpectedLandmarksFromContext2, LANDMARK_SELECTORS: LANDMARK_SELECTORS2 } = await Promise.resolve().then(() => (init_semantic(), semantic_exports));
       const { listSessions: listSessions2 } = await Promise.resolve().then(() => (init_session(), session_exports));
-      const { readFile: readFile25 } = await import("fs/promises");
+      const { readFile: readFile26 } = await import("fs/promises");
       const { join: join44 } = await import("path");
       const semantic = await getSemanticOutput2(page);
       const outputDir = globalOpts.output || "./.ibr";
@@ -66641,7 +66825,7 @@ program2.command("audit [url]").description("Full audit: functional checks + vis
         let contextLandmarks = [];
         try {
           const claudeMdPath = join44(process.cwd(), "CLAUDE.md");
-          const content = await readFile25(claudeMdPath, "utf-8");
+          const content = await readFile26(claudeMdPath, "utf-8");
           contextLandmarks = getExpectedLandmarksFromContext2({ principles: [content] });
         } catch {
         }
@@ -67339,7 +67523,7 @@ async function startDetachedServer(outputDir, argv, expectSession) {
     } catch {
     }
   }
-  const tail = await (0, import_promises40.readFile)(logPath, "utf-8").then((t) => t.slice(-1500)).catch(() => "");
+  const tail = await (0, import_promises41.readFile)(logPath, "utf-8").then((t) => t.slice(-1500)).catch(() => "");
   throw new Error(
     `Browser server did not come up within ${timeoutMs}ms (background pid ${child.pid ?? "unknown"}, exit ${child.exitCode ?? "still running"}).
 Its output is in ${logPath}.${tail ? `
@@ -68645,7 +68829,7 @@ async function resolveBaseUrl(providedUrl) {
   throw new Error("No URL provided and no dev server detected. Start your dev server or specify a URL.");
 }
 program2.command("init").description("Initialize IBR config and optionally register Claude Code plugin").option("-p, --port <port>", "Port for baseUrl (auto-detects available port if not specified)").option("-u, --url <url>", "Full base URL (overrides port)").option("--skip-plugin", "Skip Claude Code plugin registration prompt").action(async (options) => {
-  const { writeFile: writeFile24, readFile: readFile25, mkdir: mkdir33 } = await import("fs/promises");
+  const { writeFile: writeFile24, readFile: readFile26, mkdir: mkdir33 } = await import("fs/promises");
   const configPath = (0, import_path44.join)(process.cwd(), ".ibrrc.json");
   const claudeSettingsPath = (0, import_path44.join)(process.cwd(), ".claude", "settings.json");
   let configCreated = false;
@@ -68730,7 +68914,7 @@ program2.command("init").description("Initialize IBR config and optionally regis
   let settings = { plugins: [] };
   if (hasClaudeSettings) {
     try {
-      const content = await readFile25(claudeSettingsPath, "utf-8");
+      const content = await readFile26(claudeSettingsPath, "utf-8");
       settings = JSON.parse(content);
       if (!settings.plugins) {
         settings.plugins = [];
@@ -69120,7 +69304,7 @@ program2.command("native:check [sessionId]").description("Compare current simula
     process.exit(EXIT_TOOL_ERROR);
   }
 });
-program2.command("scan:macos").description("Scan a running macOS native app via Accessibility API").option("--app <name>", 'App name (e.g., "Secrets Vault")').option("--bundle-id <id>", 'Bundle identifier (e.g., "com.secretsvault.app")').option("--pid <pid>", "Process ID").option("--screenshot <path>", "Save screenshot to path").option("--json", "Output as JSON").option("--format <mode>", "full or compact; compact saves complete evidence", "full").option("--report-dir <dir>", "Directory for private full reports in compact mode", ".ibr/reports").action(async (options) => {
+program2.command("scan:macos").description("Scan a running macOS native app via Accessibility API").option("--app <name>", 'App name (e.g., "Secrets Vault")').option("--bundle-id <id>", 'Bundle identifier (e.g., "com.secretsvault.app")').option("--pid <pid>", "Process ID").option("--window-title <title>", "Exact window title, to scan a window other than the main one (e.g. a panel)").option("--screenshot <path>", "Save screenshot to path; also measures text contrast and light/dark appearance from its pixels").option("--json", "Output as JSON").option("--format <mode>", "full or compact; compact saves complete evidence", "full").option("--report-dir <dir>", "Directory for private full reports in compact mode", ".ibr/reports").action(async (options) => {
   try {
     if (!["full", "compact"].includes(options.format)) throw new Error("Use --format full or compact.");
     if (process.platform !== "darwin") {
@@ -69139,6 +69323,7 @@ program2.command("scan:macos").description("Scan a running macOS native app via 
       app: options.app,
       bundleId: options.bundleId,
       pid: options.pid ? parseInt(options.pid, 10) : void 0,
+      windowTitle: options.windowTitle,
       screenshot: options.screenshot ? { path: options.screenshot } : void 0,
       outputDir: program2.opts().output || ".ibr"
     });
@@ -69747,13 +69932,13 @@ program2.command("compare-browsers <url>").description("Scan in Chrome and Safar
   let diffSaved = false;
   if (chromeScreenshot && safariScreenshot) {
     try {
-      const { PNG: PNG7 } = await Promise.resolve().then(() => __toESM(require_png()));
+      const { PNG: PNG8 } = await Promise.resolve().then(() => __toESM(require_png()));
       const pixelmatch2 = (await Promise.resolve().then(() => (init_pixelmatch(), pixelmatch_exports))).default;
-      const chromePng = PNG7.sync.read(chromeScreenshot);
-      const safariPng = PNG7.sync.read(safariScreenshot);
+      const chromePng = PNG8.sync.read(chromeScreenshot);
+      const safariPng = PNG8.sync.read(safariScreenshot);
       const w = Math.min(chromePng.width, safariPng.width);
       const h = Math.min(chromePng.height, safariPng.height);
-      const diff = new PNG7({ width: w, height: h });
+      const diff = new PNG8({ width: w, height: h });
       const chromeData = cropPngData(chromePng.data, chromePng.width, w, h);
       const safariData = cropPngData(safariPng.data, safariPng.width, w, h);
       pixelDiff = pixelmatch2(chromeData, safariData, diff.data, w, h, {
@@ -69765,7 +69950,7 @@ program2.command("compare-browsers <url>").description("Scan in Chrome and Safar
         const { writeFile: writeFile24, mkdir: mkdirFs } = await import("fs/promises");
         const { dirname: dirname17 } = await import("path");
         await mkdirFs(dirname17(options.saveDiff), { recursive: true });
-        await writeFile24(options.saveDiff, PNG7.sync.write(diff));
+        await writeFile24(options.saveDiff, PNG8.sync.write(diff));
         diffSaved = true;
       }
     } catch {

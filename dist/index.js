@@ -7406,9 +7406,9 @@ function parseColor(color) {
     return { kind: "none", reason: lower };
   }
   if (NAMED[lower]) return { kind: "rgb", rgb: NAMED[lower], alpha: 1 };
-  const hex = lower.match(/^#([0-9a-f]{3,8})$/);
-  if (hex) {
-    const h = hex[1];
+  const hex2 = lower.match(/^#([0-9a-f]{3,8})$/);
+  if (hex2) {
+    const h = hex2[1];
     const exp = (i) => parseInt(h[i] + h[i], 16);
     const pair = (i) => parseInt(h.slice(i, i + 2), 16);
     if (h.length === 3) return { kind: "rgb", rgb: [exp(0), exp(1), exp(2)], alpha: 1 };
@@ -7545,19 +7545,19 @@ function parseColor2(color) {
   }
   const hexMatch = color.match(/^#([0-9a-f]{3,8})$/i);
   if (hexMatch) {
-    const hex = hexMatch[1];
-    if (hex.length === 3) {
+    const hex2 = hexMatch[1];
+    if (hex2.length === 3) {
       return {
-        r: parseInt(hex[0] + hex[0], 16),
-        g: parseInt(hex[1] + hex[1], 16),
-        b: parseInt(hex[2] + hex[2], 16)
+        r: parseInt(hex2[0] + hex2[0], 16),
+        g: parseInt(hex2[1] + hex2[1], 16),
+        b: parseInt(hex2[2] + hex2[2], 16)
       };
     }
-    if (hex.length >= 6) {
+    if (hex2.length >= 6) {
       return {
-        r: parseInt(hex.slice(0, 2), 16),
-        g: parseInt(hex.slice(2, 4), 16),
-        b: parseInt(hex.slice(4, 6), 16)
+        r: parseInt(hex2.slice(0, 2), 16),
+        g: parseInt(hex2.slice(2, 4), 16),
+        b: parseInt(hex2.slice(4, 6), 16)
       };
     }
   }
@@ -16667,6 +16667,7 @@ async function extractMacOSElements(options) {
   } else {
     throw new Error("Either pid or app must be provided");
   }
+  if (options.windowTitle !== void 0) args.push("--window-title", options.windowTitle);
   try {
     return await runMacOSExtraction(extractorPath, args);
   } catch (err) {
@@ -16697,7 +16698,14 @@ async function runMacOSExtraction(extractorPath, args) {
   }
   const lines = stdout.split("\n");
   const headerLine = lines[0];
-  const jsonStr = lines.slice(1).join("\n");
+  let origin;
+  let jsonStart = 1;
+  if (lines[1]?.startsWith("ORIGIN:")) {
+    const [x, y] = lines[1].slice(7).split(",").map(Number);
+    if (Number.isFinite(x) && Number.isFinite(y)) origin = { x, y };
+    jsonStart = 2;
+  }
+  const jsonStr = lines.slice(jsonStart).join("\n");
   let window2 = { windowId: 0, width: 800, height: 600, title: "Unknown" };
   if (headerLine.startsWith("WINDOW:")) {
     const parts = headerLine.slice(7).split(":");
@@ -16708,7 +16716,8 @@ async function runMacOSExtraction(extractorPath, args) {
       windowId,
       width: parseInt(dims[0], 10) || 800,
       height: parseInt(dims[1], 10) || 600,
-      title
+      title,
+      ...origin ? { originX: origin.x, originY: origin.y } : {}
     };
   }
   const elements = JSON.parse(jsonStr);
@@ -16806,7 +16815,7 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
 }
 async function captureMacOSScreenshot(windowId, outputPath) {
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
-  await execFileAsync4("screencapture", ["-l", String(windowId), "-x", outputPath], {
+  await execFileAsync4("screencapture", ["-l", String(windowId), "-o", "-x", outputPath], {
     timeout: 1e4
   });
 }
@@ -17220,6 +17229,167 @@ var init_layout_fill = __esm({
   }
 });
 
+// src/live/color.ts
+function channelLuminance(v) {
+  const s = v / 255;
+  return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+}
+function relativeLuminance3(c) {
+  return 0.2126 * channelLuminance(c.r) + 0.7152 * channelLuminance(c.g) + 0.0722 * channelLuminance(c.b);
+}
+function contrastRatio2(fg, bg) {
+  const l1 = relativeLuminance3(fg);
+  const l2 = relativeLuminance3(bg);
+  const lighter = Math.max(l1, l2);
+  const darker = Math.min(l1, l2);
+  const ratio = (lighter + 0.05) / (darker + 0.05);
+  return Math.round(ratio * 100) / 100;
+}
+var init_color = __esm({
+  "src/live/color.ts"() {
+    init_color_parse();
+  }
+});
+function decodePng(buffer) {
+  const png = pngjs.PNG.sync.read(buffer);
+  return { width: png.width, height: png.height, data: png.data };
+}
+function histogram(img, rect) {
+  const bins = /* @__PURE__ */ new Map();
+  let total = 0;
+  const x0 = Math.max(0, Math.floor(rect.x));
+  const y0 = Math.max(0, Math.floor(rect.y));
+  const x1 = Math.min(img.width, Math.ceil(rect.x + rect.width));
+  const y1 = Math.min(img.height, Math.ceil(rect.y + rect.height));
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      const i = (y * img.width + x) * 4;
+      if (img.data[i + 3] < 128) continue;
+      const r = img.data[i], g = img.data[i + 1], b = img.data[i + 2];
+      const key = r >> QUANT_SHIFT << 10 | g >> QUANT_SHIFT << 5 | b >> QUANT_SHIFT;
+      const bin = bins.get(key);
+      if (bin) {
+        bin.count++;
+        bin.r += r;
+        bin.g += g;
+        bin.b += b;
+      } else bins.set(key, { count: 1, r, g, b });
+      total++;
+    }
+  }
+  return { bins, total };
+}
+function mean(bin) {
+  return { r: Math.round(bin.r / bin.count), g: Math.round(bin.g / bin.count), b: Math.round(bin.b / bin.count), a: 1 };
+}
+function measureRegion(img, rect) {
+  const { bins, total } = histogram(img, rect);
+  if (total === 0) return { status: "unmeasurable", reason: "frame is outside the captured window" };
+  let bgBin;
+  for (const bin of bins.values()) if (!bgBin || bin.count > bgBin.count) bgBin = bin;
+  const background = mean(bgBin);
+  const minCount = Math.max(MIN_TEXT_PIXELS, total * MIN_TEXT_SHARE);
+  let best;
+  for (const bin of bins.values()) {
+    if (bin === bgBin || bin.count < minCount) continue;
+    const color = mean(bin);
+    const ratio = contrastRatio2(color, background);
+    if (ratio < NOISE_RATIO) continue;
+    if (!best || ratio > best.ratio) best = { color, ratio };
+  }
+  if (!best) return { status: "unmeasurable", reason: "no text pixels distinct from the background" };
+  return { status: "measured", foreground: best.color, background, ratio: best.ratio };
+}
+function hex(c) {
+  return "#" + [c.r, c.g, c.b].map((v) => v.toString(16).padStart(2, "0")).join("");
+}
+function toneOf(c) {
+  return relativeLuminance3(c) > 0.18 ? "light" : "dark";
+}
+function analyzeNativeContrast(img, window2, elements, threshold = 4.5) {
+  const scale = img.width / window2.width;
+  let pass = 0, fail = 0, notMeasured = 0;
+  const failing = [];
+  let minRatio;
+  for (const el of elements) {
+    const text = el.text?.trim();
+    const role = el.a11y?.role ?? null;
+    if (!text || !role || !TEXT_ROLES.has(role) || el.interactive?.isDisabled) continue;
+    const { x, y, width, height } = el.bounds;
+    if (width < 2 || height < 2) continue;
+    const m = measureRegion(img, {
+      x: (x - window2.originX) * scale,
+      y: (y - window2.originY) * scale,
+      width: width * scale,
+      height: height * scale
+    });
+    if (m.status !== "measured") {
+      notMeasured++;
+      continue;
+    }
+    const entry = {
+      selector: el.selector,
+      text: text.slice(0, 60),
+      role,
+      ratio: m.ratio,
+      foreground: hex(m.foreground),
+      background: hex(m.background),
+      tone: relativeLuminance3(m.foreground) > relativeLuminance3(m.background) ? "light-on-dark" : "dark-on-light"
+    };
+    if (m.ratio >= threshold) pass++;
+    else {
+      fail++;
+      if (failing.length < 50) failing.push(entry);
+    }
+    if (!minRatio || m.ratio < minRatio.ratio) minRatio = entry;
+  }
+  return { method: "screenshot-pixels", threshold, totalChecked: pass + fail, pass, fail, notMeasured, failing, minRatio };
+}
+function analyzeSurface(img, system) {
+  const { bins } = histogram(img, { x: 0, y: 0, width: img.width, height: img.height });
+  let top;
+  for (const bin of bins.values()) if (!top || bin.count > top.count) top = bin;
+  const color = top ? mean(top) : { r: 0, g: 0, b: 0};
+  const surface = toneOf(color);
+  return { system, surface, surfaceColor: hex(color), differsFromSystem: system !== "unknown" && system !== surface };
+}
+async function readSystemAppearance() {
+  if (process.platform !== "darwin") return "unknown";
+  try {
+    const { stdout } = await execFileAsync5("defaults", ["read", "-g", "AppleInterfaceStyle"], { timeout: 3e3 });
+    return stdout.trim() === "Dark" ? "dark" : "light";
+  } catch (err) {
+    return err.code === 1 ? "light" : "unknown";
+  }
+}
+async function readPng(path2) {
+  return decodePng(await fs.readFile(path2));
+}
+var execFileAsync5, QUANT_SHIFT, MIN_TEXT_SHARE, MIN_TEXT_PIXELS, NOISE_RATIO, TEXT_ROLES;
+var init_contrast = __esm({
+  "src/native/contrast.ts"() {
+    init_color();
+    execFileAsync5 = util.promisify(child_process.execFile);
+    QUANT_SHIFT = 3;
+    MIN_TEXT_SHARE = 0.02;
+    MIN_TEXT_PIXELS = 4;
+    NOISE_RATIO = 1.05;
+    TEXT_ROLES = /* @__PURE__ */ new Set([
+      "text",
+      "button",
+      "link",
+      "radio",
+      "checkbox",
+      "tab",
+      "combobox",
+      "heading",
+      "menuitem",
+      "switch",
+      "cell"
+    ]);
+  }
+});
+
 // src/native/scan.ts
 var scan_exports = {};
 __export(scan_exports, {
@@ -17383,7 +17553,7 @@ async function scanMacOS(options) {
   if (process.platform !== "darwin") {
     throw new Error("macOS native scanning is only available on macOS");
   }
-  const { app, bundleId, pid: directPid, screenshot } = options;
+  const { app, bundleId, pid: directPid, screenshot, windowTitle } = options;
   if (!app && !bundleId && !directPid) {
     throw new Error("Provide --app, --bundle-id, or --pid to identify the target app");
   }
@@ -17395,7 +17565,8 @@ async function scanMacOS(options) {
   }
   const { elements: nativeElements, window: window2 } = await extractMacOSElements({
     pid,
-    app: app || bundleId
+    app: app || bundleId,
+    windowTitle
   });
   const elements = mapMacOSToEnhancedElements(nativeElements);
   const audit = analyzeElements(elements, false);
@@ -17410,8 +17581,22 @@ async function scanMacOS(options) {
       window: { width: window2.width, height: window2.height }
     });
   }
+  let contrast;
+  let appearance;
+  let visualCoverage = nativeVisualCoverage;
   if (screenshot && window2.windowId > 0) {
     await captureMacOSScreenshot(window2.windowId, screenshot.path);
+    if (window2.originX !== void 0 && window2.originY !== void 0) {
+      const img = await readPng(screenshot.path);
+      const geometry = { width: window2.width, height: window2.height, originX: window2.originX, originY: window2.originY };
+      contrast = analyzeNativeContrast(img, geometry, elements);
+      appearance = analyzeSurface(img, await readSystemAppearance());
+      visualCoverage = {
+        appearance: "measured",
+        textContrast: "measured",
+        reason: `Measured from screenshot pixels: ${contrast.totalChecked} text elements checked, ${contrast.fail} below ${contrast.threshold}:1, ${contrast.notMeasured} unmeasurable. Surface ${appearance.surface}, system ${appearance.system}.`
+      };
+    }
   }
   const url = `macos://${app || bundleId || `pid-${pid}`}/${window2.title}`;
   const route = `/${window2.title}`;
@@ -17427,6 +17612,17 @@ async function scanMacOS(options) {
         category: "structure",
         severity: "warning",
         description: `layout-fill: ${f.detail}`
+      });
+    }
+  }
+  if (contrast) {
+    for (const f of contrast.failing) {
+      const mismatch = appearance && (appearance.surface === "dark" && f.tone === "dark-on-light" || appearance.surface === "light" && f.tone === "light-on-dark");
+      issues.push({
+        category: "accessibility",
+        severity: "error",
+        description: `contrast: "${f.text}" (${f.role}) ${f.ratio}:1, text ${f.foreground} on ${f.background}, needs ${contrast.threshold}:1`,
+        fix: mismatch ? `Text resolved for the ${appearance.surface === "dark" ? "light" : "dark"} appearance on a ${appearance.surface} surface. Set the window's appearance from the theme, or use colours that adapt to it.` : "Raise the text/background contrast to at least 4.5:1."
       });
     }
   }
@@ -17446,7 +17642,9 @@ async function scanMacOS(options) {
     []
   );
   return {
-    visualCoverage: nativeVisualCoverage,
+    visualCoverage,
+    contrast,
+    appearance,
     url,
     route,
     timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -17554,6 +17752,7 @@ var init_scan2 = __esm({
     init_interactivity2();
     init_semantic2();
     init_layout_fill();
+    init_contrast();
     nativeVisualCoverage = {
       appearance: "unmeasured",
       textContrast: "unmeasured",
@@ -22686,8 +22885,8 @@ init_extract3();
 
 // src/native/ax-stress.ts
 init_extract3();
-var execFileAsync5 = util.promisify(child_process.execFile);
-var defaultRunner = (bin, args, timeoutMs) => execFileAsync5(bin, args, { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 });
+var execFileAsync6 = util.promisify(child_process.execFile);
+var defaultRunner = (bin, args, timeoutMs) => execFileAsync6(bin, args, { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 });
 function buildAxStressArgs(opts) {
   const walks = opts.walksPerStep ?? 5;
   const maxNodes = opts.maxNodes ?? 5e4;
@@ -22785,7 +22984,7 @@ function isSimDriverAvailable() {
 }
 
 // src/native/idb.ts
-var execFileAsync7 = util.promisify(child_process.execFile);
+var execFileAsync8 = util.promisify(child_process.execFile);
 var SIMULATOR_DRIVER_ENV = "IBR_SIMULATOR_DRIVER";
 var DRIVER_LABELS = {
   "native-window": "IBR native-window",
@@ -22804,7 +23003,7 @@ function formatSimulatorDriver(driver2) {
 }
 async function isIdbCliAvailable() {
   try {
-    await execFileAsync7("which", ["idb"]);
+    await execFileAsync8("which", ["idb"]);
     return true;
   } catch {
     return false;
@@ -22812,7 +23011,7 @@ async function isIdbCliAvailable() {
 }
 async function isSimctlAvailable() {
   try {
-    await execFileAsync7("which", ["xcrun"]);
+    await execFileAsync8("which", ["xcrun"]);
     return true;
   } catch {
     return false;
@@ -23175,7 +23374,7 @@ var sessions = /* @__PURE__ */ new Map();
 // src/native/actions.ts
 init_extract3();
 init_role_map();
-var execFileAsync8 = util.promisify(child_process.execFile);
+var execFileAsync9 = util.promisify(child_process.execFile);
 async function performNativeAction(options) {
   const extractorPath = await ensureExtractor();
   const args = [
@@ -23193,7 +23392,7 @@ async function performNativeAction(options) {
     args.push("--value", options.value);
   }
   try {
-    const { stdout } = await execFileAsync8(extractorPath, args, { timeout: 1e4 });
+    const { stdout } = await execFileAsync9(extractorPath, args, { timeout: 1e4 });
     return JSON.parse(stdout);
   } catch (err) {
     if (err && typeof err === "object" && "stdout" in err) {
@@ -23579,7 +23778,7 @@ function axSignature(extraction) {
 }
 
 // src/native/keyboard.ts
-var execFileAsync9 = util.promisify(child_process.execFile);
+var execFileAsync10 = util.promisify(child_process.execFile);
 var SETTLE_MS = 220;
 async function resolveKeystrokeTargetPid(target) {
   if (target.kind === "macos") return target.pid;
@@ -23590,7 +23789,7 @@ var deliverKeystrokeOneShot = async (pid, chord, foreground) => {
   const args = ["--pid", String(pid), "--keystroke", chord];
   if (foreground) args.push("--foreground");
   try {
-    const { stdout } = await execFileAsync9(extractorPath, args, { timeout: 5e3 });
+    const { stdout } = await execFileAsync10(extractorPath, args, { timeout: 5e3 });
     return JSON.parse(stdout);
   } catch (err) {
     if (err && typeof err === "object" && "stdout" in err) {
@@ -23675,7 +23874,7 @@ async function runKeystrokeCapability(opts) {
   }
 }
 init_macos();
-var execFileAsync10 = util.promisify(child_process.execFile);
+var execFileAsync11 = util.promisify(child_process.execFile);
 var LAUNCH_TIMEOUT_MS = 8e3;
 var QUIT_TIMEOUT_MS = 6e3;
 var POLL_MS = 250;
@@ -23832,10 +24031,10 @@ async function runLifecycleCapability(target, spec, ops) {
 }
 async function defaultLaunch(app) {
   try {
-    await execFileAsync10("open", ["-a", app], { timeout: 8e3 });
+    await execFileAsync11("open", ["-a", app], { timeout: 8e3 });
   } catch (err) {
     if (BUNDLE_ID_RE.test(app)) {
-      await execFileAsync10("open", ["-b", app], { timeout: 8e3 });
+      await execFileAsync11("open", ["-b", app], { timeout: 8e3 });
       return;
     }
     throw err;
@@ -23843,7 +24042,7 @@ async function defaultLaunch(app) {
 }
 async function defaultFrontmostPid() {
   try {
-    const { stdout } = await execFileAsync10(
+    const { stdout } = await execFileAsync11(
       "osascript",
       ["-e", 'tell application "System Events" to get unix id of first application process whose frontmost is true'],
       { timeout: 3e3 }
@@ -23865,17 +24064,17 @@ async function defaultIsRunning(pid) {
 async function defaultQuit(target) {
   if (target.app) {
     const script = BUNDLE_ID_RE.test(target.app) ? `tell application id "${target.app}" to quit` : `tell application "${target.app}" to quit`;
-    await execFileAsync10("osascript", ["-e", script], { timeout: 5e3 });
+    await execFileAsync11("osascript", ["-e", script], { timeout: 5e3 });
     return;
   }
-  const { stdout } = await execFileAsync10(
+  const { stdout } = await execFileAsync11(
     "osascript",
     ["-e", `tell application "System Events" to get name of first application process whose unix id is ${target.pid}`],
     { timeout: 3e3 }
   );
   const name = stdout.trim();
   if (!name) throw new Error(`could not resolve an app name for pid ${target.pid}`);
-  await execFileAsync10("osascript", ["-e", `tell application "${name}" to quit`], { timeout: 5e3 });
+  await execFileAsync11("osascript", ["-e", `tell application "${name}" to quit`], { timeout: 5e3 });
 }
 var defaultLifecycleOps = {
   findProcess,
@@ -23888,7 +24087,7 @@ var defaultLifecycleOps = {
 
 // src/native/menu.ts
 init_extract3();
-var execFileAsync11 = util.promisify(child_process.execFile);
+var execFileAsync12 = util.promisify(child_process.execFile);
 var SETTLE_MS2 = 250;
 async function resolveMenuTargetPid(target) {
   if (target.kind === "macos") return target.pid;
@@ -23898,7 +24097,7 @@ var deliverMenuOneShot = async (pid, menuPath) => {
   const extractorPath = await ensureExtractor();
   const args = ["--pid", String(pid), "--menu-path", JSON.stringify(menuPath)];
   try {
-    const { stdout } = await execFileAsync11(extractorPath, args, { timeout: 5e3 });
+    const { stdout } = await execFileAsync12(extractorPath, args, { timeout: 5e3 });
     return JSON.parse(stdout);
   } catch (err) {
     if (err && typeof err === "object" && "stdout" in err) {
@@ -24034,8 +24233,8 @@ var RespawnBackend = class {
         };
       }
       await captureMacOSScreenshot(window2.windowId, outputPath);
-      const { readFile: readFile13 } = await import('fs/promises');
-      const buf2 = await readFile13(outputPath);
+      const { readFile: readFile14 } = await import('fs/promises');
+      const buf2 = await readFile14(outputPath);
       return { kind: "macos", base64: buf2.toString("base64"), window: window2, screenshotPath: outputPath };
     }
     const device = await findDevice(target.device.udid);
@@ -24049,8 +24248,8 @@ var RespawnBackend = class {
         error: `Simulator screenshot capture failed: ${capture.error || "unknown error"}`
       };
     }
-    const { readFile: readFile12 } = await import('fs/promises');
-    const buf = await readFile12(capture.outputPath);
+    const { readFile: readFile13 } = await import('fs/promises');
+    const buf = await readFile13(capture.outputPath);
     return {
       kind: "simulator",
       base64: buf.toString("base64"),
@@ -24215,8 +24414,8 @@ var DaemonBackend = class {
           };
         }
         await captureMacOSScreenshot(window2.windowId, outputPath);
-        const { readFile: readFile12 } = await import('fs/promises');
-        const buf = await readFile12(outputPath);
+        const { readFile: readFile13 } = await import('fs/promises');
+        const buf = await readFile13(outputPath);
         return { kind: "macos", base64: buf.toString("base64"), window: window2, screenshotPath: outputPath };
       },
       () => this.fallback.captureScreenshot(target, outputPath)
@@ -24319,13 +24518,13 @@ function getNativeBackend() {
 function __setNativeBackend(backend) {
   defaultBackend = backend;
 }
-var execFileAsync12 = util.promisify(child_process.execFile);
+var execFileAsync13 = util.promisify(child_process.execFile);
 function isMacOS(platformOverride) {
   return (process.platform) === "darwin";
 }
 async function defaultHasCommand(name) {
   try {
-    await execFileAsync12("which", [name]);
+    await execFileAsync13("which", [name]);
     return true;
   } catch {
     return false;

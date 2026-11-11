@@ -719,8 +719,8 @@ function base64urlToUint8Array(base64url3) {
 function uint8ArrayToBase64url(bytes) {
   return uint8ArrayToBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
-function hexToUint8Array(hex3) {
-  const cleanHex = hex3.replace(/^0x/, "");
+function hexToUint8Array(hex4) {
+  const cleanHex = hex4.replace(/^0x/, "");
   if (cleanHex.length % 2 !== 0) {
     throw new Error("Invalid hex string length");
   }
@@ -15848,9 +15848,9 @@ function parseColor(color) {
     return { kind: "none", reason: lower };
   }
   if (NAMED[lower]) return { kind: "rgb", rgb: NAMED[lower], alpha: 1 };
-  const hex3 = lower.match(/^#([0-9a-f]{3,8})$/);
-  if (hex3) {
-    const h = hex3[1];
+  const hex4 = lower.match(/^#([0-9a-f]{3,8})$/);
+  if (hex4) {
+    const h = hex4[1];
     const exp = (i) => parseInt(h[i] + h[i], 16);
     const pair = (i) => parseInt(h.slice(i, i + 2), 16);
     if (h.length === 3) return { kind: "rgb", rgb: [exp(0), exp(1), exp(2)], alpha: 1 };
@@ -25394,7 +25394,7 @@ var require_png = __commonJS({
     var Parser = require_parser_async();
     var Packer = require_packer_async();
     var PNGSync = require_png_sync();
-    var PNG5 = exports2.PNG = function(options) {
+    var PNG6 = exports2.PNG = function(options) {
       Stream.call(this);
       options = options || {};
       this.width = options.width | 0;
@@ -25423,9 +25423,9 @@ var require_png = __commonJS({
       this._parser.on("close", this._handleClose.bind(this));
       this._packer.on("error", this.emit.bind(this, "error"));
     };
-    util.inherits(PNG5, Stream);
-    PNG5.sync = PNGSync;
-    PNG5.prototype.pack = function() {
+    util.inherits(PNG6, Stream);
+    PNG6.sync = PNGSync;
+    PNG6.prototype.pack = function() {
       if (!this.data || !this.data.length) {
         this.emit("error", "No data provided");
         return this;
@@ -25437,7 +25437,7 @@ var require_png = __commonJS({
       );
       return this;
     };
-    PNG5.prototype.parse = function(data, callback) {
+    PNG6.prototype.parse = function(data, callback) {
       if (callback) {
         let onParsed, onError;
         onParsed = function(parsedData) {
@@ -25455,27 +25455,27 @@ var require_png = __commonJS({
       this.end(data);
       return this;
     };
-    PNG5.prototype.write = function(data) {
+    PNG6.prototype.write = function(data) {
       this._parser.write(data);
       return true;
     };
-    PNG5.prototype.end = function(data) {
+    PNG6.prototype.end = function(data) {
       this._parser.end(data);
     };
-    PNG5.prototype._metadata = function(metadata) {
+    PNG6.prototype._metadata = function(metadata) {
       this.width = metadata.width;
       this.height = metadata.height;
       this.emit("metadata", metadata);
     };
-    PNG5.prototype._gamma = function(gamma) {
+    PNG6.prototype._gamma = function(gamma) {
       this.gamma = gamma;
     };
-    PNG5.prototype._handleClose = function() {
+    PNG6.prototype._handleClose = function() {
       if (!this._parser.writable && !this._packer.readable) {
         this.emit("close");
       }
     };
-    PNG5.bitblt = function(src, dst, srcX, srcY, width, height, deltaX, deltaY) {
+    PNG6.bitblt = function(src, dst, srcX, srcY, width, height, deltaX, deltaY) {
       srcX |= 0;
       srcY |= 0;
       width |= 0;
@@ -25497,11 +25497,11 @@ var require_png = __commonJS({
         );
       }
     };
-    PNG5.prototype.bitblt = function(dst, srcX, srcY, width, height, deltaX, deltaY) {
-      PNG5.bitblt(this, dst, srcX, srcY, width, height, deltaX, deltaY);
+    PNG6.prototype.bitblt = function(dst, srcX, srcY, width, height, deltaX, deltaY) {
+      PNG6.bitblt(this, dst, srcX, srcY, width, height, deltaX, deltaY);
       return this;
     };
-    PNG5.adjustGamma = function(src) {
+    PNG6.adjustGamma = function(src) {
       if (src.gamma) {
         for (let y = 0; y < src.height; y++) {
           for (let x = 0; x < src.width; x++) {
@@ -25516,8 +25516,8 @@ var require_png = __commonJS({
         src.gamma = 0;
       }
     };
-    PNG5.prototype.adjustGamma = function() {
-      PNG5.adjustGamma(this);
+    PNG6.prototype.adjustGamma = function() {
+      PNG6.adjustGamma(this);
     };
   }
 });
@@ -31845,19 +31845,19 @@ function parseColor2(color) {
   }
   const hexMatch = color.match(/^#([0-9a-f]{3,8})$/i);
   if (hexMatch) {
-    const hex3 = hexMatch[1];
-    if (hex3.length === 3) {
+    const hex4 = hexMatch[1];
+    if (hex4.length === 3) {
       return {
-        r: parseInt(hex3[0] + hex3[0], 16),
-        g: parseInt(hex3[1] + hex3[1], 16),
-        b: parseInt(hex3[2] + hex3[2], 16)
+        r: parseInt(hex4[0] + hex4[0], 16),
+        g: parseInt(hex4[1] + hex4[1], 16),
+        b: parseInt(hex4[2] + hex4[2], 16)
       };
     }
-    if (hex3.length >= 6) {
+    if (hex4.length >= 6) {
       return {
-        r: parseInt(hex3.slice(0, 2), 16),
-        g: parseInt(hex3.slice(2, 4), 16),
-        b: parseInt(hex3.slice(4, 6), 16)
+        r: parseInt(hex4.slice(0, 2), 16),
+        g: parseInt(hex4.slice(2, 4), 16),
+        b: parseInt(hex4.slice(4, 6), 16)
       };
     }
   }
@@ -37518,6 +37518,7 @@ async function extractMacOSElements(options) {
   } else {
     throw new Error("Either pid or app must be provided");
   }
+  if (options.windowTitle !== void 0) args.push("--window-title", options.windowTitle);
   try {
     return await runMacOSExtraction(extractorPath, args);
   } catch (err) {
@@ -37548,7 +37549,14 @@ async function runMacOSExtraction(extractorPath, args) {
   }
   const lines = stdout.split("\n");
   const headerLine = lines[0];
-  const jsonStr = lines.slice(1).join("\n");
+  let origin;
+  let jsonStart = 1;
+  if (lines[1]?.startsWith("ORIGIN:")) {
+    const [x, y] = lines[1].slice(7).split(",").map(Number);
+    if (Number.isFinite(x) && Number.isFinite(y)) origin = { x, y };
+    jsonStart = 2;
+  }
+  const jsonStr = lines.slice(jsonStart).join("\n");
   let window2 = { windowId: 0, width: 800, height: 600, title: "Unknown" };
   if (headerLine.startsWith("WINDOW:")) {
     const parts = headerLine.slice(7).split(":");
@@ -37559,7 +37567,8 @@ async function runMacOSExtraction(extractorPath, args) {
       windowId,
       width: parseInt(dims[0], 10) || 800,
       height: parseInt(dims[1], 10) || 600,
-      title
+      title,
+      ...origin ? { originX: origin.x, originY: origin.y } : {}
     };
   }
   const elements = JSON.parse(jsonStr);
@@ -37657,7 +37666,7 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
 }
 async function captureMacOSScreenshot(windowId, outputPath) {
   await (0, import_promises14.mkdir)((0, import_path15.dirname)(outputPath), { recursive: true });
-  await execFileAsync4("screencapture", ["-l", String(windowId), "-x", outputPath], {
+  await execFileAsync4("screencapture", ["-l", String(windowId), "-o", "-x", outputPath], {
     timeout: 1e4
   });
 }
@@ -38059,6 +38068,310 @@ var init_layout_fill = __esm({
   }
 });
 
+// src/live/color.ts
+function clamp(n, min, max) {
+  return n < min ? min : n > max ? max : n;
+}
+function parseChannel(token) {
+  const t = token.trim();
+  if (t === "") return null;
+  if (t.endsWith("%")) {
+    const pct = Number(t.slice(0, -1));
+    if (!Number.isFinite(pct)) return null;
+    return clamp(Math.round(pct / 100 * 255), 0, 255);
+  }
+  const n = Number(t);
+  if (!Number.isFinite(n)) return null;
+  return clamp(Math.round(n), 0, 255);
+}
+function parseAlpha(token) {
+  if (token === void 0) return 1;
+  const t = token.trim();
+  if (t === "") return 1;
+  if (t.endsWith("%")) {
+    const pct = Number(t.slice(0, -1));
+    return Number.isFinite(pct) ? clamp(pct / 100, 0, 1) : 1;
+  }
+  const n = Number(t);
+  return Number.isFinite(n) ? clamp(n, 0, 1) : 1;
+}
+function parseCssColor(input) {
+  if (!input) return null;
+  const s = String(input).trim().toLowerCase();
+  if (s === "transparent") return { r: 0, g: 0, b: 0, a: 0 };
+  const hex4 = HEX_RE.exec(s);
+  if (hex4) {
+    const h = hex4[1];
+    if (h.length === 3 || h.length === 4) {
+      const r = parseInt(h[0] + h[0], 16);
+      const g = parseInt(h[1] + h[1], 16);
+      const b = parseInt(h[2] + h[2], 16);
+      const a = h.length === 4 ? parseInt(h[3] + h[3], 16) / 255 : 1;
+      return { r, g, b, a };
+    }
+    if (h.length === 6 || h.length === 8) {
+      const r = parseInt(h.slice(0, 2), 16);
+      const g = parseInt(h.slice(2, 4), 16);
+      const b = parseInt(h.slice(4, 6), 16);
+      const a = h.length === 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1;
+      return { r, g, b, a };
+    }
+    return null;
+  }
+  const func = FUNC_RE.exec(s);
+  if (func) {
+    const body = func[2];
+    const [rgbPart, slashAlpha] = body.split("/");
+    const parts = rgbPart.trim().split(/[\s,]+/).filter(Boolean);
+    if (parts.length < 3) return null;
+    const r = parseChannel(parts[0]);
+    const g = parseChannel(parts[1]);
+    const b = parseChannel(parts[2]);
+    if (r === null || g === null || b === null) return null;
+    const a = parseAlpha(slashAlpha ?? parts[3]);
+    return { r, g, b, a };
+  }
+  const srgb = COLOR_SRGB_RE.exec(s);
+  if (srgb) {
+    const [channelPart, slashAlpha] = srgb[1].split("/");
+    const parts = channelPart.trim().split(/\s+/).filter(Boolean);
+    if (parts.length < 3) return null;
+    const chans = parts.slice(0, 3).map(parseUnitChannel);
+    if (chans.some((c) => c === null)) return null;
+    const [r, g, b] = chans;
+    return { r, g, b, a: parseAlpha(slashAlpha) };
+  }
+  return null;
+}
+function parseUnitChannel(token) {
+  const t = token.trim();
+  if (t === "" || t === "none") return t === "none" ? 0 : null;
+  const n = t.endsWith("%") ? Number(t.slice(0, -1)) / 100 : Number(t);
+  if (!Number.isFinite(n)) return null;
+  return clamp(Math.round(n * 255), 0, 255);
+}
+function formatRgba(c) {
+  const a = Math.round(c.a * 1e3) / 1e3;
+  return a >= 1 ? `rgb(${c.r}, ${c.g}, ${c.b})` : `rgba(${c.r}, ${c.g}, ${c.b}, ${a})`;
+}
+function isOpaque(c) {
+  return c.a >= 1;
+}
+function compositeOver(src, dst) {
+  if (src.a >= 1) return { ...src };
+  if (src.a <= 0) return { ...dst };
+  const outA = src.a + dst.a * (1 - src.a);
+  if (outA <= 0) return { r: 0, g: 0, b: 0, a: 0 };
+  const mix = (s, d) => Math.round((s * src.a + d * dst.a * (1 - src.a)) / outA);
+  return {
+    r: mix(src.r, dst.r),
+    g: mix(src.g, dst.g),
+    b: mix(src.b, dst.b),
+    a: outA
+  };
+}
+function resolveEffectiveBackground2(chain) {
+  const canonical = resolveEffectiveBackground(chain);
+  return {
+    color: { r: canonical.rgb[0], g: canonical.rgb[1], b: canonical.rgb[2], a: 1 },
+    resolved: canonical.resolved,
+    ...canonical.unsupported !== void 0 ? { unsupported: canonical.unsupported } : {}
+  };
+}
+function channelLuminance(v) {
+  const s = v / 255;
+  return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+}
+function relativeLuminance3(c) {
+  return 0.2126 * channelLuminance(c.r) + 0.7152 * channelLuminance(c.g) + 0.0722 * channelLuminance(c.b);
+}
+function contrastRatio2(fg, bg) {
+  const l1 = relativeLuminance3(fg);
+  const l2 = relativeLuminance3(bg);
+  const lighter = Math.max(l1, l2);
+  const darker = Math.min(l1, l2);
+  const ratio = (lighter + 0.05) / (darker + 0.05);
+  return Math.round(ratio * 100) / 100;
+}
+function isLargeText(fontSizePx, fontWeight) {
+  if (!Number.isFinite(fontSizePx)) return false;
+  if (fontWeight >= 700 && fontSizePx >= 18.66) return true;
+  return fontSizePx >= 24;
+}
+function aaThreshold(large) {
+  return large ? 3 : 4.5;
+}
+function parsePx3(value) {
+  if (!value) return null;
+  const n = Number.parseFloat(value);
+  return Number.isFinite(n) ? n : null;
+}
+function parseFontWeight(value) {
+  if (!value) return 400;
+  const t = String(value).trim().toLowerCase();
+  if (t === "bold") return 700;
+  if (t === "bolder") return 700;
+  if (t === "normal" || t === "lighter") return 400;
+  const n = Number.parseFloat(t);
+  return Number.isFinite(n) ? n : 400;
+}
+var HEX_RE, FUNC_RE, COLOR_SRGB_RE;
+var init_color = __esm({
+  "src/live/color.ts"() {
+    "use strict";
+    init_color_parse();
+    HEX_RE = /^#([0-9a-f]{3,8})$/i;
+    FUNC_RE = /^(rgba?)\(([^)]*)\)$/i;
+    COLOR_SRGB_RE = /^color\(\s*srgb\s+([^)]*)\)$/i;
+  }
+});
+
+// src/native/contrast.ts
+function decodePng(buffer2) {
+  const png = import_pngjs3.PNG.sync.read(buffer2);
+  return { width: png.width, height: png.height, data: png.data };
+}
+function histogram(img, rect) {
+  const bins = /* @__PURE__ */ new Map();
+  let total = 0;
+  const x0 = Math.max(0, Math.floor(rect.x));
+  const y0 = Math.max(0, Math.floor(rect.y));
+  const x1 = Math.min(img.width, Math.ceil(rect.x + rect.width));
+  const y1 = Math.min(img.height, Math.ceil(rect.y + rect.height));
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      const i = (y * img.width + x) * 4;
+      if (img.data[i + 3] < 128) continue;
+      const r = img.data[i], g = img.data[i + 1], b = img.data[i + 2];
+      const key = r >> QUANT_SHIFT << 10 | g >> QUANT_SHIFT << 5 | b >> QUANT_SHIFT;
+      const bin = bins.get(key);
+      if (bin) {
+        bin.count++;
+        bin.r += r;
+        bin.g += g;
+        bin.b += b;
+      } else bins.set(key, { count: 1, r, g, b });
+      total++;
+    }
+  }
+  return { bins, total };
+}
+function mean(bin) {
+  return { r: Math.round(bin.r / bin.count), g: Math.round(bin.g / bin.count), b: Math.round(bin.b / bin.count), a: 1 };
+}
+function measureRegion(img, rect) {
+  const { bins, total } = histogram(img, rect);
+  if (total === 0) return { status: "unmeasurable", reason: "frame is outside the captured window" };
+  let bgBin;
+  for (const bin of bins.values()) if (!bgBin || bin.count > bgBin.count) bgBin = bin;
+  const background = mean(bgBin);
+  const minCount = Math.max(MIN_TEXT_PIXELS, total * MIN_TEXT_SHARE);
+  let best;
+  for (const bin of bins.values()) {
+    if (bin === bgBin || bin.count < minCount) continue;
+    const color = mean(bin);
+    const ratio = contrastRatio2(color, background);
+    if (ratio < NOISE_RATIO) continue;
+    if (!best || ratio > best.ratio) best = { color, ratio };
+  }
+  if (!best) return { status: "unmeasurable", reason: "no text pixels distinct from the background" };
+  return { status: "measured", foreground: best.color, background, ratio: best.ratio };
+}
+function hex3(c) {
+  return "#" + [c.r, c.g, c.b].map((v) => v.toString(16).padStart(2, "0")).join("");
+}
+function toneOf(c) {
+  return relativeLuminance3(c) > 0.18 ? "light" : "dark";
+}
+function analyzeNativeContrast(img, window2, elements, threshold = 4.5) {
+  const scale = img.width / window2.width;
+  let pass = 0, fail = 0, notMeasured = 0;
+  const failing = [];
+  let minRatio;
+  for (const el of elements) {
+    const text = el.text?.trim();
+    const role = el.a11y?.role ?? null;
+    if (!text || !role || !TEXT_ROLES.has(role) || el.interactive?.isDisabled) continue;
+    const { x, y, width, height } = el.bounds;
+    if (width < 2 || height < 2) continue;
+    const m = measureRegion(img, {
+      x: (x - window2.originX) * scale,
+      y: (y - window2.originY) * scale,
+      width: width * scale,
+      height: height * scale
+    });
+    if (m.status !== "measured") {
+      notMeasured++;
+      continue;
+    }
+    const entry = {
+      selector: el.selector,
+      text: text.slice(0, 60),
+      role,
+      ratio: m.ratio,
+      foreground: hex3(m.foreground),
+      background: hex3(m.background),
+      tone: relativeLuminance3(m.foreground) > relativeLuminance3(m.background) ? "light-on-dark" : "dark-on-light"
+    };
+    if (m.ratio >= threshold) pass++;
+    else {
+      fail++;
+      if (failing.length < 50) failing.push(entry);
+    }
+    if (!minRatio || m.ratio < minRatio.ratio) minRatio = entry;
+  }
+  return { method: "screenshot-pixels", threshold, totalChecked: pass + fail, pass, fail, notMeasured, failing, minRatio };
+}
+function analyzeSurface(img, system) {
+  const { bins } = histogram(img, { x: 0, y: 0, width: img.width, height: img.height });
+  let top;
+  for (const bin of bins.values()) if (!top || bin.count > top.count) top = bin;
+  const color = top ? mean(top) : { r: 0, g: 0, b: 0, a: 1 };
+  const surface = toneOf(color);
+  return { system, surface, surfaceColor: hex3(color), differsFromSystem: system !== "unknown" && system !== surface };
+}
+async function readSystemAppearance() {
+  if (process.platform !== "darwin") return "unknown";
+  try {
+    const { stdout } = await execFileAsync5("defaults", ["read", "-g", "AppleInterfaceStyle"], { timeout: 3e3 });
+    return stdout.trim() === "Dark" ? "dark" : "light";
+  } catch (err) {
+    return err.code === 1 ? "light" : "unknown";
+  }
+}
+async function readPng(path) {
+  return decodePng(await (0, import_promises15.readFile)(path));
+}
+var import_child_process6, import_promises15, import_util7, import_pngjs3, execFileAsync5, QUANT_SHIFT, MIN_TEXT_SHARE, MIN_TEXT_PIXELS, NOISE_RATIO, TEXT_ROLES;
+var init_contrast = __esm({
+  "src/native/contrast.ts"() {
+    "use strict";
+    import_child_process6 = require("child_process");
+    import_promises15 = require("fs/promises");
+    import_util7 = require("util");
+    import_pngjs3 = __toESM(require_png());
+    init_color();
+    execFileAsync5 = (0, import_util7.promisify)(import_child_process6.execFile);
+    QUANT_SHIFT = 3;
+    MIN_TEXT_SHARE = 0.02;
+    MIN_TEXT_PIXELS = 4;
+    NOISE_RATIO = 1.05;
+    TEXT_ROLES = /* @__PURE__ */ new Set([
+      "text",
+      "button",
+      "link",
+      "radio",
+      "checkbox",
+      "tab",
+      "combobox",
+      "heading",
+      "menuitem",
+      "switch",
+      "cell"
+    ]);
+  }
+});
+
 // src/native/scan.ts
 var scan_exports = {};
 __export(scan_exports, {
@@ -38222,7 +38535,7 @@ async function scanMacOS(options) {
   if (process.platform !== "darwin") {
     throw new Error("macOS native scanning is only available on macOS");
   }
-  const { app, bundleId, pid: directPid, screenshot } = options;
+  const { app, bundleId, pid: directPid, screenshot, windowTitle } = options;
   if (!app && !bundleId && !directPid) {
     throw new Error("Provide --app, --bundle-id, or --pid to identify the target app");
   }
@@ -38234,7 +38547,8 @@ async function scanMacOS(options) {
   }
   const { elements: nativeElements, window: window2 } = await extractMacOSElements({
     pid,
-    app: app || bundleId
+    app: app || bundleId,
+    windowTitle
   });
   const elements = mapMacOSToEnhancedElements(nativeElements);
   const audit = analyzeElements(elements, false);
@@ -38249,8 +38563,22 @@ async function scanMacOS(options) {
       window: { width: window2.width, height: window2.height }
     });
   }
+  let contrast;
+  let appearance;
+  let visualCoverage = nativeVisualCoverage;
   if (screenshot && window2.windowId > 0) {
     await captureMacOSScreenshot(window2.windowId, screenshot.path);
+    if (window2.originX !== void 0 && window2.originY !== void 0) {
+      const img = await readPng(screenshot.path);
+      const geometry = { width: window2.width, height: window2.height, originX: window2.originX, originY: window2.originY };
+      contrast = analyzeNativeContrast(img, geometry, elements);
+      appearance = analyzeSurface(img, await readSystemAppearance());
+      visualCoverage = {
+        appearance: "measured",
+        textContrast: "measured",
+        reason: `Measured from screenshot pixels: ${contrast.totalChecked} text elements checked, ${contrast.fail} below ${contrast.threshold}:1, ${contrast.notMeasured} unmeasurable. Surface ${appearance.surface}, system ${appearance.system}.`
+      };
+    }
   }
   const url2 = `macos://${app || bundleId || `pid-${pid}`}/${window2.title}`;
   const route = `/${window2.title}`;
@@ -38266,6 +38594,17 @@ async function scanMacOS(options) {
         category: "structure",
         severity: "warning",
         description: `layout-fill: ${f.detail}`
+      });
+    }
+  }
+  if (contrast) {
+    for (const f of contrast.failing) {
+      const mismatch = appearance && (appearance.surface === "dark" && f.tone === "dark-on-light" || appearance.surface === "light" && f.tone === "light-on-dark");
+      issues.push({
+        category: "accessibility",
+        severity: "error",
+        description: `contrast: "${f.text}" (${f.role}) ${f.ratio}:1, text ${f.foreground} on ${f.background}, needs ${contrast.threshold}:1`,
+        fix: mismatch ? `Text resolved for the ${appearance.surface === "dark" ? "light" : "dark"} appearance on a ${appearance.surface} surface. Set the window's appearance from the theme, or use colours that adapt to it.` : "Raise the text/background contrast to at least 4.5:1."
       });
     }
   }
@@ -38285,7 +38624,9 @@ async function scanMacOS(options) {
     []
   );
   return {
-    visualCoverage: nativeVisualCoverage,
+    visualCoverage,
+    contrast,
+    appearance,
     url: url2,
     route,
     timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -38395,6 +38736,7 @@ var init_scan2 = __esm({
     init_interactivity2();
     init_semantic2();
     init_layout_fill();
+    init_contrast();
     nativeVisualCoverage = {
       appearance: "unmeasured",
       textContrast: "unmeasured",
@@ -38410,7 +38752,7 @@ __export(crop_exports, {
 });
 function loadPng(path) {
   return new Promise((resolve4, reject) => {
-    const png = new import_pngjs3.PNG();
+    const png = new import_pngjs4.PNG();
     (0, import_fs5.createReadStream)(path).pipe(png).on("parsed", () => resolve4(png)).on("error", reject);
   });
 }
@@ -38419,34 +38761,34 @@ function writePng(png, path) {
     png.pack().pipe((0, import_fs5.createWriteStream)(path)).on("finish", resolve4).on("error", reject);
   });
 }
-function clamp(v, lo, hi) {
+function clamp2(v, lo, hi) {
   return Math.min(Math.max(v, lo), hi);
 }
 async function cropPng(srcPath, bounds, destPath, opts = {}) {
   const padding = opts.padding ?? 16;
   const scale = opts.scale ?? 1;
   const src = await loadPng(srcPath);
-  const x0 = Math.floor(clamp((bounds.x - padding) * scale, 0, src.width));
-  const y0 = Math.floor(clamp((bounds.y - padding) * scale, 0, src.height));
-  const x1 = Math.ceil(clamp((bounds.x + bounds.width + padding) * scale, 0, src.width));
-  const y1 = Math.ceil(clamp((bounds.y + bounds.height + padding) * scale, 0, src.height));
+  const x0 = Math.floor(clamp2((bounds.x - padding) * scale, 0, src.width));
+  const y0 = Math.floor(clamp2((bounds.y - padding) * scale, 0, src.height));
+  const x1 = Math.ceil(clamp2((bounds.x + bounds.width + padding) * scale, 0, src.width));
+  const y1 = Math.ceil(clamp2((bounds.y + bounds.height + padding) * scale, 0, src.height));
   const cropW = x1 - x0;
   const cropH = y1 - y0;
   if (cropW <= 0 || cropH <= 0) return null;
-  const out = new import_pngjs3.PNG({ width: cropW, height: cropH });
+  const out = new import_pngjs4.PNG({ width: cropW, height: cropH });
   src.bitblt(out, x0, y0, cropW, cropH, 0, 0);
-  await (0, import_promises15.mkdir)((0, import_path17.dirname)(destPath), { recursive: true });
+  await (0, import_promises16.mkdir)((0, import_path17.dirname)(destPath), { recursive: true });
   await writePng(out, destPath);
   return destPath;
 }
-var import_fs5, import_promises15, import_path17, import_pngjs3;
+var import_fs5, import_promises16, import_path17, import_pngjs4;
 var init_crop = __esm({
   "src/utils/crop.ts"() {
     "use strict";
     import_fs5 = require("fs");
-    import_promises15 = require("fs/promises");
+    import_promises16 = require("fs/promises");
     import_path17 = require("path");
-    import_pngjs3 = __toESM(require_png());
+    import_pngjs4 = __toESM(require_png());
   }
 });
 
@@ -39078,14 +39420,14 @@ var init_webdriver = __esm({
 });
 
 // src/engine/safari/session.ts
-var import_child_process15, import_util15, execFileAsync13, PORT_RANGE_START, PORT_RANGE_END, READY_POLL_INTERVAL_MS, READY_TIMEOUT_MS, SafariSession;
+var import_child_process16, import_util16, execFileAsync14, PORT_RANGE_START, PORT_RANGE_END, READY_POLL_INTERVAL_MS, READY_TIMEOUT_MS, SafariSession;
 var init_session2 = __esm({
   "src/engine/safari/session.ts"() {
     "use strict";
-    import_child_process15 = require("child_process");
-    import_util15 = require("util");
+    import_child_process16 = require("child_process");
+    import_util16 = require("util");
     init_net_timeout();
-    execFileAsync13 = (0, import_util15.promisify)(import_child_process15.execFile);
+    execFileAsync14 = (0, import_util16.promisify)(import_child_process16.execFile);
     PORT_RANGE_START = 9500;
     PORT_RANGE_END = 9599;
     READY_POLL_INTERVAL_MS = 200;
@@ -39103,7 +39445,7 @@ var init_session2 = __esm({
           return this.port;
         }
         this.port = port ?? await this.findFreePort();
-        this.process = (0, import_child_process15.spawn)("safaridriver", ["--port", String(this.port)], {
+        this.process = (0, import_child_process16.spawn)("safaridriver", ["--port", String(this.port)], {
           stdio: ["ignore", "pipe", "pipe"]
         });
         this.process.on("exit", (code) => {
@@ -39147,7 +39489,7 @@ var init_session2 = __esm({
        */
       static async isEnabled() {
         try {
-          await execFileAsync13("safaridriver", ["--version"], { timeout: 5e3 });
+          await execFileAsync14("safaridriver", ["--version"], { timeout: 5e3 });
           return true;
         } catch {
           return false;
@@ -39199,17 +39541,17 @@ var driver_exports = {};
 __export(driver_exports, {
   SafariDriver: () => SafariDriver
 });
-var import_child_process16, import_util16, execFileAsync14, SafariDriver;
+var import_child_process17, import_util17, execFileAsync15, SafariDriver;
 var init_driver2 = __esm({
   "src/engine/safari/driver.ts"() {
     "use strict";
-    import_child_process16 = require("child_process");
-    import_util16 = require("util");
+    import_child_process17 = require("child_process");
+    import_util17 = require("util");
     init_webdriver();
     init_session2();
     init_extract3();
     init_serialize();
-    execFileAsync14 = (0, import_util16.promisify)(import_child_process16.execFile);
+    execFileAsync15 = (0, import_util17.promisify)(import_child_process17.execFile);
     SafariDriver = class {
       client = null;
       session = null;
@@ -39229,7 +39571,7 @@ var init_driver2 = __esm({
         }
         const vp = options.viewport ?? { width: 1920, height: 1080 };
         await this.client.setWindowRect({ ...vp, x: -9999, y: -9999 });
-        (0, import_child_process16.exec)(`osascript -e 'tell application "System Events" to set visible of process "Safari" to false'`, () => {
+        (0, import_child_process17.exec)(`osascript -e 'tell application "System Events" to set visible of process "Safari" to false'`, () => {
         });
       }
       async close() {
@@ -39410,7 +39752,7 @@ var init_driver2 = __esm({
       async _fetchAXElements() {
         try {
           const extractorPath = await ensureExtractor();
-          const { stdout } = await execFileAsync14(
+          const { stdout } = await execFileAsync15(
             extractorPath,
             ["--app", "Safari"],
             { timeout: 15e3 }
@@ -39557,9 +39899,9 @@ var init_driver2 = __esm({
        */
       async _cropScreenshot(buf, clip) {
         try {
-          const { PNG: PNG5 } = await Promise.resolve().then(() => __toESM(require_png()));
-          const src = PNG5.sync.read(buf);
-          const dst = new PNG5({ width: clip.width, height: clip.height });
+          const { PNG: PNG6 } = await Promise.resolve().then(() => __toESM(require_png()));
+          const src = PNG6.sync.read(buf);
+          const dst = new PNG6({ width: clip.width, height: clip.height });
           for (let y = 0; y < clip.height; y++) {
             for (let x = 0; x < clip.width; x++) {
               const srcIdx = ((clip.y + y) * src.width + (clip.x + x)) * 4;
@@ -39570,7 +39912,7 @@ var init_driver2 = __esm({
               dst.data[dstIdx + 3] = src.data[srcIdx + 3];
             }
           }
-          return PNG5.sync.write(dst);
+          return PNG6.sync.write(dst);
         } catch {
           return buf;
         }
@@ -41103,164 +41445,6 @@ var init_attach = __esm({
         this.name = "LiveAttachError";
       }
     };
-  }
-});
-
-// src/live/color.ts
-function clamp2(n, min, max) {
-  return n < min ? min : n > max ? max : n;
-}
-function parseChannel(token) {
-  const t = token.trim();
-  if (t === "") return null;
-  if (t.endsWith("%")) {
-    const pct = Number(t.slice(0, -1));
-    if (!Number.isFinite(pct)) return null;
-    return clamp2(Math.round(pct / 100 * 255), 0, 255);
-  }
-  const n = Number(t);
-  if (!Number.isFinite(n)) return null;
-  return clamp2(Math.round(n), 0, 255);
-}
-function parseAlpha(token) {
-  if (token === void 0) return 1;
-  const t = token.trim();
-  if (t === "") return 1;
-  if (t.endsWith("%")) {
-    const pct = Number(t.slice(0, -1));
-    return Number.isFinite(pct) ? clamp2(pct / 100, 0, 1) : 1;
-  }
-  const n = Number(t);
-  return Number.isFinite(n) ? clamp2(n, 0, 1) : 1;
-}
-function parseCssColor(input) {
-  if (!input) return null;
-  const s = String(input).trim().toLowerCase();
-  if (s === "transparent") return { r: 0, g: 0, b: 0, a: 0 };
-  const hex3 = HEX_RE.exec(s);
-  if (hex3) {
-    const h = hex3[1];
-    if (h.length === 3 || h.length === 4) {
-      const r = parseInt(h[0] + h[0], 16);
-      const g = parseInt(h[1] + h[1], 16);
-      const b = parseInt(h[2] + h[2], 16);
-      const a = h.length === 4 ? parseInt(h[3] + h[3], 16) / 255 : 1;
-      return { r, g, b, a };
-    }
-    if (h.length === 6 || h.length === 8) {
-      const r = parseInt(h.slice(0, 2), 16);
-      const g = parseInt(h.slice(2, 4), 16);
-      const b = parseInt(h.slice(4, 6), 16);
-      const a = h.length === 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1;
-      return { r, g, b, a };
-    }
-    return null;
-  }
-  const func = FUNC_RE.exec(s);
-  if (func) {
-    const body = func[2];
-    const [rgbPart, slashAlpha] = body.split("/");
-    const parts = rgbPart.trim().split(/[\s,]+/).filter(Boolean);
-    if (parts.length < 3) return null;
-    const r = parseChannel(parts[0]);
-    const g = parseChannel(parts[1]);
-    const b = parseChannel(parts[2]);
-    if (r === null || g === null || b === null) return null;
-    const a = parseAlpha(slashAlpha ?? parts[3]);
-    return { r, g, b, a };
-  }
-  const srgb = COLOR_SRGB_RE.exec(s);
-  if (srgb) {
-    const [channelPart, slashAlpha] = srgb[1].split("/");
-    const parts = channelPart.trim().split(/\s+/).filter(Boolean);
-    if (parts.length < 3) return null;
-    const chans = parts.slice(0, 3).map(parseUnitChannel);
-    if (chans.some((c) => c === null)) return null;
-    const [r, g, b] = chans;
-    return { r, g, b, a: parseAlpha(slashAlpha) };
-  }
-  return null;
-}
-function parseUnitChannel(token) {
-  const t = token.trim();
-  if (t === "" || t === "none") return t === "none" ? 0 : null;
-  const n = t.endsWith("%") ? Number(t.slice(0, -1)) / 100 : Number(t);
-  if (!Number.isFinite(n)) return null;
-  return clamp2(Math.round(n * 255), 0, 255);
-}
-function formatRgba(c) {
-  const a = Math.round(c.a * 1e3) / 1e3;
-  return a >= 1 ? `rgb(${c.r}, ${c.g}, ${c.b})` : `rgba(${c.r}, ${c.g}, ${c.b}, ${a})`;
-}
-function isOpaque(c) {
-  return c.a >= 1;
-}
-function compositeOver(src, dst) {
-  if (src.a >= 1) return { ...src };
-  if (src.a <= 0) return { ...dst };
-  const outA = src.a + dst.a * (1 - src.a);
-  if (outA <= 0) return { r: 0, g: 0, b: 0, a: 0 };
-  const mix = (s, d) => Math.round((s * src.a + d * dst.a * (1 - src.a)) / outA);
-  return {
-    r: mix(src.r, dst.r),
-    g: mix(src.g, dst.g),
-    b: mix(src.b, dst.b),
-    a: outA
-  };
-}
-function resolveEffectiveBackground2(chain) {
-  const canonical = resolveEffectiveBackground(chain);
-  return {
-    color: { r: canonical.rgb[0], g: canonical.rgb[1], b: canonical.rgb[2], a: 1 },
-    resolved: canonical.resolved,
-    ...canonical.unsupported !== void 0 ? { unsupported: canonical.unsupported } : {}
-  };
-}
-function channelLuminance(v) {
-  const s = v / 255;
-  return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
-}
-function relativeLuminance3(c) {
-  return 0.2126 * channelLuminance(c.r) + 0.7152 * channelLuminance(c.g) + 0.0722 * channelLuminance(c.b);
-}
-function contrastRatio2(fg, bg) {
-  const l1 = relativeLuminance3(fg);
-  const l2 = relativeLuminance3(bg);
-  const lighter = Math.max(l1, l2);
-  const darker = Math.min(l1, l2);
-  const ratio = (lighter + 0.05) / (darker + 0.05);
-  return Math.round(ratio * 100) / 100;
-}
-function isLargeText(fontSizePx, fontWeight) {
-  if (!Number.isFinite(fontSizePx)) return false;
-  if (fontWeight >= 700 && fontSizePx >= 18.66) return true;
-  return fontSizePx >= 24;
-}
-function aaThreshold(large) {
-  return large ? 3 : 4.5;
-}
-function parsePx3(value) {
-  if (!value) return null;
-  const n = Number.parseFloat(value);
-  return Number.isFinite(n) ? n : null;
-}
-function parseFontWeight(value) {
-  if (!value) return 400;
-  const t = String(value).trim().toLowerCase();
-  if (t === "bold") return 700;
-  if (t === "bolder") return 700;
-  if (t === "normal" || t === "lighter") return 400;
-  const n = Number.parseFloat(t);
-  return Number.isFinite(n) ? n : 400;
-}
-var HEX_RE, FUNC_RE, COLOR_SRGB_RE;
-var init_color = __esm({
-  "src/live/color.ts"() {
-    "use strict";
-    init_color_parse();
-    HEX_RE = /^#([0-9a-f]{3,8})$/i;
-    FUNC_RE = /^(rgba?)\(([^)]*)\)$/i;
-    COLOR_SRGB_RE = /^color\(\s*srgb\s+([^)]*)\)$/i;
   }
 });
 
@@ -43064,7 +43248,7 @@ function analyzeForObviousIssues(context) {
 // src/index.ts
 init_driver();
 init_compat2();
-var import_promises17 = require("fs/promises");
+var import_promises18 = require("fs/promises");
 var import_path21 = require("path");
 var import_os3 = require("os");
 
@@ -43706,27 +43890,27 @@ init_capture();
 init_extract3();
 
 // src/native/ax-stress.ts
-var import_child_process6 = require("child_process");
-var import_util7 = require("util");
+var import_child_process7 = require("child_process");
+var import_util8 = require("util");
 init_extract3();
-var execFileAsync5 = (0, import_util7.promisify)(import_child_process6.execFile);
+var execFileAsync6 = (0, import_util8.promisify)(import_child_process7.execFile);
 
 // src/native/index.ts
 init_rules2();
 init_scan2();
 
 // src/native/idb.ts
-var import_child_process8 = require("child_process");
-var import_util9 = require("util");
+var import_child_process9 = require("child_process");
+var import_util10 = require("util");
 
 // src/native/sim-driver.ts
-var import_child_process7 = require("child_process");
+var import_child_process8 = require("child_process");
 var import_fs6 = require("fs");
-var import_promises16 = require("fs/promises");
+var import_promises17 = require("fs/promises");
 var import_path18 = require("path");
-var import_util8 = require("util");
+var import_util9 = require("util");
 init_runtime_path();
-var execFileAsync6 = (0, import_util8.promisify)(import_child_process7.execFile);
+var execFileAsync7 = (0, import_util9.promisify)(import_child_process8.execFile);
 var DRIVER_NAME = "ibr-sim-driver";
 var CACHE_DIR = (0, import_path18.join)(process.cwd(), ".ibr", "bin");
 var CACHE_PATH = (0, import_path18.join)(CACHE_DIR, DRIVER_NAME);
@@ -43786,16 +43970,16 @@ async function ensureSimDriver() {
   }
   if (buildError) throw new Error(buildError);
   try {
-    await execFileAsync6("swift", ["build", "--package-path", sourceDir, "-c", "release"], {
+    await execFileAsync7("swift", ["build", "--package-path", sourceDir, "-c", "release"], {
       timeout: 12e4
     });
     const builtPath = (0, import_path18.join)(sourceDir, ".build", "release", DRIVER_NAME);
     if (!(0, import_fs6.existsSync)(builtPath)) {
       throw new Error("Swift build succeeded but binary was not created");
     }
-    await (0, import_promises16.mkdir)(CACHE_DIR, { recursive: true });
-    await (0, import_promises16.copyFile)(builtPath, CACHE_PATH);
-    await (0, import_promises16.chmod)(CACHE_PATH, 493);
+    await (0, import_promises17.mkdir)(CACHE_DIR, { recursive: true });
+    await (0, import_promises17.copyFile)(builtPath, CACHE_PATH);
+    await (0, import_promises17.chmod)(CACHE_PATH, 493);
     cachedPath = CACHE_PATH;
     return CACHE_PATH;
   } catch (err) {
@@ -43806,7 +43990,7 @@ async function ensureSimDriver() {
 async function runSimDriver(args, action) {
   try {
     const driverPath = await ensureSimDriver();
-    await execFileAsync6(driverPath, args, { timeout: 15e3 });
+    await execFileAsync7(driverPath, args, { timeout: 15e3 });
     return { success: true, action };
   } catch (err) {
     return { success: false, action, error: errorMessage(err) };
@@ -43843,7 +44027,7 @@ function simDriverSwipe(udid, x1, y1, x2, y2, duration3, opts) {
 }
 
 // src/native/idb.ts
-var execFileAsync7 = (0, import_util9.promisify)(import_child_process8.execFile);
+var execFileAsync8 = (0, import_util10.promisify)(import_child_process9.execFile);
 var SIMULATOR_DRIVER_ENV = "IBR_SIMULATOR_DRIVER";
 var INSTALL_HINT = "Install IDB: brew tap facebook/fb && brew install idb-companion && pipx install fb-idb. IBR also ships a bundled native-window fallback (requires Accessibility permission and a visible Simulator window).";
 var DRIVER_LABELS = {
@@ -43877,7 +44061,7 @@ function formatSimulatorDriver(driver2) {
 }
 async function isIdbCliAvailable() {
   try {
-    await execFileAsync7("which", ["idb"]);
+    await execFileAsync8("which", ["idb"]);
     return true;
   } catch {
     return false;
@@ -43885,7 +44069,7 @@ async function isIdbCliAvailable() {
 }
 async function isSimctlAvailable() {
   try {
-    await execFileAsync7("which", ["xcrun"]);
+    await execFileAsync8("which", ["xcrun"]);
     return true;
   } catch {
     return false;
@@ -43966,7 +44150,7 @@ async function idbTap(udid, x, y) {
       }
     } else {
       try {
-        await execFileAsync7("idb", ["ui", "tap", String(x), String(y), "--udid", udid], { timeout: 1e4 });
+        await execFileAsync8("idb", ["ui", "tap", String(x), String(y), "--udid", udid], { timeout: 1e4 });
         return { success: true, action: "tap", driver: "idb" };
       } catch (err) {
         return { success: false, action: "tap", error: err.message, driver: "idb" };
@@ -44003,7 +44187,7 @@ async function idbType(udid, text) {
       }
     } else {
       try {
-        await execFileAsync7("idb", ["ui", "text", text, "--udid", udid], { timeout: 1e4 });
+        await execFileAsync8("idb", ["ui", "text", text, "--udid", udid], { timeout: 1e4 });
         return { success: true, action: "type", driver: "idb" };
       } catch (err) {
         return { success: false, action: "type", error: err.message, driver: "idb" };
@@ -44042,7 +44226,7 @@ async function idbSwipe(udid, x1, y1, x2, y2, duration3) {
       try {
         const args = ["ui", "swipe", String(x1), String(y1), String(x2), String(y2), "--udid", udid];
         if (duration3) args.push("--duration", String(duration3));
-        await execFileAsync7("idb", args, { timeout: 1e4 });
+        await execFileAsync8("idb", args, { timeout: 1e4 });
         return { success: true, action: "swipe", driver: "idb" };
       } catch (err) {
         return { success: false, action: "swipe", error: err.message, driver: "idb" };
@@ -44068,7 +44252,7 @@ async function idbButton(udid, button) {
       }
     } else {
       try {
-        await execFileAsync7("idb", ["ui", "button", button, "--udid", udid], { timeout: 1e4 });
+        await execFileAsync8("idb", ["ui", "button", button, "--udid", udid], { timeout: 1e4 });
         return { success: true, action, driver: "idb" };
       } catch (err) {
         return { success: false, action, error: err.message, driver: "idb" };
@@ -44077,7 +44261,7 @@ async function idbButton(udid, button) {
   }
   if (button === "HOME" && shouldTryDriver("simctl", preference)) {
     try {
-      await execFileAsync7(
+      await execFileAsync8(
         "xcrun",
         ["simctl", "spawn", udid, "launchctl", "stop", "com.apple.SpringBoard"],
         { timeout: 1e4 }
@@ -44098,7 +44282,7 @@ async function idbButton(udid, button) {
 }
 async function idbOpenUrl(udid, url2) {
   try {
-    await execFileAsync7("xcrun", ["simctl", "openurl", udid, url2], { timeout: 1e4 });
+    await execFileAsync8("xcrun", ["simctl", "openurl", udid, url2], { timeout: 1e4 });
     return { success: true, action: "openUrl", driver: "simctl" };
   } catch (err) {
     return { success: false, action: "openUrl", error: err.message, driver: "simctl" };
@@ -44111,7 +44295,7 @@ init_interactivity2();
 init_semantic2();
 
 // src/native/annotate.ts
-var import_pngjs4 = __toESM(require_png());
+var import_pngjs5 = __toESM(require_png());
 
 // src/native/index.ts
 init_layout_fill();
@@ -44168,11 +44352,11 @@ async function sweepIdleSessions(maxIdleMs) {
 }
 
 // src/native/actions.ts
-var import_child_process9 = require("child_process");
-var import_util10 = require("util");
+var import_child_process10 = require("child_process");
+var import_util11 = require("util");
 init_extract3();
 init_role_map();
-var execFileAsync8 = (0, import_util10.promisify)(import_child_process9.execFile);
+var execFileAsync9 = (0, import_util11.promisify)(import_child_process10.execFile);
 async function performNativeAction(options) {
   const extractorPath = await ensureExtractor();
   const args = [
@@ -44190,7 +44374,7 @@ async function performNativeAction(options) {
     args.push("--value", options.value);
   }
   try {
-    const { stdout } = await execFileAsync8(extractorPath, args, { timeout: 1e4 });
+    const { stdout } = await execFileAsync9(extractorPath, args, { timeout: 1e4 });
     return JSON.parse(stdout);
   } catch (err) {
     if (err && typeof err === "object" && "stdout" in err) {
@@ -44361,7 +44545,7 @@ function findElementByLabel(elements, label2) {
 }
 
 // src/native/daemon.ts
-var import_child_process10 = require("child_process");
+var import_child_process11 = require("child_process");
 init_extract3();
 var DEFAULT_START_TIMEOUT = 1e4;
 var DEFAULT_REQUEST_TIMEOUT = 3e4;
@@ -44382,7 +44566,7 @@ var AXDaemon = class {
   requestTimeoutMs;
   constructor(opts = {}) {
     this.binaryPath = opts.binaryPath;
-    this.spawnFn = opts.spawnFn ?? import_child_process10.spawn;
+    this.spawnFn = opts.spawnFn ?? import_child_process11.spawn;
     this.startTimeoutMs = opts.startTimeoutMs ?? DEFAULT_START_TIMEOUT;
     this.requestTimeoutMs = opts.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT;
   }
@@ -44526,8 +44710,8 @@ var AXDaemon = class {
 };
 
 // src/native/keyboard.ts
-var import_child_process11 = require("child_process");
-var import_util11 = require("util");
+var import_child_process12 = require("child_process");
+var import_util12 = require("util");
 init_extract3();
 
 // src/native/ax-signature.ts
@@ -44595,7 +44779,7 @@ function axSignature(extraction) {
 }
 
 // src/native/keyboard.ts
-var execFileAsync9 = (0, import_util11.promisify)(import_child_process11.execFile);
+var execFileAsync10 = (0, import_util12.promisify)(import_child_process12.execFile);
 var SETTLE_MS = 220;
 async function resolveKeystrokeTargetPid(target) {
   if (target.kind === "macos") return target.pid;
@@ -44606,7 +44790,7 @@ var deliverKeystrokeOneShot = async (pid, chord, foreground) => {
   const args = ["--pid", String(pid), "--keystroke", chord];
   if (foreground) args.push("--foreground");
   try {
-    const { stdout } = await execFileAsync9(extractorPath, args, { timeout: 5e3 });
+    const { stdout } = await execFileAsync10(extractorPath, args, { timeout: 5e3 });
     return JSON.parse(stdout);
   } catch (err) {
     if (err && typeof err === "object" && "stdout" in err) {
@@ -44692,10 +44876,10 @@ async function runKeystrokeCapability(opts) {
 }
 
 // src/native/lifecycle.ts
-var import_child_process12 = require("child_process");
-var import_util12 = require("util");
+var import_child_process13 = require("child_process");
+var import_util13 = require("util");
 init_macos();
-var execFileAsync10 = (0, import_util12.promisify)(import_child_process12.execFile);
+var execFileAsync11 = (0, import_util13.promisify)(import_child_process13.execFile);
 var LAUNCH_TIMEOUT_MS = 8e3;
 var QUIT_TIMEOUT_MS = 6e3;
 var POLL_MS = 250;
@@ -44852,10 +45036,10 @@ async function runLifecycleCapability(target, spec, ops) {
 }
 async function defaultLaunch(app) {
   try {
-    await execFileAsync10("open", ["-a", app], { timeout: 8e3 });
+    await execFileAsync11("open", ["-a", app], { timeout: 8e3 });
   } catch (err) {
     if (BUNDLE_ID_RE.test(app)) {
-      await execFileAsync10("open", ["-b", app], { timeout: 8e3 });
+      await execFileAsync11("open", ["-b", app], { timeout: 8e3 });
       return;
     }
     throw err;
@@ -44863,7 +45047,7 @@ async function defaultLaunch(app) {
 }
 async function defaultFrontmostPid() {
   try {
-    const { stdout } = await execFileAsync10(
+    const { stdout } = await execFileAsync11(
       "osascript",
       ["-e", 'tell application "System Events" to get unix id of first application process whose frontmost is true'],
       { timeout: 3e3 }
@@ -44885,17 +45069,17 @@ async function defaultIsRunning(pid) {
 async function defaultQuit(target) {
   if (target.app) {
     const script = BUNDLE_ID_RE.test(target.app) ? `tell application id "${target.app}" to quit` : `tell application "${target.app}" to quit`;
-    await execFileAsync10("osascript", ["-e", script], { timeout: 5e3 });
+    await execFileAsync11("osascript", ["-e", script], { timeout: 5e3 });
     return;
   }
-  const { stdout } = await execFileAsync10(
+  const { stdout } = await execFileAsync11(
     "osascript",
     ["-e", `tell application "System Events" to get name of first application process whose unix id is ${target.pid}`],
     { timeout: 3e3 }
   );
   const name = stdout.trim();
   if (!name) throw new Error(`could not resolve an app name for pid ${target.pid}`);
-  await execFileAsync10("osascript", ["-e", `tell application "${name}" to quit`], { timeout: 5e3 });
+  await execFileAsync11("osascript", ["-e", `tell application "${name}" to quit`], { timeout: 5e3 });
 }
 var defaultLifecycleOps = {
   findProcess,
@@ -44907,10 +45091,10 @@ var defaultLifecycleOps = {
 };
 
 // src/native/menu.ts
-var import_child_process13 = require("child_process");
-var import_util13 = require("util");
+var import_child_process14 = require("child_process");
+var import_util14 = require("util");
 init_extract3();
-var execFileAsync11 = (0, import_util13.promisify)(import_child_process13.execFile);
+var execFileAsync12 = (0, import_util14.promisify)(import_child_process14.execFile);
 var SETTLE_MS2 = 250;
 async function resolveMenuTargetPid(target) {
   if (target.kind === "macos") return target.pid;
@@ -44920,7 +45104,7 @@ var deliverMenuOneShot = async (pid, menuPath) => {
   const extractorPath = await ensureExtractor();
   const args = ["--pid", String(pid), "--menu-path", JSON.stringify(menuPath)];
   try {
-    const { stdout } = await execFileAsync11(extractorPath, args, { timeout: 5e3 });
+    const { stdout } = await execFileAsync12(extractorPath, args, { timeout: 5e3 });
     return JSON.parse(stdout);
   } catch (err) {
     if (err && typeof err === "object" && "stdout" in err) {
@@ -45056,8 +45240,8 @@ var RespawnBackend = class {
         };
       }
       await captureMacOSScreenshot(window2.windowId, outputPath);
-      const { readFile: readFile9 } = await import("fs/promises");
-      const buf2 = await readFile9(outputPath);
+      const { readFile: readFile10 } = await import("fs/promises");
+      const buf2 = await readFile10(outputPath);
       return { kind: "macos", base64: buf2.toString("base64"), window: window2, screenshotPath: outputPath };
     }
     const device = await findDevice(target.device.udid);
@@ -45071,8 +45255,8 @@ var RespawnBackend = class {
         error: `Simulator screenshot capture failed: ${capture.error || "unknown error"}`
       };
     }
-    const { readFile: readFile8 } = await import("fs/promises");
-    const buf = await readFile8(capture.outputPath);
+    const { readFile: readFile9 } = await import("fs/promises");
+    const buf = await readFile9(capture.outputPath);
     return {
       kind: "simulator",
       base64: buf.toString("base64"),
@@ -45239,8 +45423,8 @@ var DaemonBackend = class {
           };
         }
         await captureMacOSScreenshot(window2.windowId, outputPath);
-        const { readFile: readFile8 } = await import("fs/promises");
-        const buf = await readFile8(outputPath);
+        const { readFile: readFile9 } = await import("fs/promises");
+        const buf = await readFile9(outputPath);
         return { kind: "macos", base64: buf.toString("base64"), window: window2, screenshotPath: outputPath };
       },
       () => this.fallback.captureScreenshot(target, outputPath)
@@ -45344,17 +45528,17 @@ function getNativeBackend() {
 }
 
 // src/native/preflight.ts
-var import_child_process14 = require("child_process");
-var import_util14 = require("util");
+var import_child_process15 = require("child_process");
+var import_util15 = require("util");
 var import_fs7 = require("fs");
 var import_path19 = require("path");
-var execFileAsync12 = (0, import_util14.promisify)(import_child_process14.execFile);
+var execFileAsync13 = (0, import_util15.promisify)(import_child_process15.execFile);
 function isMacOS(platformOverride) {
   return (platformOverride ?? process.platform) === "darwin";
 }
 async function defaultHasCommand(name) {
   try {
-    await execFileAsync12("which", [name]);
+    await execFileAsync13("which", [name]);
     return true;
   } catch {
     return false;
@@ -46258,7 +46442,7 @@ async function compare(options) {
     throw new Error("Either baselinePath or url must be provided");
   }
   const resolvedViewport = typeof viewport === "string" ? VIEWPORTS[viewport] || VIEWPORTS.desktop : viewport;
-  await (0, import_promises17.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises18.mkdir)(outputDir, { recursive: true });
   const timestamp2 = Date.now();
   const actualBaselinePath = baselinePath || (0, import_path21.join)(outputDir, `baseline-${timestamp2}.png`);
   const actualCurrentPath = currentPath || (0, import_path21.join)(outputDir, `current-${timestamp2}.png`);
@@ -46294,12 +46478,12 @@ async function compare(options) {
     });
   }
   try {
-    await (0, import_promises17.access)(actualBaselinePath);
+    await (0, import_promises18.access)(actualBaselinePath);
   } catch {
     throw new Error(`Baseline image not found: ${actualBaselinePath}`);
   }
   try {
-    await (0, import_promises17.access)(actualCurrentPath);
+    await (0, import_promises18.access)(actualCurrentPath);
   } catch {
     throw new Error(`Current image not found: ${actualCurrentPath}`);
   }
@@ -49745,8 +49929,8 @@ async function handleAsk(args) {
   const screenshotPath = response.meta?.screenshotPath;
   if (wantScreenshot && screenshotPath) {
     try {
-      const { readFile: readFile8 } = await import("fs/promises");
-      const buf = await readFile8(screenshotPath);
+      const { readFile: readFile9 } = await import("fs/promises");
+      const buf = await readFile9(screenshotPath);
       content.unshift({
         type: "image",
         data: buf.toString("base64"),
