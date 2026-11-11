@@ -4321,11 +4321,12 @@ program
   .option('--app <name>', 'App name (e.g., "Secrets Vault")')
   .option('--bundle-id <id>', 'Bundle identifier (e.g., "com.secretsvault.app")')
   .option('--pid <pid>', 'Process ID')
-  .option('--screenshot <path>', 'Save screenshot to path')
+  .option('--window-title <title>', 'Exact window title, to scan a window other than the main one (e.g. a panel)')
+  .option('--screenshot <path>', 'Save screenshot to path; also measures text contrast and light/dark appearance from its pixels')
   .option('--json', 'Output as JSON')
   .option('--format <mode>', 'full or compact; compact saves complete evidence', 'full')
   .option('--report-dir <dir>', 'Directory for private full reports in compact mode', '.ibr/reports')
-  .action(async (options: { app?: string; bundleId?: string; pid?: string; screenshot?: string; json?: boolean; format: string; reportDir: string }) => {
+  .action(async (options: { app?: string; bundleId?: string; pid?: string; windowTitle?: string; screenshot?: string; json?: boolean; format: string; reportDir: string }) => {
     try {
       if (!['full', 'compact'].includes(options.format)) throw new Error('Use --format full or compact.');
       if (process.platform !== 'darwin') {
@@ -4348,6 +4349,7 @@ program
         app: options.app,
         bundleId: options.bundleId,
         pid: options.pid ? parseInt(options.pid, 10) : undefined,
+        windowTitle: options.windowTitle,
         screenshot: options.screenshot ? { path: options.screenshot } : undefined,
         outputDir: program.opts().output || '.ibr',
       });

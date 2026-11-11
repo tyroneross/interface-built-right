@@ -74,6 +74,8 @@ export async function findProcess(appNameOrBundleId: string): Promise<number> {
 export async function extractMacOSElements(options: {
   pid?: number;
   app?: string;
+  /** Exact window title; selects a non-main window such as a utility panel. */
+  windowTitle?: string;
 }): Promise<{ elements: MacOSAXElement[]; window: MacOSWindowInfo }> {
   const extractorPath = await ensureExtractor();
 
@@ -85,6 +87,7 @@ export async function extractMacOSElements(options: {
   } else {
     throw new Error('Either pid or app must be provided');
   }
+  if (options.windowTitle !== undefined) args.push('--window-title', options.windowTitle);
 
   try {
     return await runMacOSExtraction(extractorPath, args);
@@ -124,7 +127,15 @@ async function runMacOSExtraction(
   // Parse output: first line is WINDOW header, rest is JSON
   const lines = stdout.split('\n');
   const headerLine = lines[0];
-  const jsonStr = lines.slice(1).join('\n');
+  // Newer extractors print ORIGIN:<x>,<y> (window top-left, AX points) next.
+  let origin: { x: number; y: number } | undefined;
+  let jsonStart = 1;
+  if (lines[1]?.startsWith('ORIGIN:')) {
+    const [x, y] = lines[1].slice(7).split(',').map(Number);
+    if (Number.isFinite(x) && Number.isFinite(y)) origin = { x, y };
+    jsonStart = 2;
+  }
+  const jsonStr = lines.slice(jsonStart).join('\n');
 
   // Parse window header: WINDOW:<id>:<WxH>:<title>
   let window: MacOSWindowInfo = { windowId: 0, width: 800, height: 600, title: 'Unknown' };
@@ -138,6 +149,7 @@ async function runMacOSExtraction(
       width: parseInt(dims[0], 10) || 800,
       height: parseInt(dims[1], 10) || 600,
       title,
+      ...(origin ? { originX: origin.x, originY: origin.y } : {}),
     };
   }
 
@@ -303,7 +315,7 @@ export async function captureMacOSScreenshot(
   outputPath: string
 ): Promise<void> {
   await mkdir(dirname(outputPath), { recursive: true });
-  await execFileAsync('screencapture', ['-l', String(windowId), '-x', outputPath], {
+  await execFileAsync('screencapture', ['-l', String(windowId), '-o', '-x', outputPath], {
     timeout: 10000,
   });
 }

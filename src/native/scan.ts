@@ -12,6 +12,8 @@ import { findProcess, extractMacOSElements, mapMacOSToEnhancedElements, captureM
 import { buildNativeInteractivity } from './interactivity.js';
 import { buildNativeSemantic } from './semantic.js';
 import { analyzeLayoutFill, type LayoutFillFinding } from './layout-fill.js';
+import { analyzeNativeContrast, analyzeSurface, readPng, readSystemAppearance, type NativeAppearanceReport, type NativeContrastReport } from './contrast.js';
+import type { NativeVisualCoverage } from './types.js';
 import type { AuditResult, EnhancedElement } from '../schemas.js';
 
 const nativeVisualCoverage = {
@@ -286,7 +288,7 @@ export async function scanMacOS(options: MacOSScanOptions): Promise<MacOSScanRes
     throw new Error('macOS native scanning is only available on macOS');
   }
 
-  const { app, bundleId, pid: directPid, screenshot } = options;
+  const { app, bundleId, pid: directPid, screenshot, windowTitle } = options;
 
   if (!app && !bundleId && !directPid) {
     throw new Error('Provide --app, --bundle-id, or --pid to identify the target app');
@@ -304,6 +306,7 @@ export async function scanMacOS(options: MacOSScanOptions): Promise<MacOSScanRes
   const { elements: nativeElements, window } = await extractMacOSElements({
     pid,
     app: app || bundleId,
+    windowTitle,
   });
 
   // --- Map to EnhancedElement[] ---
@@ -333,8 +336,23 @@ export async function scanMacOS(options: MacOSScanOptions): Promise<MacOSScanRes
   }
 
   // --- Capture screenshot if requested ---
+  let contrast: NativeContrastReport | undefined;
+  let appearance: NativeAppearanceReport | undefined;
+  let visualCoverage: NativeVisualCoverage = nativeVisualCoverage;
   if (screenshot && window.windowId > 0) {
     await captureMacOSScreenshot(window.windowId, screenshot.path);
+    // Pixels map onto AX frames only when the window origin is known.
+    if (window.originX !== undefined && window.originY !== undefined) {
+      const img = await readPng(screenshot.path);
+      const geometry = { width: window.width, height: window.height, originX: window.originX, originY: window.originY };
+      contrast = analyzeNativeContrast(img, geometry, elements);
+      appearance = analyzeSurface(img, await readSystemAppearance());
+      visualCoverage = {
+        appearance: 'measured',
+        textContrast: 'measured',
+        reason: `Measured from screenshot pixels: ${contrast.totalChecked} text elements checked, ${contrast.fail} below ${contrast.threshold}:1, ${contrast.notMeasured} unmeasurable. Surface ${appearance.surface}, system ${appearance.system}.`,
+      };
+    }
   }
 
   // --- Build URL ---
@@ -365,6 +383,25 @@ export async function scanMacOS(options: MacOSScanOptions): Promise<MacOSScanRes
     }
   }
 
+  // --- Pixel contrast findings ---
+  // One error per failing element. When text is darker than a dark surface (or
+  // lighter than a light one), name the likely cause: the text resolved for the
+  // other appearance than the window paints.
+  if (contrast) {
+    for (const f of contrast.failing) {
+      const mismatch = appearance && ((appearance.surface === 'dark' && f.tone === 'dark-on-light')
+        || (appearance.surface === 'light' && f.tone === 'light-on-dark'));
+      issues.push({
+        category: 'accessibility',
+        severity: 'error',
+        description: `contrast: "${f.text}" (${f.role}) ${f.ratio}:1, text ${f.foreground} on ${f.background}, needs ${contrast.threshold}:1`,
+        fix: mismatch
+          ? `Text resolved for the ${appearance!.surface === 'dark' ? 'light' : 'dark'} appearance on a ${appearance!.surface} surface. Set the window's appearance from the theme, or use colours that adapt to it.`
+          : 'Raise the text/background contrast to at least 4.5:1.',
+      });
+    }
+  }
+
   // --- Design system check ---
   const designSystem = options.outputDir ? await applyDesignSystemCheck(
     elements, issues, viewport, url, options.outputDir
@@ -383,7 +420,9 @@ export async function scanMacOS(options: MacOSScanOptions): Promise<MacOSScanRes
   );
 
   return {
-    visualCoverage: nativeVisualCoverage,
+    visualCoverage,
+    contrast,
+    appearance,
     url,
     route,
     timestamp: new Date().toISOString(),

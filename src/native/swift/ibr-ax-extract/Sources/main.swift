@@ -16,6 +16,7 @@ let args = CommandLine.arguments
 var deviceName: String? = nil
 var targetPid: pid_t? = nil
 var targetApp: String? = nil
+var targetWindowTitle: String? = nil
 var resolveApp: String? = nil
 var outputMode: String = "auto" // "auto", "legacy", "full"
 var actionName: String? = nil
@@ -45,6 +46,9 @@ while i < args.count {
     case "--app":
         i += 1
         if i < args.count { targetApp = args[i] }
+    case "--window-title":
+        i += 1
+        if i < args.count { targetWindowTitle = args[i] }
     case "--resolve-app":
         i += 1
         if i < args.count { resolveApp = args[i] }
@@ -278,7 +282,11 @@ if targetPid != nil || targetApp != nil {
         exit(1)
     }
 
-    guard let windowInfo = findMainWindow(pid: pid) else {
+    guard let windowInfo = findMainWindow(pid: pid, title: targetWindowTitle) else {
+        if let t = targetWindowTitle {
+            fputs("Error: Expected exactly one window titled \"\(t)\" for pid \(pid)\n", stderr)
+            exit(1)
+        }
         fputs("Error: No windows found for pid \(pid)\n", stderr)
         exit(1)
     }
@@ -287,6 +295,9 @@ if targetPid != nil || targetApp != nil {
     let widthInt = Int(windowInfo.size.width)
     let heightInt = Int(windowInfo.size.height)
     print("WINDOW:\(windowInfo.id):\(widthInt)x\(heightInt):\(windowInfo.title)")
+    // Screen origin of the window (top-left, AX global coordinates), so
+    // element frames can be mapped onto a window screenshot's pixels.
+    print("ORIGIN:\(windowInfo.origin.x),\(windowInfo.origin.y)")
 
     // Walk the accessibility tree with full format, tracking paths from the window root
     guard let rootElement = walkElementFull(windowInfo.window, currentPath: []) else {
