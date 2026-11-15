@@ -16413,6 +16413,135 @@ var init_runtime_path = __esm({
     moduleDir = typeof __dirname === "string" ? __dirname : path.dirname(url.fileURLToPath((typeof document === 'undefined' ? require('u' + 'rl').pathToFileURL(__filename).href : (_documentCurrentScript && _documentCurrentScript.tagName.toUpperCase() === 'SCRIPT' && _documentCurrentScript.src || new URL('index.js', document.baseURI).href))));
   }
 });
+function isMacOS(platformOverride) {
+  return (process.platform) === "darwin";
+}
+async function defaultHasCommand(name) {
+  try {
+    await execFileAsync3("which", [name]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function macOSNativePreflight(options) {
+  if (!isMacOS()) {
+    return {
+      ok: false,
+      reason: "not-macos",
+      message: `Native sessions require macOS \u2014 process.platform is '${process.platform}'. Use a Mac to run macOS / iOS-simulator AX sessions.`
+    };
+  }
+  if (!await _deps.hasCommand("swift")) {
+    return {
+      ok: false,
+      reason: "no-swift",
+      message: "Xcode Command Line Tools missing \u2014 `swift` not on PATH. Install with: xcode-select --install"
+    };
+  }
+  const extractorPath = path.join(process.cwd(), ".ibr", "bin", "ibr-ax-extract");
+  const swiftSourceDir = path.join(process.cwd(), "src", "native", "swift", "ibr-ax-extract");
+  if (!fs$1.existsSync(extractorPath) && !fs$1.existsSync(path.join(swiftSourceDir, "Package.swift"))) {
+    return {
+      ok: false,
+      reason: "extractor-build-failed",
+      message: `Swift AX extractor unavailable. Expected binary at ${extractorPath} or source at ${swiftSourceDir}. Rebuild with: cd <ibr-package>/src/native/swift/ibr-ax-extract && swift build -c release`
+    };
+  }
+  return { ok: true };
+}
+async function simulatorNativePreflight(options) {
+  const base = await macOSNativePreflight();
+  if (!base.ok) return base;
+  if (!await _deps.hasCommand("xcrun")) {
+    return {
+      ok: false,
+      reason: "no-simctl",
+      message: "`xcrun` not on PATH \u2014 Xcode (or the Command Line Tools select) is required. Install Xcode from the App Store, then run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
+    };
+  }
+  return { ok: true };
+}
+function detectSimulatorChromeOnly(input) {
+  if (input.length === 0) {
+    return {
+      reason: "empty",
+      hint: "Simulator returned no AX elements. Boot a device and foreground an app: xcrun simctl boot <udid> && xcrun simctl launch booted <bundle-id>"
+    };
+  }
+  const isCensus = typeof input[0] !== "string";
+  if (isCensus) {
+    const census = input;
+    const allHostChrome = census.every(
+      (c) => c.role != null && HOST_CHROME_ROLES.has(c.role)
+    );
+    if (allHostChrome) {
+      return {
+        reason: "host-chrome",
+        hint: 'Guest accessibility tree is unreachable from this process \u2014 only Simulator.app host chrome (application / menu bar) was returned. No app accessibility data was captured, so this result is NOT evidence about the app under test (neither "empty" nor "clean"). Use a screenshot-driven workflow, or install IDB and route through `idb accessibility info`.'
+      };
+    }
+  }
+  const labels = isCensus ? input.map((c) => c.label ?? "") : input;
+  const normalized = labels.map((l) => l.trim().toLowerCase()).filter((l) => l.length > 0);
+  if (normalized.length === 0) return null;
+  const chromeCount = normalized.filter((l) => SIMULATOR_CHROME_LABELS.has(l)).length;
+  if (chromeCount / normalized.length >= 0.8) {
+    return {
+      reason: "sim-toolbar",
+      hint: "Extracted AX tree appears to be Simulator chrome (Home / Save Screen / Rotate). Foreground the iOS app under test: xcrun simctl launch booted <bundle-id>"
+    };
+  }
+  return null;
+}
+function classifyExtractorError(err) {
+  const message = err instanceof Error ? err.message : String(err);
+  const stderr = err?.stderr;
+  const msg = typeof stderr === "string" ? `${stderr}
+${message}` : message;
+  const code = err?.code;
+  if (code === ACCESSIBILITY_UNTRUSTED_EXIT_CODE || /\baccessibility\s+(?:permission\s+(?:required|denied|not\s+granted)|(?:access\s+)?not\s+(?:granted|trusted))\b|\bAX(?:Is)?ProcessTrusted(?:WithOptions)?\b/i.test(msg)) {
+    const swiftLine = msg.split("\n").map((line) => line.trim()).find((line) => /^Error: Accessibility permission required\./.test(line) || /^Accessibility permission required\. IBR showed/.test(line));
+    return {
+      ok: false,
+      reason: "ax-permission",
+      message: swiftLine ? swiftLine.replace(/^Error: /, "") : `macOS accessibility permission denied. Grant access to your terminal or IDE in System Settings \u2192 Privacy & Security \u2192 Accessibility, then quit and reopen it and re-run the session_start call. IBR does not re-open the permission prompt automatically; to show it once, run: ${REQUEST_PERMISSION_COMMAND}`
+    };
+  }
+  return null;
+}
+var execFileAsync3, _deps, SIMULATOR_CHROME_LABELS, HOST_CHROME_ROLES, ACCESSIBILITY_UNTRUSTED_EXIT_CODE, REQUEST_PERMISSION_COMMAND;
+var init_preflight = __esm({
+  "src/native/preflight.ts"() {
+    execFileAsync3 = util.promisify(child_process.execFile);
+    _deps = {
+      hasCommand: defaultHasCommand
+    };
+    SIMULATOR_CHROME_LABELS = /* @__PURE__ */ new Set([
+      "home",
+      "save screen",
+      "screenshot",
+      "rotate",
+      "rotate left",
+      "rotate right",
+      "lock",
+      "siri",
+      "shake",
+      "side button",
+      "volume up",
+      "volume down"
+    ]);
+    HOST_CHROME_ROLES = /* @__PURE__ */ new Set([
+      "AXApplication",
+      "AXMenuBar",
+      "AXMenuBarItem",
+      "AXMenu",
+      "AXMenuItem"
+    ]);
+    ACCESSIBILITY_UNTRUSTED_EXIT_CODE = 77;
+    REQUEST_PERMISSION_COMMAND = "ibr native:request-permission";
+  }
+});
 function resolveSwiftSourceDir(runtimeModuleDir = moduleDir) {
   const candidates = [
     // TypeScript source execution: src/native/extract.ts
@@ -16457,12 +16586,12 @@ async function ensureExtractor() {
 }
 async function buildSwiftExtractor() {
   try {
-    await execFileAsync3("swift", ["build", "-c", "release"], {
+    await execFileAsync4("swift", ["build", "-c", "release"], {
       cwd: SWIFT_SOURCE_DIR,
       timeout: 12e4
     });
   } catch {
-    await execFileAsync3("swift", ["build", "-c", "release", "--disable-sandbox"], {
+    await execFileAsync4("swift", ["build", "-c", "release", "--disable-sandbox"], {
       cwd: SWIFT_SOURCE_DIR,
       timeout: 12e4
     });
@@ -16482,7 +16611,7 @@ function isFileFresh(path2) {
 }
 async function requestAccessibilityPermission(deps) {
   const binary = await (deps?.ensure ?? ensureExtractor)();
-  const run = deps?.run ?? ((bin, args) => execFileAsync3(bin, args, { timeout: 3e4 }));
+  const run = deps?.run ?? ((bin, args) => execFileAsync4(bin, args, { timeout: 3e4 }));
   try {
     await run(binary, ["--request-permission"]);
     return { trusted: true, message: "Accessibility permission is granted." };
@@ -16496,24 +16625,17 @@ function isExtractorAvailable() {
   if (fs$1.existsSync(EXTRACTOR_PATH)) return true;
   return fs$1.existsSync(path.join(SWIFT_SOURCE_DIR, "Package.swift"));
 }
-async function extractNativeElements(device) {
-  const extractorPath = await ensureExtractor();
+async function extractNativeElements(device, deps = {}) {
+  const extractorPath = await (deps.ensure ?? ensureExtractor)();
   try {
-    const { stdout } = await execFileAsync3(extractorPath, [
-      "--device-name",
-      device.name
-    ], {
-      timeout: 3e4
-    });
+    const run = deps.run ?? ((binary, args) => execFileAsync4(binary, args, { timeout: 3e4 }));
+    const { stdout } = await run(extractorPath, ["--device-name", device.name]);
     const elements = JSON.parse(stdout);
     return elements;
   } catch (err) {
+    const permission = classifyExtractorError(err);
+    if (permission) throw new Error(permission.message);
     const message = err instanceof Error ? err.message : "Unknown error";
-    if (message.includes("permission") || message.includes("accessibility")) {
-      throw new Error(
-        "Accessibility permission required. Grant Terminal/IDE access in System Settings > Privacy & Security > Accessibility"
-      );
-    }
     throw new Error(`Element extraction failed: ${message}`);
   }
 }
@@ -16554,12 +16676,13 @@ function mapToEnhancedElements(nativeElements) {
   flatten2(nativeElements);
   return enhanced;
 }
-var execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_SOURCES_DIR, SWIFT_PACKAGE_PATH, SWIFT_BUILD_PATH;
+var execFileAsync4, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_SOURCES_DIR, SWIFT_PACKAGE_PATH, SWIFT_BUILD_PATH;
 var init_extract3 = __esm({
   "src/native/extract.ts"() {
     init_role_map();
     init_runtime_path();
-    execFileAsync3 = util.promisify(child_process.execFile);
+    init_preflight();
+    execFileAsync4 = util.promisify(child_process.execFile);
     EXTRACTOR_DIR = path.join(process.cwd(), ".ibr", "bin");
     EXTRACTOR_PATH = path.join(EXTRACTOR_DIR, "ibr-ax-extract");
     SWIFT_SOURCE_DIR = resolveSwiftSourceDir();
@@ -16634,7 +16757,7 @@ async function findProcess(appNameOrBundleId) {
   }
   try {
     const extractorPath = await ensureExtractor();
-    const { stdout } = await execFileAsync4(extractorPath, ["--resolve-app", appNameOrBundleId], {
+    const { stdout } = await execFileAsync5(extractorPath, ["--resolve-app", appNameOrBundleId], {
       timeout: 1e4
     });
     const resolved = JSON.parse(stdout);
@@ -16672,11 +16795,8 @@ async function extractMacOSElements(options) {
     return await runMacOSExtraction(extractorPath, args);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    if (message.includes("Accessibility permission")) {
-      throw new Error(
-        "Accessibility permission required. Grant Terminal/IDE access in System Settings > Privacy & Security > Accessibility"
-      );
-    }
+    const permission = classifyExtractorError(err);
+    if (permission) throw new Error(permission.message);
     if (message.includes("No running app")) {
       throw err;
     }
@@ -16688,7 +16808,7 @@ async function extractMacOSElements(options) {
   }
 }
 async function runMacOSExtraction(extractorPath, args) {
-  const { stdout, stderr } = await execFileAsync4(extractorPath, args, {
+  const { stdout, stderr } = await execFileAsync5(extractorPath, args, {
     timeout: 3e4,
     // AX trees can include long document values; keep a bounded 16 MiB budget.
     maxBuffer: 16 * 1024 * 1024
@@ -16732,13 +16852,15 @@ async function retryMacOSExtractionAfterActivation(options, extractorPath, windo
     const args = ["--pid", String(pid)];
     if (windowTitle !== void 0) args.push("--window-title", windowTitle);
     return await runMacOSExtraction(extractorPath, args);
-  } catch {
+  } catch (err) {
+    const permission = classifyExtractorError(err);
+    if (permission) throw new Error(permission.message);
     return null;
   }
 }
 async function activateMacOSProcess(pid) {
   try {
-    await execFileAsync4("osascript", [
+    await execFileAsync5("osascript", [
       "-e",
       `tell application "System Events" to set frontmost of first application process whose unix id is ${pid} to true`
     ], { timeout: 3e3 });
@@ -16817,16 +16939,17 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
 }
 async function captureMacOSScreenshot(windowId, outputPath) {
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
-  await execFileAsync4("screencapture", ["-l", String(windowId), "-o", "-x", outputPath], {
+  await execFileAsync5("screencapture", ["-l", String(windowId), "-o", "-x", outputPath], {
     timeout: 1e4
   });
 }
-var execFileAsync4, execAsync;
+var execFileAsync5, execAsync;
 var init_macos = __esm({
   "src/native/macos.ts"() {
     init_extract3();
+    init_preflight();
     init_role_map();
-    execFileAsync4 = util.promisify(child_process.execFile);
+    execFileAsync5 = util.promisify(child_process.execFile);
     execAsync = util.promisify(child_process.exec);
   }
 });
@@ -17358,7 +17481,7 @@ function analyzeSurface(img, system) {
 async function readSystemAppearance() {
   if (process.platform !== "darwin") return "unknown";
   try {
-    const { stdout } = await execFileAsync5("defaults", ["read", "-g", "AppleInterfaceStyle"], { timeout: 3e3 });
+    const { stdout } = await execFileAsync6("defaults", ["read", "-g", "AppleInterfaceStyle"], { timeout: 3e3 });
     return stdout.trim() === "Dark" ? "dark" : "light";
   } catch (err) {
     return err.code === 1 ? "light" : "unknown";
@@ -17367,11 +17490,11 @@ async function readSystemAppearance() {
 async function readPng(path2) {
   return decodePng(await fs.readFile(path2));
 }
-var execFileAsync5, QUANT_SHIFT, MIN_TEXT_SHARE, MIN_TEXT_PIXELS, NOISE_RATIO, TEXT_ROLES;
+var execFileAsync6, QUANT_SHIFT, MIN_TEXT_SHARE, MIN_TEXT_PIXELS, NOISE_RATIO, TEXT_ROLES;
 var init_contrast = __esm({
   "src/native/contrast.ts"() {
     init_color();
-    execFileAsync5 = util.promisify(child_process.execFile);
+    execFileAsync6 = util.promisify(child_process.execFile);
     QUANT_SHIFT = 3;
     MIN_TEXT_SHARE = 0.02;
     MIN_TEXT_PIXELS = 4;
@@ -22887,8 +23010,8 @@ init_extract3();
 
 // src/native/ax-stress.ts
 init_extract3();
-var execFileAsync6 = util.promisify(child_process.execFile);
-var defaultRunner = (bin, args, timeoutMs) => execFileAsync6(bin, args, { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 });
+var execFileAsync7 = util.promisify(child_process.execFile);
+var defaultRunner = (bin, args, timeoutMs) => execFileAsync7(bin, args, { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 });
 function buildAxStressArgs(opts) {
   const walks = opts.walksPerStep ?? 5;
   const maxNodes = opts.maxNodes ?? 5e4;
@@ -22986,7 +23109,7 @@ function isSimDriverAvailable() {
 }
 
 // src/native/idb.ts
-var execFileAsync8 = util.promisify(child_process.execFile);
+var execFileAsync9 = util.promisify(child_process.execFile);
 var SIMULATOR_DRIVER_ENV = "IBR_SIMULATOR_DRIVER";
 var DRIVER_LABELS = {
   "native-window": "IBR native-window",
@@ -23005,7 +23128,7 @@ function formatSimulatorDriver(driver2) {
 }
 async function isIdbCliAvailable() {
   try {
-    await execFileAsync8("which", ["idb"]);
+    await execFileAsync9("which", ["idb"]);
     return true;
   } catch {
     return false;
@@ -23013,7 +23136,7 @@ async function isIdbCliAvailable() {
 }
 async function isSimctlAvailable() {
   try {
-    await execFileAsync8("which", ["xcrun"]);
+    await execFileAsync9("which", ["xcrun"]);
     return true;
   } catch {
     return false;
@@ -23376,7 +23499,7 @@ var sessions = /* @__PURE__ */ new Map();
 // src/native/actions.ts
 init_extract3();
 init_role_map();
-var execFileAsync9 = util.promisify(child_process.execFile);
+var execFileAsync10 = util.promisify(child_process.execFile);
 async function performNativeAction(options) {
   const extractorPath = await ensureExtractor();
   const args = [
@@ -23394,7 +23517,7 @@ async function performNativeAction(options) {
     args.push("--value", options.value);
   }
   try {
-    const { stdout } = await execFileAsync9(extractorPath, args, { timeout: 1e4 });
+    const { stdout } = await execFileAsync10(extractorPath, args, { timeout: 1e4 });
     return JSON.parse(stdout);
   } catch (err) {
     if (err && typeof err === "object" && "stdout" in err) {
@@ -23780,7 +23903,7 @@ function axSignature(extraction) {
 }
 
 // src/native/keyboard.ts
-var execFileAsync10 = util.promisify(child_process.execFile);
+var execFileAsync11 = util.promisify(child_process.execFile);
 var SETTLE_MS = 220;
 async function resolveKeystrokeTargetPid(target) {
   if (target.kind === "macos") return target.pid;
@@ -23791,7 +23914,7 @@ var deliverKeystrokeOneShot = async (pid, chord, foreground) => {
   const args = ["--pid", String(pid), "--keystroke", chord];
   if (foreground) args.push("--foreground");
   try {
-    const { stdout } = await execFileAsync10(extractorPath, args, { timeout: 5e3 });
+    const { stdout } = await execFileAsync11(extractorPath, args, { timeout: 5e3 });
     return JSON.parse(stdout);
   } catch (err) {
     if (err && typeof err === "object" && "stdout" in err) {
@@ -23876,7 +23999,7 @@ async function runKeystrokeCapability(opts) {
   }
 }
 init_macos();
-var execFileAsync11 = util.promisify(child_process.execFile);
+var execFileAsync12 = util.promisify(child_process.execFile);
 var LAUNCH_TIMEOUT_MS = 8e3;
 var QUIT_TIMEOUT_MS = 6e3;
 var POLL_MS = 250;
@@ -24033,10 +24156,10 @@ async function runLifecycleCapability(target, spec, ops) {
 }
 async function defaultLaunch(app) {
   try {
-    await execFileAsync11("open", ["-a", app], { timeout: 8e3 });
+    await execFileAsync12("open", ["-a", app], { timeout: 8e3 });
   } catch (err) {
     if (BUNDLE_ID_RE.test(app)) {
-      await execFileAsync11("open", ["-b", app], { timeout: 8e3 });
+      await execFileAsync12("open", ["-b", app], { timeout: 8e3 });
       return;
     }
     throw err;
@@ -24044,7 +24167,7 @@ async function defaultLaunch(app) {
 }
 async function defaultFrontmostPid() {
   try {
-    const { stdout } = await execFileAsync11(
+    const { stdout } = await execFileAsync12(
       "osascript",
       ["-e", 'tell application "System Events" to get unix id of first application process whose frontmost is true'],
       { timeout: 3e3 }
@@ -24066,17 +24189,17 @@ async function defaultIsRunning(pid) {
 async function defaultQuit(target) {
   if (target.app) {
     const script = BUNDLE_ID_RE.test(target.app) ? `tell application id "${target.app}" to quit` : `tell application "${target.app}" to quit`;
-    await execFileAsync11("osascript", ["-e", script], { timeout: 5e3 });
+    await execFileAsync12("osascript", ["-e", script], { timeout: 5e3 });
     return;
   }
-  const { stdout } = await execFileAsync11(
+  const { stdout } = await execFileAsync12(
     "osascript",
     ["-e", `tell application "System Events" to get name of first application process whose unix id is ${target.pid}`],
     { timeout: 3e3 }
   );
   const name = stdout.trim();
   if (!name) throw new Error(`could not resolve an app name for pid ${target.pid}`);
-  await execFileAsync11("osascript", ["-e", `tell application "${name}" to quit`], { timeout: 5e3 });
+  await execFileAsync12("osascript", ["-e", `tell application "${name}" to quit`], { timeout: 5e3 });
 }
 var defaultLifecycleOps = {
   findProcess,
@@ -24089,7 +24212,7 @@ var defaultLifecycleOps = {
 
 // src/native/menu.ts
 init_extract3();
-var execFileAsync12 = util.promisify(child_process.execFile);
+var execFileAsync13 = util.promisify(child_process.execFile);
 var SETTLE_MS2 = 250;
 async function resolveMenuTargetPid(target) {
   if (target.kind === "macos") return target.pid;
@@ -24099,7 +24222,7 @@ var deliverMenuOneShot = async (pid, menuPath) => {
   const extractorPath = await ensureExtractor();
   const args = ["--pid", String(pid), "--menu-path", JSON.stringify(menuPath)];
   try {
-    const { stdout } = await execFileAsync12(extractorPath, args, { timeout: 5e3 });
+    const { stdout } = await execFileAsync13(extractorPath, args, { timeout: 5e3 });
     return JSON.parse(stdout);
   } catch (err) {
     if (err && typeof err === "object" && "stdout" in err) {
@@ -24520,127 +24643,9 @@ function getNativeBackend() {
 function __setNativeBackend(backend) {
   defaultBackend = backend;
 }
-var execFileAsync13 = util.promisify(child_process.execFile);
-function isMacOS(platformOverride) {
-  return (process.platform) === "darwin";
-}
-async function defaultHasCommand(name) {
-  try {
-    await execFileAsync13("which", [name]);
-    return true;
-  } catch {
-    return false;
-  }
-}
-var _deps = {
-  hasCommand: defaultHasCommand
-};
-async function macOSNativePreflight(options) {
-  if (!isMacOS()) {
-    return {
-      ok: false,
-      reason: "not-macos",
-      message: `Native sessions require macOS \u2014 process.platform is '${process.platform}'. Use a Mac to run macOS / iOS-simulator AX sessions.`
-    };
-  }
-  if (!await _deps.hasCommand("swift")) {
-    return {
-      ok: false,
-      reason: "no-swift",
-      message: "Xcode Command Line Tools missing \u2014 `swift` not on PATH. Install with: xcode-select --install"
-    };
-  }
-  const extractorPath = path.join(process.cwd(), ".ibr", "bin", "ibr-ax-extract");
-  const swiftSourceDir = path.join(process.cwd(), "src", "native", "swift", "ibr-ax-extract");
-  if (!fs$1.existsSync(extractorPath) && !fs$1.existsSync(path.join(swiftSourceDir, "Package.swift"))) {
-    return {
-      ok: false,
-      reason: "extractor-build-failed",
-      message: `Swift AX extractor unavailable. Expected binary at ${extractorPath} or source at ${swiftSourceDir}. Rebuild with: cd <ibr-package>/src/native/swift/ibr-ax-extract && swift build -c release`
-    };
-  }
-  return { ok: true };
-}
-async function simulatorNativePreflight(options) {
-  const base = await macOSNativePreflight();
-  if (!base.ok) return base;
-  if (!await _deps.hasCommand("xcrun")) {
-    return {
-      ok: false,
-      reason: "no-simctl",
-      message: "`xcrun` not on PATH \u2014 Xcode (or the Command Line Tools select) is required. Install Xcode from the App Store, then run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
-    };
-  }
-  return { ok: true };
-}
-var SIMULATOR_CHROME_LABELS = /* @__PURE__ */ new Set([
-  "home",
-  "save screen",
-  "screenshot",
-  "rotate",
-  "rotate left",
-  "rotate right",
-  "lock",
-  "siri",
-  "shake",
-  "side button",
-  "volume up",
-  "volume down"
-]);
-var HOST_CHROME_ROLES = /* @__PURE__ */ new Set([
-  "AXApplication",
-  "AXMenuBar",
-  "AXMenuBarItem",
-  "AXMenu",
-  "AXMenuItem"
-]);
-function detectSimulatorChromeOnly(input) {
-  if (input.length === 0) {
-    return {
-      reason: "empty",
-      hint: "Simulator returned no AX elements. Boot a device and foreground an app: xcrun simctl boot <udid> && xcrun simctl launch booted <bundle-id>"
-    };
-  }
-  const isCensus = typeof input[0] !== "string";
-  if (isCensus) {
-    const census = input;
-    const allHostChrome = census.every(
-      (c) => c.role != null && HOST_CHROME_ROLES.has(c.role)
-    );
-    if (allHostChrome) {
-      return {
-        reason: "host-chrome",
-        hint: 'Guest accessibility tree is unreachable from this process \u2014 only Simulator.app host chrome (application / menu bar) was returned. No app accessibility data was captured, so this result is NOT evidence about the app under test (neither "empty" nor "clean"). Use a screenshot-driven workflow, or install IDB and route through `idb accessibility info`.'
-      };
-    }
-  }
-  const labels = isCensus ? input.map((c) => c.label ?? "") : input;
-  const normalized = labels.map((l) => l.trim().toLowerCase()).filter((l) => l.length > 0);
-  if (normalized.length === 0) return null;
-  const chromeCount = normalized.filter((l) => SIMULATOR_CHROME_LABELS.has(l)).length;
-  if (chromeCount / normalized.length >= 0.8) {
-    return {
-      reason: "sim-toolbar",
-      hint: "Extracted AX tree appears to be Simulator chrome (Home / Save Screen / Rotate). Foreground the iOS app under test: xcrun simctl launch booted <bundle-id>"
-    };
-  }
-  return null;
-}
-var ACCESSIBILITY_UNTRUSTED_EXIT_CODE = 77;
-var REQUEST_PERMISSION_COMMAND = "ibr native:request-permission";
-function classifyExtractorError(err) {
-  const msg = err instanceof Error ? err.message : String(err);
-  const code = err?.code;
-  if (code === ACCESSIBILITY_UNTRUSTED_EXIT_CODE || /accessibility|AX(Is)?ProcessTrusted|permission/i.test(msg)) {
-    const swiftLine = msg.split("\n").map((line) => line.trim()).find((line) => /^Error: Accessibility permission required\./.test(line) || /^Accessibility permission required\. IBR showed/.test(line));
-    return {
-      ok: false,
-      reason: "ax-permission",
-      message: swiftLine ? swiftLine.replace(/^Error: /, "") : `macOS accessibility permission denied. Grant access to your terminal or IDE in System Settings \u2192 Privacy & Security \u2192 Accessibility, then quit and reopen it and re-run the session_start call. IBR does not re-open the permission prompt automatically; to show it once, run: ${REQUEST_PERMISSION_COMMAND}`
-    };
-  }
-  return null;
-}
+
+// src/native/session-controller.ts
+init_preflight();
 
 // src/native/window-resize.ts
 function object(value) {

@@ -53,6 +53,30 @@ describe('extractMacOSElements', () => {
     vi.clearAllMocks();
   });
 
+  it('preserves the permission recovery command from extractor stderr without retries', async () => {
+    const guidance = 'Error: Accessibility permission required. IBR does not prompt during scans. Grant access in System Settings; then run: ibr native:request-permission';
+    mockExecFileSequence([() => ({ error: Object.assign(new Error('Command failed'), { code: 77 }), stderr: guidance })]);
+    await expect(extractMacOSElements({ pid: 1234 })).rejects.toThrow(guidance.replace(/^Error: /, ''));
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves permission guidance if activation retry encounters AX denial', async () => {
+    const guidance = 'Error: Accessibility permission required. Run: ibr native:request-permission';
+    mockExecFileSequence([
+      () => ({ error: new Error('No windows found for pid 1234') }),
+      () => ({ stdout: '' }),
+      () => ({ error: Object.assign(new Error('Command failed'), { code: 77 }), stderr: guidance }),
+    ]);
+    await expect(extractMacOSElements({ pid: 1234 })).rejects.toThrow(guidance.replace(/^Error: /, ''));
+    expect(execFileMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not mistake a filesystem permission error for Accessibility', async () => {
+    mockExecFileSequence([() => ({ error: new Error('EACCES: permission denied, open cache') })]);
+    await expect(extractMacOSElements({ pid: 1234 })).rejects.toThrow('EACCES: permission denied, open cache');
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+  });
+
   it('parses window metadata and element JSON', async () => {
     mockExecFileSuccess([
       'WINDOW:42:800x600:Demo',

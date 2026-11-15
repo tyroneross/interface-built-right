@@ -8,6 +8,7 @@ import type { SimulatorDevice } from './types.js';
 import type { EnhancedElement } from '../schemas.js';
 import { mapRoleToTag, mapRoleToAriaRole, isInteractiveRole } from './role-map.js';
 import { moduleDir } from './runtime-path.mjs';
+import { classifyExtractorError } from './preflight.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -163,28 +164,21 @@ export function isExtractorAvailable(): boolean {
  * via AXUIElementCreateApplication.
  */
 export async function extractNativeElements(
-  device: SimulatorDevice
+  device: SimulatorDevice,
+  deps: { ensure?: () => Promise<string>; run?: ExtractorRunner } = {},
 ): Promise<NativeElement[]> {
-  const extractorPath = await ensureExtractor();
+  const extractorPath = await (deps.ensure ?? ensureExtractor)();
 
   try {
-    const { stdout } = await execFileAsync(extractorPath, [
-      '--device-name', device.name,
-    ], {
-      timeout: 30000,
-    });
+    const run = deps.run ?? ((binary, args) => execFileAsync(binary, args, { timeout: 30000 }));
+    const { stdout } = await run(extractorPath, ['--device-name', device.name]);
 
     const elements: NativeElement[] = JSON.parse(stdout);
     return elements;
   } catch (err) {
-    // Graceful degradation — return empty if extraction fails
+    const permission = classifyExtractorError(err);
+    if (permission) throw new Error(permission.message);
     const message = err instanceof Error ? err.message : 'Unknown error';
-    if (message.includes('permission') || message.includes('accessibility')) {
-      throw new Error(
-        'Accessibility permission required. Grant Terminal/IDE access in ' +
-        'System Settings > Privacy & Security > Accessibility'
-      );
-    }
     throw new Error(`Element extraction failed: ${message}`);
   }
 }

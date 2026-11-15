@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { isExtractorAvailable, requestAccessibilityPermission, resolveSwiftSourceDir } from './extract.js';
+import { isExtractorAvailable, requestAccessibilityPermission, resolveSwiftSourceDir, extractNativeElements } from './extract.js';
 
 const sandboxes: string[] = [];
 
@@ -90,5 +90,32 @@ describe('Swift extractor never prompts outside the once-only gate', () => {
     expect(offenders).toEqual([]);
     const gate = readFileSync(join(sources, 'Permission.swift'), 'utf8');
     expect(gate.match(/kAXTrustedCheckOptionPrompt[^\n]*:\s*true/g)).toHaveLength(1);
+  });
+});
+
+
+describe('simulator extraction error recovery', () => {
+  const device = { name: 'Fixture iPhone' } as Parameters<typeof extractNativeElements>[0];
+  it('preserves AX stderr guidance and does not retry or return empty success', async () => {
+    let calls = 0;
+    const guidance = 'Error: Accessibility permission required. Run: ibr native:request-permission';
+    await expect(extractNativeElements(device, {
+      ensure: async () => '/fixture/extractor',
+      run: async () => { calls++; throw Object.assign(new Error('Command failed'), { code: 77, stderr: guidance }); },
+    })).rejects.toThrow(guidance.replace(/^Error: /, ''));
+    expect(calls).toBe(1);
+  });
+  it('keeps filesystem failures distinct from AX permission', async () => {
+    await expect(extractNativeElements(device, {
+      ensure: async () => '/fixture/extractor',
+      run: async () => { throw new Error('EACCES: permission denied, open cache'); },
+    })).rejects.toThrow('Element extraction failed: EACCES: permission denied, open cache');
+  });
+  it('returns the extracted elements on success', async () => {
+    const elements = [{ role: 'AXButton', label: 'Save' }];
+    expect(await extractNativeElements(device, {
+      ensure: async () => '/fixture/extractor',
+      run: async () => ({ stdout: JSON.stringify(elements), stderr: '' }),
+    })).toEqual(elements);
   });
 });

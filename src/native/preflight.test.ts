@@ -298,6 +298,17 @@ describe('R5: classifyExtractorError', () => {
     expect(out?.message).toBe(swift.replace(/^Error: /, ''));
   });
 
+  it('prefers stderr guidance when the subprocess message omits it', () => {
+    const guidance = 'Error: Accessibility permission required. Grant access, then run: ibr native:request-permission';
+    const err = Object.assign(new Error('Command failed'), { code: 77, stderr: guidance });
+    expect(preflight.classifyExtractorError(err)?.message).toBe(guidance.replace(/^Error: /, ''));
+  });
+
+  it('does not classify file permissions as Accessibility permission', () => {
+    expect(preflight.classifyExtractorError(new Error('EACCES: permission denied, open cache'))).toBeNull();
+    expect(preflight.classifyExtractorError(new Error("EACCES: permission denied, open '/tmp/accessibility/cache'"))).toBeNull();
+  });
+
   it('returns null for unrelated errors', () => {
     expect(preflight.classifyExtractorError(new Error('Network timeout'))).toBeNull();
     expect(preflight.classifyExtractorError('plain string error')).toBeNull();
