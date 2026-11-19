@@ -101,6 +101,7 @@ Call only when:
 ## Integration Notes
 
 - Never spawn `npx mockup-gallery`; user runs gallery separately.
+- To open a new review board for a person, start it only with Groundwork's launcher (`node <groundwork>/designer/canvas/gallery-launcher.mjs start --dir <board-folder>`) and give the hub address it prints (`http://localhost:8900/#b=<id>`). Never start `canvas-server.mjs --mode gallery` directly or send a person to a board's own port (8930-8970).
 - Do not rewrite gallery ratings or selections.
 - IBR can read gallery state and record implementation completion, but review decisions remain in Mockup Gallery.
 - Do not write imagegen outputs into Mockup Gallery state unless a separate user-approved gallery import workflow exists.
