@@ -19,6 +19,12 @@ never substitute Playwright/Puppeteer if it isn't.
 
 ## MCP Tools (optional — requires MCP re-enabled, see `optional-mcp/README.md`)
 
+### `steer` — Replay an anchored pointer script
+
+Run `ibr steer <url> --script <file> --json` for exact accessible targets,
+relative pointer moves, and explicit assertions in Chrome. See the
+[steering script example](../../docs/AGENTS-QUICKSTART.md#replay-pointer-steering-in-chrome).
+
 ### `observe` — See what's interactive
 ```
 Use IBR observe tool on http://localhost:3000

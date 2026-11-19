@@ -5366,6 +5366,47 @@ function cropPngData(data: Buffer, srcWidth: number, dstWidth: number, dstHeight
 // ============================================================
 
 program
+  .command('steer <url>')
+  .description('Replay pointer movements and verify each UI response')
+  .requiredOption('--script <file>', 'Version 1 steering script (JSON)')
+  .option('--json', 'Write the steering receipt as JSON')
+  .action(async (url: string, opts: { script: string; json?: boolean }) => {
+    const { runSteering, steeringScriptSchema } = await import('../flows/steering.js')
+    const driver = new EngineDriver()
+    try {
+      const destination = new URL(url)
+      if (!['http:', 'https:'].includes(destination.protocol) || destination.username || destination.password) {
+        throw new Error('Provide an HTTP or HTTPS URL without embedded credentials')
+      }
+      const browser = program.opts()
+      if (browser.browser !== 'chrome' || browser.browserMode === 'connect' || browser.cdpUrl || browser.wsEndpoint) {
+        throw new Error('Steering requires a fresh local Chrome instance')
+      }
+      const script = steeringScriptSchema.parse(JSON.parse(await readFile(opts.script, 'utf8')))
+      if (process.stderr.isTTY) console.error(`Running ${script.steps.length} steering steps in Chrome…`)
+      await driver.launch({ headless: true, mode: 'local', shareChrome: false,
+        chromePath: browser.chromePath, viewport: script.viewport })
+      await driver.navigate(destination.href)
+      const receipt = await runSteering(driver, script, destination.origin)
+      if (opts.json) {
+        console.log(JSON.stringify(receipt, null, 2))
+      } else if (receipt.success) {
+        console.log(`Passed ${receipt.steps.filter(step => step.status === 'passed').length} of ${receipt.steps.length} steps`)
+      } else {
+        const failed = receipt.steps.find(step => step.status === 'failed')
+        console.error(failed ? `Step "${failed.id}" failed. ${failed.reason}` : receipt.failure)
+        if (receipt.remainingSteps) console.error(`${receipt.remainingSteps} steps did not run.`)
+      }
+      if (!receipt.success) process.exitCode = EXIT_ISSUES
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error))
+      process.exitCode = EXIT_TOOL_ERROR
+    } finally {
+      await driver.close().catch(() => {})
+    }
+  })
+
+program
   .command('interact <url>')
   .description('Click, type, fill, or interact with elements on a page')
   .requiredOption('-a, --action <action>', 'Action: click, type, fill, hover, press, scroll, select, check')

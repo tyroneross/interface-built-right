@@ -3825,6 +3825,25 @@ interface DiscoverOptions {
 interface FindOptions {
     role?: string;
 }
+interface SteeringPoint {
+    x: number;
+    y: number;
+}
+interface SteeringElement {
+    bounds: SteeringPoint & {
+        width: number;
+        height: number;
+    };
+    viewport: {
+        width: number;
+        height: number;
+    };
+    visible: boolean;
+    enabled: boolean;
+    editable: boolean;
+    focused: boolean;
+    hit: boolean;
+}
 interface FindDiagnostics {
     elementId: string | null;
     confidence: number;
@@ -4084,6 +4103,14 @@ declare class EngineDriver implements BrowserDriver {
      * fired such an action without awaiting it can await this instead.
      */
     waitForDialog(timeout?: number): Promise<JSDialogInfo>;
+    /** Read a main-frame AX element against the actual hit-testing viewport. */
+    inspectSteeringElement(elementId: string, point?: SteeringPoint, expectedOrigin?: string): Promise<SteeringElement>;
+    steerPointer(from: SteeringPoint, anchorId: string, point: SteeringPoint, targetId: string, expectedOrigin: string, action: {
+        type: 'click';
+    } | {
+        type: 'type';
+        text: string;
+    }, beforeInput: (event: 'click' | 'type') => Promise<void>): Promise<void>;
     click(elementId: string): Promise<void>;
     type(elementId: string, text: string): Promise<void>;
     fill(elementId: string, value: string): Promise<void>;

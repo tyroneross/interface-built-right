@@ -2111,6 +2111,9 @@ var InputDomain = class {
       }, this.sessionId);
     }
   }
+  async insertText(text) {
+    await this.conn.send("Input.insertText", { text }, this.sessionId);
+  }
   /**
    * Press a special key (Enter, Tab, Escape, Backspace, etc.) or a modifier
    * chord ("Meta+k", "Cmd+K", "Ctrl+Shift+P", ...).
@@ -4336,6 +4339,96 @@ var EngineDriver = class _EngineDriver {
     });
   }
   // ─── Interactions ───────────────────────────────────────
+  /** Read a main-frame AX element against the actual hit-testing viewport. */
+  async inspectSteeringElement(elementId, point, expectedOrigin) {
+    const backendNodeId = this.ax.getBackendNodeId(elementId);
+    if (backendNodeId === void 0) throw new Error("Element is missing from the current main-frame AX tree");
+    const sid = this.sessionId ?? void 0;
+    const { object } = await this.conn.send(
+      "DOM.resolveNode",
+      { backendNodeId },
+      sid
+    );
+    if (!object.objectId) throw new Error("Element could not be resolved for pointer steering");
+    try {
+      const probe = await this.conn.send("Runtime.callFunctionOn", {
+        objectId: object.objectId,
+        functionDeclaration: `function(point, expectedOrigin) {
+          const doc = this.ownerDocument
+          const view = doc?.defaultView
+          if (!view || view !== view.top || !this.isConnected || !this.getBoundingClientRect) return null
+          if (expectedOrigin && view.location.origin !== expectedOrigin) return null
+          const { x, y, width, height } = this.getBoundingClientRect()
+          const hit = point && doc.elementFromPoint(point.x, point.y)
+          const nativeControl = 'a[href], area[href], audio[controls], video[controls], button, input, label,'
+            + ' select, summary, textarea, iframe, object, embed, [tabindex], [contenteditable]:not([contenteditable="false"])'
+          const controlRole = /^(button|checkbox|combobox|gridcell|link|listbox|menuitem|menuitemcheckbox|menuitemradio|option|radio|scrollbar|searchbox|slider|spinbutton|switch|tab|textbox|treeitem)$/
+          let nestedControl = false
+          for (let node = hit; node && node !== this && this.contains(node); node = node.parentElement) {
+            if (node.matches(nativeControl) || typeof node.onclick === 'function'
+              || (node.getAttribute('role') ?? '').split(/\\s+/).some(role => controlRole.test(role))) {
+              nestedControl = true
+              break
+            }
+          }
+          return {
+            bounds: { x, y, width, height },
+            viewport: { width: doc.documentElement.clientWidth, height: doc.documentElement.clientHeight },
+            visible: width > 0 && height > 0 && this.checkVisibility({
+              opacityProperty: true, visibilityProperty: true,
+            }),
+            enabled: !this.matches(':disabled, iframe, object, embed') && !this.closest('[aria-disabled="true"], [inert]'),
+            editable: this.isContentEditable || (this instanceof view.HTMLTextAreaElement && !this.readOnly)
+              || (this instanceof view.HTMLInputElement && !this.readOnly
+                && ['text', 'search', 'url', 'tel', 'email', 'number'].includes(this.type)),
+            focused: doc.activeElement === this,
+            hit: Boolean(hit && this.contains(hit) && !nestedControl),
+          }
+        }`,
+        arguments: [{ value: point ?? null }, { value: expectedOrigin ?? null }],
+        returnByValue: true
+      }, sid);
+      if (probe.exceptionDetails || !probe.result.value) {
+        throw new Error("Element changed or is outside the steering page");
+      }
+      return probe.result.value;
+    } finally {
+      await this.conn.send("Runtime.releaseObject", { objectId: object.objectId }, sid).catch(() => {
+      });
+    }
+  }
+  async steerPointer(from, anchorId, point, targetId, expectedOrigin, action, beforeInput) {
+    const verifyHit = async () => {
+      const target = await this.inspectSteeringElement(targetId, point, expectedOrigin);
+      if (!target.hit || !target.visible || !target.enabled) {
+        throw new Error("Planned point does not hit the visible, enabled target");
+      }
+      if (action.type === "type" && !target.editable) throw new Error("Target does not accept text");
+    };
+    const anchor = await this.inspectSteeringElement(anchorId, from, expectedOrigin);
+    if (!anchor.hit || !anchor.visible) throw new Error("Anchor center is covered or no longer visible");
+    await verifyHit();
+    if (from.x !== point.x || from.y !== point.y) {
+      await this.raceAgainstDialog(this.input.hover(from.x, from.y));
+      if (this.pendingDialog) throw new Error("Anchor movement opened a dialog");
+      await verifyHit();
+    }
+    await this.raceAgainstDialog(this.input.hover(point.x, point.y));
+    if (this.pendingDialog) throw new Error("Pointer movement opened a dialog");
+    await beforeInput("click");
+    await verifyHit();
+    await this.raceAgainstDialog(this.input.click(point.x, point.y));
+    if (this.pendingDialog) throw new Error("Pointer click opened a dialog");
+    if (action.type === "type") {
+      await beforeInput("type");
+      const target = await this.inspectSteeringElement(targetId, point, expectedOrigin);
+      if (!target.focused || !target.editable || !target.enabled) {
+        throw new Error("Target did not retain text focus after the click");
+      }
+      await this.raceAgainstDialog(this.input.insertText(action.text));
+      if (this.pendingDialog) throw new Error("Text input opened a dialog");
+    }
+  }
   async click(elementId) {
     const ref = await this.awaitActionable(elementId);
     const sid = ref.sessionId ?? void 0;

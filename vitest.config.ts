@@ -19,6 +19,7 @@ const BROWSER_INTEGRATION = [
   'src/engine/cdp/browser-concurrent-launch.integration.test.ts',
   'src/design-system/principles/calm-precision.integration.test.ts',
   'src/bin/exit-codes.integration.test.ts',
+  'src/flows/steering.test.ts',
 ];
 
 export default defineConfig({
