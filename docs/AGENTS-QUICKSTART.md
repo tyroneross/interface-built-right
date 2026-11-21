@@ -52,6 +52,74 @@ Progress goes to **stderr**, so stdout is safe to pipe or parse. A scan of a
 real page is large — write it to a file and read fields out of it. Never read a
 whole scan into a model's context.
 
+## Replay pointer steering in Chrome
+
+Use `ibr observe https://example.test/search` to find the current accessible
+names and roles. Save a script such as `search-steering.json`, then run
+`ibr steer https://example.test/search --script search-steering.json --json`.
+
+```json
+{
+  "version": 1,
+  "viewport": { "width": 1200, "height": 800 },
+  "steps": [
+    {
+      "id": "enter-query",
+      "anchor": { "name": "Query", "role": "textfield" },
+      "target": { "name": "Query", "role": "textfield" },
+      "vector": { "dx": 0, "dy": 0 },
+      "action": { "type": "type", "text": "neural search" },
+      "expect": {
+        "type": "valueEquals",
+        "target": { "name": "Query", "role": "textfield" },
+        "value": "neural search"
+      }
+    },
+    {
+      "id": "submit-query",
+      "anchor": { "name": "Search", "role": "button" },
+      "target": { "name": "Search", "role": "button" },
+      "vector": { "dx": 0.2, "dy": 0 },
+      "action": { "type": "click" },
+      "expect": { "type": "visible", "target": { "name": "Results", "role": "heading" } },
+      "timeoutMs": 4000
+    }
+  ]
+}
+```
+
+Each step starts from the anchor center. Positive `dx` moves right in units of
+anchor width, and positive `dy` moves down in units of anchor height. Each
+component must be between −1 and 1. IBR stops if the point leaves the viewport
+or misses the named target. IBR rechecks semantic identity and the step guard
+after hover and again after focus for text entry. A change stops the script.
+An actionable child at the planned point must be named as the target.
+Targets are unique, case-sensitive accessible names and IBR roles in the main
+page. The command opens a fresh local Chrome profile and leaves scrolling and
+frame navigation to other commands. The request URL pins the allowed origin.
+A redirect or navigation to another origin stops the script. The `type`
+action clicks to focus the target, checks the expected state again, and
+inserts text at the caret.
+
+Each step requires an assertion. `visible` checks that a named element is
+rendered, `absent` checks its absence from the accessibility snapshot,
+`valueEquals` checks its reported value, and `pathEquals` checks the URL
+pathname via a `path` field. The expected state must start false and hold in
+two consecutive observations after the action. The optional `when` uses the
+same checks to skip a step when its guard is false. Assertion waits default
+to 2,000 ms and accept 200 to 60,000 ms. Use `readyTimeoutMs` to set how long
+IBR waits for the exact anchor and target to appear, from 0 to 10,000 ms with
+a 2,000 ms default. These deadlines govern polling. An in-flight browser
+protocol request can take longer than its polling deadline to return. Browser
+hit checks and input dispatch are separate protocol calls, so the page can
+still change between them. Each step checks the result before advancing.
+
+Exit `0` means the executed steps passed. Exit `1` means a step failed or
+every step was skipped. Exit `2` means an invalid script or a browser setup
+error. JSON receipts include guards, planned points, before and after
+observations, and the number of steps left after a failure. Use test data in
+scripts and receipts.
+
 ## The shape you actually get back
 
 ```jsonc

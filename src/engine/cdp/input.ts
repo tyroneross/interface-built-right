@@ -32,6 +32,10 @@ export class InputDomain {
     }
   }
 
+  async insertText(text: string): Promise<void> {
+    await this.conn.send('Input.insertText', { text }, this.sessionId)
+  }
+
   /**
    * Press a special key (Enter, Tab, Escape, Backspace, etc.) or a modifier
    * chord ("Meta+k", "Cmd+K", "Ctrl+Shift+P", ...).

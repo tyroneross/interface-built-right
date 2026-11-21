@@ -18,6 +18,7 @@ Resolve `IBR_BIN` from this installed `SKILL.md`: move up three directories to t
 - `node "$IBR_BIN" interact <url> --action <action> --target <accessible-name>`: click, type, fill, select, and verify state changes. Exit `0` means the expected change occurred; exit `1` reports a no-op or failure with human-readable `expected` and `observed` evidence.
 - `node "$IBR_BIN" extract <url>`: read headings, links, controls, and page state after an interaction.
 - `node "$IBR_BIN" flow search <url>`, `flow form <url>`, or `flow login <url>`: validate common task flows.
+- `node "$IBR_BIN" steer <url> --script <file> --json`: replay anchor-relative pointer steps in fresh Chrome with a required UI response for each click or text insertion. Use the [steering script example](../../../docs/AGENTS-QUICKSTART.md#replay-pointer-steering-in-chrome).
 - `node "$IBR_BIN" match <mockup.png> <url>`: compare an approved visual target against a live page.
 - Pixel evidence: `node "$IBR_BIN" start <url>` writes a baseline screenshot. The ad-hoc `screenshot` tool remains MCP-only; use it only when MCP is explicitly enabled.
 
