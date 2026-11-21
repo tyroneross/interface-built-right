@@ -312,9 +312,12 @@ export const REQUEST_PERMISSION_COMMAND = 'ibr native:request-permission';
  * surface in the transcript audit.
  */
 export function classifyExtractorError(err: unknown): PreflightFail | null {
-  const msg = err instanceof Error ? err.message : String(err);
+  const message = err instanceof Error ? err.message : String(err);
+  const stderr = (err as { stderr?: unknown } | null)?.stderr;
+  // execFile may put actionable guidance only in stderr, not in Error.message.
+  const msg = typeof stderr === 'string' ? `${stderr}\n${message}` : message;
   const code = (err as { code?: unknown } | null)?.code;
-  if (code === ACCESSIBILITY_UNTRUSTED_EXIT_CODE || /accessibility|AX(Is)?ProcessTrusted|permission/i.test(msg)) {
+  if (code === ACCESSIBILITY_UNTRUSTED_EXIT_CODE || /\baccessibility\s+(?:permission\s+(?:required|denied|not\s+granted)|(?:access\s+)?not\s+(?:granted|trusted))\b|\bAX(?:Is)?ProcessTrusted(?:WithOptions)?\b/i.test(msg)) {
     // Prefer the extractor's own guidance: it knows whether the prompt was
     // already shown and names the exact re-request step.
     const swiftLine = msg

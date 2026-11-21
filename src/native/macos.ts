@@ -5,6 +5,7 @@ import { dirname } from 'path';
 import type { MacOSAXElement, MacOSWindowInfo } from './types.js';
 import type { EnhancedElement } from '../schemas.js';
 import { ensureExtractor } from './extract.js';
+import { classifyExtractorError } from './preflight.js';
 import { mapRoleToTag, mapRoleToAriaRole, isInteractiveRole } from './role-map.js';
 
 const execFileAsync = promisify(execFile);
@@ -93,12 +94,8 @@ export async function extractMacOSElements(options: {
     return await runMacOSExtraction(extractorPath, args);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    if (message.includes('Accessibility permission')) {
-      throw new Error(
-        'Accessibility permission required. Grant Terminal/IDE access in ' +
-        'System Settings > Privacy & Security > Accessibility'
-      );
-    }
+    const permission = classifyExtractorError(err);
+    if (permission) throw new Error(permission.message);
     if (message.includes('No running app')) {
       throw err;
     }
@@ -174,7 +171,9 @@ async function retryMacOSExtractionAfterActivation(
     const args = ['--pid', String(pid)];
     if (windowTitle !== undefined) args.push('--window-title', windowTitle);
     return await runMacOSExtraction(extractorPath, args);
-  } catch {
+  } catch (err) {
+    const permission = classifyExtractorError(err);
+    if (permission) throw new Error(permission.message);
     return null;
   }
 }

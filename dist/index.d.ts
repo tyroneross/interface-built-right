@@ -8561,7 +8561,10 @@ declare function isExtractorAvailable(): boolean;
  * Uses the compiled Swift CLI to walk the Simulator.app's accessibility tree
  * via AXUIElementCreateApplication.
  */
-declare function extractNativeElements(device: SimulatorDevice): Promise<NativeElement[]>;
+declare function extractNativeElements(device: SimulatorDevice, deps?: {
+    ensure?: () => Promise<string>;
+    run?: ExtractorRunner;
+}): Promise<NativeElement[]>;
 /**
  * Map native accessibility elements to IBR's EnhancedElement format
  *
