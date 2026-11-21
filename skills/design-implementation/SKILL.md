@@ -196,6 +196,8 @@ When the user provides a reference design (via `ibr screenshot` or an external U
 6. Fix gaps and re-scan
 7. Take a screenshot of the implementation and compare visually when the role is `visual-target`
 
+Mockups and reference designs use the target renderer's font and colour values (owner rule, 2026-11-14): the font family the target actually draws with and the same hex/sRGB token table as its theme source. When a mockup uses a different font or approximated colours, flag it before treating it as a `visual-target`, and compare computed fonts and colours against the target's tokens, not the mockup's look-alikes.
+
 Wireframes are layout and semantic targets, not pixel-perfect visual targets. Hi-fi approved mockups are visual targets.
 
 ## Design System Integration
